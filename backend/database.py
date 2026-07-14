@@ -11,7 +11,6 @@ engine = create_async_engine(
     settings.async_db_url,
     pool_size=10,
     max_overflow=20,
-    pool_pre_ping=True,
     echo=False,
 )
 

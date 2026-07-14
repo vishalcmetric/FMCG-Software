@@ -8,8 +8,8 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_db
 from auth import get_current_user, require_admin
-from models import ProjectCreate, ProjectUpdate
-from orm_models import Project, AuditLog
+from models import ProjectCreate, ProjectUpdate, TaskCreate
+from orm_models import Project, AuditLog, Task
 from notify import notify_roles
 from datetime import datetime, timezone
 
@@ -256,3 +256,88 @@ async def delete_project(
 
     await db.commit()
     return {"ok": True}
+
+
+# ── Task endpoints ────────────────────────────────────────────────────────────
+
+def _task_out(t: Task) -> dict:
+    return {
+        "id":            t.id,
+        "title":         t.title,
+        "project_name":  t.project_name,
+        "project_id":    t.project_id,
+        "assigned_role": t.assigned_role,
+        "type":          t.type,
+        "status":        t.status,
+        "priority":      t.priority,
+        "due_date":      t.due_date.isoformat() if t.due_date else None,
+        "due_label":     t.due_label,
+    }
+
+
+@router.get("/{project_id}/tasks")
+async def list_project_tasks(
+    project_id: str,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(Task).where(Task.project_id == project_id).order_by(Task.id.desc()))
+    return [_task_out(t) for t in result.scalars().all()]
+
+
+@router.post("/{project_id}/tasks", status_code=201)
+async def create_project_task(
+    project_id: str,
+    body: TaskCreate,
+    current_user: dict = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(Project).where(Project.project_id == project_id))
+    p = result.scalars().first()
+    if not p:
+        raise HTTPException(404, "Project not found")
+
+    due_dt = None
+    if body.due_date:
+        try:
+            due_dt = datetime.fromisoformat(body.due_date)
+        except ValueError:
+            pass
+
+    task = Task(
+        title=body.title,
+        project_name=p.name,
+        project_id=project_id,
+        assigned_role=body.assigned_role,
+        type=body.type or "General",
+        priority=body.priority,
+        status="pending",
+        due_date=due_dt,
+        due_label=body.due_label or (body.due_date or ""),
+    )
+    db.add(task)
+
+    db.add(AuditLog(
+        user_name=current_user.get("name", ""),
+        user_email=current_user.get("sub", ""),
+        action="CREATE",
+        action_label=f"assigned task '{body.title}' to {body.assigned_role} on {project_id}",
+        entity=project_id,
+        involved_roles=body.assigned_role,
+        time_ago="just now",
+    ))
+
+    await notify_roles(
+        db,
+        roles=[body.assigned_role],
+        title=f"New Task Assigned: {body.title}",
+        message=f"{current_user.get('name','Admin')} assigned you a task on {p.name} — {body.title}. Priority: {body.priority}.",
+        action_type="task_assigned",
+        entity_id=project_id,
+        entity_name=p.name,
+        created_by=current_user.get("name", "Admin"),
+    )
+
+    await db.commit()
+    await db.refresh(task)
+    return _task_out(task)

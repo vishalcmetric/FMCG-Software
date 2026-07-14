@@ -11,6 +11,16 @@ from sqlalchemy.sql import func
 from database import Base
 import enum
 
+# ── PPD Status enum ───────────────────────────────────────────────────────────
+class PPDStatus(str, enum.Enum):
+    Draft           = "Draft"
+    Under_Review    = "Under Review"
+    Approved        = "Approved"
+    Rework          = "Rework"
+    Submitted       = "Submitted"
+    CEO_Approved    = "CEO Approved"
+    Archived        = "Archived"
+
 # ── Enums ─────────────────────────────────────────────────────────────────────
 class ProjectStatus(str, enum.Enum):
     Draft           = "Draft"
@@ -117,6 +127,106 @@ class Notification(Base):
     created_at   = Column(DateTime, server_default=func.now(), index=True)
 
 # ── OTP Tokens ────────────────────────────────────────────────────────────────
+# ── PPD Submissions ───────────────────────────────────────────────────────────
+class PPDSubmission(Base):
+    """
+    One PPD document per project.  Multiple versions tracked via ppd_version.
+    teams_involved mirrors the parent Project so role-filtered queries are fast.
+    """
+    __tablename__ = "ppd_submissions"
+
+    id                  = Column(Integer, primary_key=True, autoincrement=True)
+    ppd_id              = Column(String(30), unique=True, nullable=False, index=True)   # e.g. PPD-ZW-2026-001
+    project_id          = Column(String(20), nullable=False, index=True)                # FK to projects.project_id
+    project_name        = Column(String(255))
+    brand               = Column(String(100))
+    product_category    = Column(String(150))
+    target_consumer     = Column(String(255))
+    market_segment      = Column(String(150))
+    expected_launch     = Column(String(50))
+    objective           = Column(Text)
+    key_benefits        = Column(Text)
+
+    status              = Column(String(50), default="Draft", index=True)
+    ppd_version         = Column(String(10), default="v1.0")
+
+    # Comma-separated role keys — matches project's teams_involved
+    teams_involved      = Column(String(500), default="admin")
+
+    # Owner / submitter info
+    created_by          = Column(String(150))
+    created_by_email    = Column(String(255))
+    created_by_role     = Column(String(50))
+
+    # Review & approval state stored as JSON list of dicts
+    # Each item: { role, team_label, head_name, status, comment, updated_at }
+    reviewers           = Column(JSON, default=list)
+
+    created_at          = Column(DateTime, server_default=func.now())
+    updated_at          = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        Index("ix_ppd_status_teams", "status", "teams_involved"),
+        Index("ix_ppd_project_id", "project_id"),
+    )
+
+
+# ── PPD Comments ──────────────────────────────────────────────────────────────
+class PPDComment(Base):
+    __tablename__ = "ppd_comments"
+
+    id          = Column(Integer, primary_key=True, autoincrement=True)
+    ppd_id      = Column(String(30), nullable=False, index=True)
+    user_name   = Column(String(150))
+    user_role   = Column(String(50))
+    comment     = Column(Text, nullable=False)
+    action_tag  = Column(String(30), default="comment")   # "comment" | "rework" | "approve"
+    created_at  = Column(DateTime, server_default=func.now(), index=True)
+
+
+# ── Formulation ───────────────────────────────────────────────────────────────
+class Formula(Base):
+    __tablename__ = "formulas"
+
+    id              = Column(Integer, primary_key=True, autoincrement=True)
+    formula_id      = Column(String(30), unique=True, nullable=False, index=True)  # e.g. F-ZW-2026-001
+    project_id      = Column(String(20), nullable=False, index=True)
+    project_name    = Column(String(255))
+    version         = Column(String(10), default="v1.0")   # v1.0, v1.1 …
+    formula_type    = Column(String(50), default="Trial")  # Trial / Pilot / Final
+    status          = Column(String(50), default="Draft")  # Draft / In Testing / Sensory Pass / Recommended / Rejected
+    protein_source  = Column(String(255))
+    sweetener       = Column(String(255))
+    cocoa_pct       = Column(String(20))
+    protein_pct     = Column(String(20))
+    sugar_per_100g  = Column(String(20))
+    cost_per_kg     = Column(String(20))
+    stability_40c   = Column(String(50))
+    sensory_score   = Column(String(20))
+    notes           = Column(Text)
+    # Ingredients stored as JSON: [{name, qty, unit, supplier}]
+    ingredients     = Column(JSON, default=list)
+    created_by      = Column(String(150))
+    created_by_role = Column(String(50))
+    created_at      = Column(DateTime, server_default=func.now())
+    updated_at      = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        Index("ix_formula_project", "project_id"),
+    )
+
+
+class FormulaComment(Base):
+    __tablename__ = "formula_comments"
+
+    id          = Column(Integer, primary_key=True, autoincrement=True)
+    formula_id  = Column(String(30), nullable=False, index=True)
+    user_name   = Column(String(150))
+    user_role   = Column(String(50))
+    comment     = Column(Text, nullable=False)
+    created_at  = Column(DateTime, server_default=func.now(), index=True)
+
+
 class OtpToken(Base):
     __tablename__ = "otp_tokens"
 

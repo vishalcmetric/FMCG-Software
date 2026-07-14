@@ -8,6 +8,8 @@ from database import create_tables
 from config import get_settings
 from routers import auth, dashboard, projects, users, audit
 from routers.notifications import router as notifications_router
+from routers.ppd import router as ppd_router
+from routers.formulation import router as formulation_router
 
 settings = get_settings()
 
@@ -37,6 +39,8 @@ app.include_router(projects.router)
 app.include_router(users.router)
 app.include_router(audit.router)
 app.include_router(notifications_router)
+app.include_router(ppd_router)
+app.include_router(formulation_router)
 
 @app.get("/")
 async def root():

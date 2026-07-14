@@ -872,8 +872,8 @@ function ViewRouter({ view, setView, user, token }) {
   switch (view) {
     case 'dashboard': return <div className={p}><Dashboard user={user} setView={setView} token={token} /></div>
     case 'projects': return <div className={p}><ProjectsView setView={setView} user={user} token={token} /></div>
-    case 'ppd': return <div className={p}><PPDView user={user} /></div>
-    case 'formulation': return <div className={p}><FormulationView /></div>
+    case 'ppd': return <div className={p}><PPDView user={user} token={token} /></div>
+    case 'formulation': return <div className={p}><FormulationView user={user} token={token} /></div>
     case 'labbook': return <div className={p}><LabBookView /></div>
     case 'plant': return <div className={p}><PlantTrialsView /></div>
     case 'regulatory': return <div className={p}><RegulatoryView /></div>
@@ -1160,6 +1160,8 @@ const PROJ_TYPES   = ['New Product','AVD','Innovation','Sustainability','Cost Re
 const PRIORITIES   = ['Low','Medium','High','Critical']
 const ALL_ROLE_KEYS = ['source','pm','fd','rd_head','marketing','regulatory','packaging','adl','pmsa','sa','mgmt','ceo','production']
 
+const TASK_TYPES = ['General','Formulation','Regulatory','Packaging','Marketing','Lab Testing','Review','Approval','Other']
+
 function ProjectsView({ setView, user, token }) {
   const [projects, setProjects] = useState([])
   const [loading, setLoading]   = useState(true)
@@ -1178,6 +1180,14 @@ function ProjectsView({ setView, user, token }) {
   const [editForm, setEditForm] = useState({})
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
+
+  // Tasks
+  const [tasks, setTasks] = useState([])
+  const [tasksLoading, setTasksLoading] = useState(false)
+  const [taskDialogOpen, setTaskDialogOpen] = useState(false)
+  const [taskTargetRole, setTaskTargetRole] = useState('')
+  const [taskForm, setTaskForm] = useState({ title:'', type:'General', priority:'Medium', due_date:'', due_label:'' })
+  const [creatingTask, setCreatingTask] = useState(false)
 
   const isAdmin = user?.role === 'admin'
 
@@ -1212,6 +1222,16 @@ function ProjectsView({ setView, user, token }) {
     finally { setCreating(false) }
   }
 
+  // ── fetch tasks ──
+  const fetchTasks = useCallback(async (pid) => {
+    setTasksLoading(true)
+    try {
+      const data = await apiCall(`/api/projects/${pid}/tasks`, { token })
+      setTasks(data)
+    } catch { setTasks([]) }
+    finally { setTasksLoading(false) }
+  }, [token])
+
   // ── open detail ──
   const openDetail = (p) => {
     setSelected(p)
@@ -1225,6 +1245,8 @@ function ProjectsView({ setView, user, token }) {
       objective:    p.objective || '',
       target_launch:p.target_launch || '',
     })
+    setTasks([])
+    fetchTasks(p.project_id)
     setDetailOpen(true)
   }
 
@@ -1559,21 +1581,112 @@ function ProjectsView({ setView, user, token }) {
 
               {/* ── Teams tab ── */}
               <TabsContent value="teams" className="pt-2">
-                <div className="space-y-3">
+                <div className="space-y-4">
                   <p className="text-sm text-muted-foreground">Teams currently assigned to this project. Only members of these teams can see this project in their dashboard.</p>
-                  <div className="flex flex-wrap gap-2">
+
+                  {/* Team badges + Assign Task buttons */}
+                  <div className="space-y-2">
                     {(selected.teams_involved || '').split(',').filter(Boolean).map(r => (
-                      <Badge key={r} className={`${ROLES[r]?.color || 'bg-slate-600'} text-white text-xs`}>
-                        {ROLES[r]?.label || r}
-                      </Badge>
+                      <div key={r} className="flex items-center justify-between px-3 py-2 rounded-lg border bg-slate-50">
+                        <div className="flex items-center gap-2">
+                          <span className={`w-2 h-2 rounded-full ${ROLES[r]?.color || 'bg-slate-600'}`}/>
+                          <span className="text-sm font-medium">{ROLES[r]?.label || r}</span>
+                        </div>
+                        {isAdmin && (
+                          <Button size="sm" variant="outline" className="h-7 text-xs gap-1"
+                            onClick={() => { setTaskTargetRole(r); setTaskForm({ title:'', type:'General', priority:'Medium', due_date:'', due_label:'' }); setTaskDialogOpen(true) }}>
+                            <Plus className="h-3 w-3"/>Assign Task
+                          </Button>
+                        )}
+                      </div>
                     ))}
                   </div>
-                  {isAdmin && (
-                    <p className="text-xs text-muted-foreground pt-2">To change team access, edit the project and update teams from the admin panel.</p>
-                  )}
+
+                  {/* Existing tasks list */}
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Tasks on this project</p>
+                    {tasksLoading ? (
+                      <div className="space-y-1">{[1,2].map(i=><div key={i} className="h-9 bg-slate-100 rounded animate-pulse"/>)}</div>
+                    ) : tasks.length === 0 ? (
+                      <p className="text-sm text-muted-foreground py-2">No tasks assigned yet.</p>
+                    ) : (
+                      <div className="space-y-1">
+                        {tasks.map(t => (
+                          <div key={t.id} className="flex items-center justify-between px-3 py-2 rounded-md border text-sm">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${t.priority==='Critical'?'bg-red-500':t.priority==='High'?'bg-orange-500':t.priority==='Medium'?'bg-blue-500':'bg-slate-400'}`}/>
+                              <span className="font-medium truncate">{t.title}</span>
+                            </div>
+                            <div className="flex items-center gap-2 flex-shrink-0 ml-2">
+                              <Badge variant="outline" className="text-xs">{ROLES[t.assigned_role]?.label || t.assigned_role}</Badge>
+                              <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${t.status==='completed'?'bg-green-100 text-green-700':t.status==='cancelled'?'bg-red-100 text-red-700':'bg-amber-100 text-amber-700'}`}>{t.status}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </TabsContent>
             </Tabs>
+
+            {/* ── Assign Task Dialog ── */}
+            <Dialog open={taskDialogOpen} onOpenChange={setTaskDialogOpen}>
+              <DialogContent className="max-w-md">
+                <DialogHeader>
+                  <DialogTitle>Assign Task</DialogTitle>
+                  <DialogDescription>
+                    Assigning to: <strong>{ROLES[taskTargetRole]?.label || taskTargetRole}</strong> on <strong>{selected.name}</strong>
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-3 py-2">
+                  <div className="space-y-1.5">
+                    <Label>Task Title <span className="text-red-500">*</span></Label>
+                    <Input value={taskForm.title} onChange={e => setTaskForm(f=>({...f,title:e.target.value}))} placeholder="e.g. Submit formulation report" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label>Task Type</Label>
+                      <Select value={taskForm.type} onValueChange={v => setTaskForm(f=>({...f,type:v}))}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>{TASK_TYPES.map(t=><SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Priority</Label>
+                      <Select value={taskForm.priority} onValueChange={v => setTaskForm(f=>({...f,priority:v}))}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>{PRIORITIES.map(p=><SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Due Date</Label>
+                    <Input type="date" value={taskForm.due_date} onChange={e => setTaskForm(f=>({...f,due_date:e.target.value,due_label:e.target.value}))} />
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setTaskDialogOpen(false)}>Cancel</Button>
+                  <Button disabled={creatingTask} onClick={async () => {
+                    if (!taskForm.title.trim()) return toast.error('Task title is required')
+                    setCreatingTask(true)
+                    try {
+                      await apiCall(`/api/projects/${selected.project_id}/tasks`, {
+                        method: 'POST', token,
+                        body: { ...taskForm, assigned_role: taskTargetRole }
+                      })
+                      toast.success(`Task assigned to ${ROLES[taskTargetRole]?.label || taskTargetRole}`)
+                      setTaskDialogOpen(false)
+                      fetchTasks(selected.project_id)
+                    } catch (err) { toast.error(err.message) }
+                    finally { setCreatingTask(false) }
+                  }}>
+                    {creatingTask && <RefreshCw className="h-4 w-4 animate-spin mr-2"/>}
+                    Assign Task
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
 
             <DialogFooter className="gap-2 pt-2">
               {isAdmin && (
@@ -1598,132 +1711,671 @@ function ProjectsView({ setView, user, token }) {
 }
 
 /* -------------------- PPD -------------------- */
-function PPDView({ user }) {
+const PPD_STATUS_COLORS = {
+  'Draft':        'bg-slate-200 text-slate-800',
+  'Under Review': 'bg-blue-100 text-blue-800',
+  'Submitted':    'bg-indigo-100 text-indigo-800',
+  'Approved':     'bg-emerald-100 text-emerald-800',
+  'CEO Approved': 'bg-purple-100 text-purple-800',
+  'Rework':       'bg-amber-100 text-amber-800',
+  'Archived':     'bg-gray-200 text-gray-700',
+}
+const PPD_STATUSES = Object.keys(PPD_STATUS_COLORS)
+const REVIEWER_STATUSES = ['Pending','In Progress','Reviewed','Approved','Rework']
+
+/** Top-level PPD list (role-filtered from API) */
+function PPDView({ user, token }) {
+  const [ppds, setPpds]               = useState([])
+  const [loading, setLoading]         = useState(true)
+  const [q, setQ]                     = useState('')
+  const [statusFilter, setStatus]     = useState('all')
+  const [projects, setProjects]       = useState([])
+
+  // Create PPD dialog
+  const [createOpen, setCreateOpen]   = useState(false)
+  const [creating, setCreating]       = useState(false)
+  const [createForm, setCreateForm]   = useState({
+    project_id:'', project_name:'', brand:'', product_category:'',
+    target_consumer:'', market_segment:'', expected_launch:'', objective:'', key_benefits:''
+  })
+
+  // Detail view
+  const [selected, setSelected]       = useState(null)
+
+  const isAdmin = user?.role === 'admin'
+
+  const fetchPPDs = useCallback(async () => {
+    setLoading(true)
+    try {
+      const params = new URLSearchParams()
+      if (q) params.set('q', q)
+      if (statusFilter !== 'all') params.set('status', statusFilter)
+      const data = await apiCall(`/api/ppd?${params}`, { token })
+      setPpds(data)
+    } catch (err) {
+      toast.error('Failed to load PPDs: ' + err.message)
+    } finally { setLoading(false) }
+  }, [q, statusFilter, token])
+
+  const fetchProjects = useCallback(async () => {
+    try {
+      const data = await apiCall('/api/projects', { token })
+      setProjects(data)
+    } catch { /* ignore */ }
+  }, [token])
+
+  useEffect(() => { fetchPPDs() }, [fetchPPDs])
+  useEffect(() => { if (createOpen) fetchProjects() }, [createOpen, fetchProjects])
+
+  const openCreate = (proj = null) => {
+    if (proj) {
+      setCreateForm(f => ({
+        ...f,
+        project_id:   proj.project_id,
+        project_name: proj.name,
+        brand:        proj.brand,
+        objective:    proj.objective || '',
+        expected_launch: proj.target_launch || '',
+      }))
+    }
+    setCreateOpen(true)
+  }
+
+  const handleCreate = async () => {
+    if (!createForm.project_id || !createForm.project_name) return toast.error('Project is required')
+    setCreating(true)
+    try {
+      const ppd = await apiCall('/api/ppd', { method: 'POST', token, body: createForm })
+      toast.success(`PPD created: ${ppd.ppd_id}`)
+      setCreateOpen(false)
+      setCreateForm({ project_id:'', project_name:'', brand:'', product_category:'', target_consumer:'', market_segment:'', expected_launch:'', objective:'', key_benefits:'' })
+      fetchPPDs()
+    } catch (err) { toast.error(err.message) }
+    finally { setCreating(false) }
+  }
+
+  const relTime = (iso) => {
+    if (!iso) return '—'
+    const diff = Date.now() - new Date(iso).getTime()
+    const m = Math.floor(diff / 60000)
+    if (m < 1)  return 'just now'
+    if (m < 60) return `${m}m ago`
+    const h = Math.floor(m / 60)
+    if (h < 24) return `${h}h ago`
+    return `${Math.floor(h / 24)}d ago`
+  }
+
+  // If a PPD is selected, show its detail view
+  if (selected) {
+    return <PPDDetail ppd={selected} user={user} token={token}
+      onBack={() => { setSelected(null); fetchPPDs() }}
+      onRefresh={async () => {
+        try {
+          const updated = await apiCall(`/api/ppd/${selected.ppd_id}`, { token })
+          setSelected(updated)
+        } catch (err) { toast.error(err.message) }
+      }}
+    />
+  }
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div><h1 className="text-2xl font-bold">PPD — Product Development Plan</h1><p className="text-muted-foreground text-sm">Complan Pro Chocolate Boost • ZW-2026-001 • Version 2.1 (Draft)</p></div>
-        <div className="flex gap-2"><Button variant="outline"><History className="h-4 w-4 mr-2"/>Version History</Button><Button variant="outline"><Send className="h-4 w-4 mr-2"/>Circulate for Review</Button><Button><Send className="h-4 w-4 mr-2"/>Submit for Approval</Button></div>
+      {/* ── Header ── */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold">PPD Management</h1>
+          <p className="text-muted-foreground text-sm">
+            {isAdmin
+              ? 'All Product Development Plans — admin view'
+              : `PPDs assigned to your team (${ROLES[user?.role]?.label || user?.role})`}
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={fetchPPDs}><RefreshCw className="h-4 w-4 mr-1"/>Refresh</Button>
+          {isAdmin && (
+            <Button className="gap-2" onClick={() => openCreate()}><Plus className="h-4 w-4"/>Create PPD</Button>
+          )}
+        </div>
       </div>
 
+      {/* ── Filters ── */}
+      <div className="flex flex-wrap gap-3 items-center">
+        <div className="relative flex-1 min-w-[200px]">
+          <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <Input value={q} onChange={e => setQ(e.target.value)} placeholder="Search by name or PPD ID..." className="pl-9" />
+        </div>
+        <Select value={statusFilter} onValueChange={setStatus}>
+          <SelectTrigger className="w-48"><Filter className="h-4 w-4 mr-1"/><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Statuses</SelectItem>
+            {PPD_STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* ── Table ── */}
+      <Card>
+        <CardContent className="p-0">
+          {loading ? (
+            <div className="space-y-2 p-4">{[1,2,3,4,5].map(i => <div key={i} className="h-12 bg-slate-100 rounded animate-pulse" />)}</div>
+          ) : ppds.length === 0 ? (
+            <div className="text-center py-16 text-muted-foreground">
+              <FileText className="h-12 w-12 mx-auto mb-3 opacity-30" />
+              <p className="font-medium">No PPDs found</p>
+              <p className="text-sm">{isAdmin ? 'Create a PPD for a project using the button above' : 'No PPDs are assigned to your team yet'}</p>
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-36">PPD ID</TableHead>
+                  <TableHead>Project</TableHead>
+                  <TableHead>Brand</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Version</TableHead>
+                  <TableHead>Created By</TableHead>
+                  <TableHead>Teams</TableHead>
+                  <TableHead>Updated</TableHead>
+                  <TableHead className="w-10"></TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {ppds.map(p => (
+                  <TableRow key={p.ppd_id} className="cursor-pointer hover:bg-muted/50" onClick={() => setSelected(p)}>
+                    <TableCell className="font-mono text-xs text-muted-foreground">{p.ppd_id}</TableCell>
+                    <TableCell>
+                      <div className="font-medium text-sm max-w-[200px] truncate">{p.project_name}</div>
+                      <div className="text-xs text-muted-foreground">{p.project_id}</div>
+                    </TableCell>
+                    <TableCell><Badge variant="outline" className="text-xs">{p.brand}</Badge></TableCell>
+                    <TableCell>
+                      <span className={`text-xs px-2 py-0.5 rounded-md font-medium whitespace-nowrap ${PPD_STATUS_COLORS[p.status] || 'bg-slate-100'}`}>
+                        {p.status}
+                      </span>
+                    </TableCell>
+                    <TableCell><Badge variant="secondary" className="text-xs font-mono">{p.ppd_version}</Badge></TableCell>
+                    <TableCell className="text-sm">
+                      <div>{p.created_by}</div>
+                      <div className="text-xs text-muted-foreground">{ROLES[p.created_by_role]?.label || p.created_by_role}</div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex flex-wrap gap-1 max-w-[160px]">
+                        {(p.teams_involved || '').split(',').filter(Boolean).slice(0, 4).map(r => (
+                          <span key={r} className={`text-[10px] px-1.5 py-0.5 rounded text-white font-medium ${ROLES[r]?.color || 'bg-slate-600'}`}>
+                            {r}
+                          </span>
+                        ))}
+                        {(p.teams_involved || '').split(',').filter(Boolean).length > 4 && (
+                          <span className="text-[10px] text-muted-foreground">+{(p.teams_involved || '').split(',').filter(Boolean).length - 4}</span>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground whitespace-nowrap">{relTime(p.updated_at)}</TableCell>
+                    <TableCell><ChevronRight className="h-4 w-4 text-muted-foreground" /></TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+        {ppds.length > 0 && (
+          <div className="px-6 py-2 border-t text-xs text-muted-foreground">{ppds.length} PPD{ppds.length !== 1 ? 's' : ''} shown</div>
+        )}
+      </Card>
+
+      {/* ── Create PPD Dialog ── */}
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Create New PPD</DialogTitle>
+            <DialogDescription>Link this PPD to an existing project. All teams on that project will be notified.</DialogDescription>
+          </DialogHeader>
+          <div className="grid grid-cols-2 gap-4 py-2">
+            <div className="col-span-2 space-y-2">
+              <Label>Link to Project <span className="text-red-500">*</span></Label>
+              <Select value={createForm.project_id} onValueChange={v => {
+                const proj = projects.find(p => p.project_id === v)
+                if (proj) setCreateForm(f => ({ ...f, project_id: proj.project_id, project_name: proj.name, brand: proj.brand, objective: proj.objective || '', expected_launch: proj.target_launch || '' }))
+              }}>
+                <SelectTrigger><SelectValue placeholder="Select project..." /></SelectTrigger>
+                <SelectContent>
+                  {projects.map(p => (
+                    <SelectItem key={p.project_id} value={p.project_id}>
+                      {p.project_id} — {p.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {createForm.project_id && (
+              <div className="col-span-2 p-3 bg-slate-50 rounded-lg border text-sm">
+                <span className="font-medium">Brand:</span> {createForm.brand} &nbsp;|&nbsp;
+                <span className="font-medium">Project:</span> {createForm.project_name}
+              </div>
+            )}
+            <div className="space-y-2">
+              <Label>Product Category</Label>
+              <Input value={createForm.product_category} onChange={e => setCreateForm(f => ({...f, product_category: e.target.value}))} placeholder="e.g. Nutrition Powder" />
+            </div>
+            <div className="space-y-2">
+              <Label>Target Consumer</Label>
+              <Input value={createForm.target_consumer} onChange={e => setCreateForm(f => ({...f, target_consumer: e.target.value}))} placeholder="e.g. Kids 5–15 yrs" />
+            </div>
+            <div className="space-y-2">
+              <Label>Market Segment</Label>
+              <Input value={createForm.market_segment} onChange={e => setCreateForm(f => ({...f, market_segment: e.target.value}))} placeholder="e.g. Premium Health" />
+            </div>
+            <div className="space-y-2">
+              <Label>Expected Launch</Label>
+              <Input value={createForm.expected_launch} onChange={e => setCreateForm(f => ({...f, expected_launch: e.target.value}))} placeholder="e.g. Q4 2026" />
+            </div>
+            <div className="col-span-2 space-y-2">
+              <Label>Objective</Label>
+              <Textarea rows={3} value={createForm.objective} onChange={e => setCreateForm(f => ({...f, objective: e.target.value}))} placeholder="Product objective, target consumer, key goals..." />
+            </div>
+            <div className="col-span-2 space-y-2">
+              <Label>Key Benefits / Claims</Label>
+              <Textarea rows={2} value={createForm.key_benefits} onChange={e => setCreateForm(f => ({...f, key_benefits: e.target.value}))} placeholder="• Claim 1&#10;• Claim 2" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button>
+            <Button onClick={handleCreate} disabled={creating}>
+              {creating && <RefreshCw className="h-4 w-4 animate-spin mr-2" />}
+              Create PPD
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
+}
+
+/** ────────────────────────────────────────────────────────
+ *  PPD DETAIL — full view for a single PPD record
+ * ──────────────────────────────────────────────────────── */
+function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
+  const [ppd, setPpd]           = useState(initialPpd)
+  const [editForm, setEditForm] = useState({
+    product_category: initialPpd.product_category || '',
+    target_consumer:  initialPpd.target_consumer  || '',
+    market_segment:   initialPpd.market_segment   || '',
+    expected_launch:  initialPpd.expected_launch  || '',
+    objective:        initialPpd.objective        || '',
+    key_benefits:     initialPpd.key_benefits     || '',
+    status:           initialPpd.status,
+  })
+  const [saving, setSaving]     = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [comments, setComments] = useState([])
+  const [newComment, setNewComment] = useState('')
+  const [actionTag, setActionTag]   = useState('comment')
+  const [postingComment, setPostingComment] = useState(false)
+  const [reviewers, setReviewers] = useState(initialPpd.reviewers || [])
+
+  const isAdmin = user?.role === 'admin'
+  const myRole  = user?.role || 'fd'
+
+  const fetchComments = useCallback(async () => {
+    try {
+      const data = await apiCall(`/api/ppd/${ppd.ppd_id}/comments`, { token })
+      setComments(data)
+    } catch { /* ignore */ }
+  }, [ppd.ppd_id, token])
+
+  useEffect(() => { fetchComments() }, [fetchComments])
+
+  const handleSave = async () => {
+    setSaving(true)
+    try {
+      await apiCall(`/api/ppd/${ppd.ppd_id}`, { method: 'PUT', token, body: editForm })
+      toast.success('PPD updated — all teams notified')
+      const updated = await apiCall(`/api/ppd/${ppd.ppd_id}`, { token })
+      setPpd(updated)
+      setEditForm(f => ({ ...f, status: updated.status }))
+    } catch (err) { toast.error(err.message) }
+    finally { setSaving(false) }
+  }
+
+  const handleDelete = async () => {
+    if (!confirm(`Delete PPD ${ppd.ppd_id}? This cannot be undone.`)) return
+    setDeleting(true)
+    try {
+      await apiCall(`/api/ppd/${ppd.ppd_id}`, { method: 'DELETE', token })
+      toast.success('PPD deleted')
+      onBack()
+    } catch (err) { toast.error(err.message) }
+    finally { setDeleting(false) }
+  }
+
+  const handlePostComment = async () => {
+    if (!newComment.trim()) return
+    setPostingComment(true)
+    try {
+      await apiCall(`/api/ppd/${ppd.ppd_id}/comments`, { method: 'POST', token, body: { comment: newComment, action_tag: actionTag } })
+      setNewComment('')
+      setActionTag('comment')
+      fetchComments()
+      // Refresh ppd status if rework/approve changed it
+      const updated = await apiCall(`/api/ppd/${ppd.ppd_id}`, { token })
+      setPpd(updated)
+      toast.success('Comment posted')
+    } catch (err) { toast.error(err.message) }
+    finally { setPostingComment(false) }
+  }
+
+  const handleReviewerUpdate = async (roleKey, newStatus, comment = '') => {
+    const updatedReviewers = reviewers.map(r =>
+      r.role === roleKey ? { ...r, status: newStatus, comment, updated_at: new Date().toISOString() } : r
+    )
+    try {
+      await apiCall(`/api/ppd/${ppd.ppd_id}/reviewers`, { method: 'PATCH', token, body: { reviewers: updatedReviewers } })
+      setReviewers(updatedReviewers)
+      toast.success('Review status updated — teams notified')
+    } catch (err) { toast.error(err.message) }
+  }
+
+  const relTime = (iso) => {
+    if (!iso) return '—'
+    const diff = Date.now() - new Date(iso).getTime()
+    const m = Math.floor(diff / 60000)
+    if (m < 1)  return 'just now'
+    if (m < 60) return `${m}m ago`
+    const h = Math.floor(m / 60)
+    if (h < 24) return `${h}h ago`
+    return `${Math.floor(h / 24)}d ago`
+  }
+
+  // Derive workflow step status from reviewers
+  const reviewedCount = reviewers.filter(r => ['Reviewed','Approved'].includes(r.status)).length
+  const allReviewed   = reviewers.length > 0 && reviewedCount === reviewers.length
+  const wfSteps = [
+    { s: 'PPD Created',                    d: `By ${ppd.created_by} (${ROLES[ppd.created_by_role]?.label || ppd.created_by_role})`,   st: 'done' },
+    { s: 'Departments Assigned',           d: `Teams: ${(ppd.teams_involved||'').split(',').filter(Boolean).map(r => ROLES[r]?.label || r).join(', ')}`, st: 'done' },
+    { s: 'Functional Teams Review',        d: `${reviewedCount}/${reviewers.length} teams reviewed`,  st: ppd.status === 'Under Review' ? 'active' : reviewedCount > 0 ? 'done' : 'pending' },
+    { s: 'PPD Finalization',               d: allReviewed ? 'All reviews received' : 'Waiting for consolidated feedback', st: ['Approved','Submitted','CEO Approved'].includes(ppd.status) ? 'done' : 'pending' },
+    { s: 'Management Committee Approval',  d: 'Marketing Head, R&D Head, Regulatory Head, CFO',                             st: ['CEO Approved'].includes(ppd.status) ? 'done' : ppd.status === 'Approved' ? 'active' : 'pending' },
+    { s: 'CEO Final Approval',             d: 'CEO Office',                                                                 st: ppd.status === 'CEO Approved' ? 'done' : 'pending' },
+    { s: 'Execution Phase — Formulation',  d: 'PPD locked, formulation starts',                                            st: 'pending' },
+  ]
+
+  const myReviewerEntry = reviewers.find(r => r.role === myRole)
+
+  return (
+    <div className="space-y-4">
+      {/* ── Back + Header ── */}
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <Button variant="ghost" size="sm" onClick={onBack} className="gap-1">
+            <ChevronRight className="h-4 w-4 rotate-180"/>Back
+          </Button>
+          <Separator orientation="vertical" className="h-6" />
+          <div>
+            <div className="flex items-center gap-2">
+              <h1 className="text-xl font-bold">{ppd.project_name}</h1>
+              <span className={`text-xs px-2 py-0.5 rounded-md font-medium ${PPD_STATUS_COLORS[ppd.status] || 'bg-slate-100'}`}>{ppd.status}</span>
+              <Badge variant="secondary" className="font-mono text-xs">{ppd.ppd_version}</Badge>
+            </div>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {ppd.ppd_id} • {ppd.brand} • Created by {ppd.created_by}
+              {' '}• <span className="font-medium text-foreground">ID: {ppd.project_id}</span>
+            </p>
+          </div>
+        </div>
+        <div className="flex gap-2 shrink-0">
+          {isAdmin && (
+            <>
+              <Button variant="outline" size="sm" onClick={() => handleSave()} disabled={saving}>
+                {saving ? <RefreshCw className="h-4 w-4 animate-spin mr-1"/> : <Edit className="h-4 w-4 mr-1"/>}
+                Save
+              </Button>
+              <Button variant="destructive" size="sm" onClick={handleDelete} disabled={deleting}>
+                {deleting ? <RefreshCw className="h-4 w-4 animate-spin mr-1"/> : <Trash2 className="h-4 w-4 mr-1"/>}
+                Delete
+              </Button>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* ── Teams Involved Banner ── */}
+      <Card className="bg-slate-50">
+        <CardContent className="py-3 px-4">
+          <div className="flex items-center gap-3 flex-wrap">
+            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Teams Involved:</span>
+            {(ppd.teams_involved || '').split(',').filter(Boolean).map(r => (
+              <span key={r} className={`text-xs px-2 py-0.5 rounded text-white font-medium ${ROLES[r]?.color || 'bg-slate-600'}`}>
+                {ROLES[r]?.label || r}
+              </span>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
       <Tabs defaultValue="details">
-        <TabsList className="grid grid-cols-6 w-full max-w-3xl">
+        <TabsList className="grid grid-cols-5 w-full max-w-2xl">
           <TabsTrigger value="details">Details</TabsTrigger>
-          <TabsTrigger value="attachments">Documents</TabsTrigger>
           <TabsTrigger value="reviewers">Reviewers</TabsTrigger>
-          <TabsTrigger value="comments">Comments</TabsTrigger>
+          <TabsTrigger value="comments">Comments ({comments.length})</TabsTrigger>
           <TabsTrigger value="workflow">Approval Flow</TabsTrigger>
-          <TabsTrigger value="history">History</TabsTrigger>
+          <TabsTrigger value="admin">Admin</TabsTrigger>
         </TabsList>
 
+        {/* ── DETAILS TAB ── */}
         <TabsContent value="details" className="space-y-4">
           <Card>
-            <CardHeader><CardTitle>Project & Product Details</CardTitle><CardDescription>Structured form fields — required for submission</CardDescription></CardHeader>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle>Product Details</CardTitle>
+                  <CardDescription>Structured PPD fields — required for submission</CardDescription>
+                </div>
+                {!isAdmin && myReviewerEntry && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground">Your review:</span>
+                    <Badge variant={myReviewerEntry.status === 'Reviewed' ? 'default' : myReviewerEntry.status === 'Rework' ? 'destructive' : 'secondary'}>
+                      {myReviewerEntry.status}
+                    </Badge>
+                  </div>
+                )}
+              </div>
+            </CardHeader>
             <CardContent className="grid grid-cols-2 gap-4">
-              <Field label="Brand" value="Complan"/>
-              <Field label="Project Type" value="New Product"/>
-              <Field label="Product Category" value="Nutrition Powder"/>
-              <Field label="Target Consumer" value="Kids 5-15 yrs"/>
-              <Field label="Market Segment" value="Premium Health"/>
-              <Field label="Expected Launch" value="Q4 2026"/>
-              <div className="col-span-2 space-y-2"><Label>Objective</Label><Textarea rows={3} defaultValue="Develop a chocolate-flavored premium nutrition powder with 34 essential nutrients, focused on cognitive & physical development for kids aged 5-15..."/></div>
-              <div className="col-span-2 space-y-2"><Label>Key Benefits / Claims</Label><Textarea rows={3} defaultValue="• Supports memory & concentration&#10;• Immunity boosting&#10;• Height & weight gain support"/></div>
+              <div className="space-y-2">
+                <Label>Project ID</Label>
+                <p className="text-sm font-mono py-2 text-muted-foreground">{ppd.project_id}</p>
+              </div>
+              <div className="space-y-2">
+                <Label>Brand</Label>
+                <p className="text-sm py-2">{ppd.brand}</p>
+              </div>
+              <div className="space-y-2">
+                <Label>Product Category</Label>
+                {isAdmin
+                  ? <Input value={editForm.product_category} onChange={e => setEditForm(f => ({...f, product_category: e.target.value}))} placeholder="e.g. Nutrition Powder" />
+                  : <p className="text-sm py-2">{ppd.product_category || '—'}</p>}
+              </div>
+              <div className="space-y-2">
+                <Label>Target Consumer</Label>
+                {isAdmin
+                  ? <Input value={editForm.target_consumer} onChange={e => setEditForm(f => ({...f, target_consumer: e.target.value}))} placeholder="e.g. Kids 5-15 yrs" />
+                  : <p className="text-sm py-2">{ppd.target_consumer || '—'}</p>}
+              </div>
+              <div className="space-y-2">
+                <Label>Market Segment</Label>
+                {isAdmin
+                  ? <Input value={editForm.market_segment} onChange={e => setEditForm(f => ({...f, market_segment: e.target.value}))} placeholder="e.g. Premium Health" />
+                  : <p className="text-sm py-2">{ppd.market_segment || '—'}</p>}
+              </div>
+              <div className="space-y-2">
+                <Label>Expected Launch</Label>
+                {isAdmin
+                  ? <Input value={editForm.expected_launch} onChange={e => setEditForm(f => ({...f, expected_launch: e.target.value}))} placeholder="e.g. Q4 2026" />
+                  : <p className="text-sm py-2">{ppd.expected_launch || '—'}</p>}
+              </div>
+              <div className="col-span-2 space-y-2">
+                <Label>Objective</Label>
+                {isAdmin
+                  ? <Textarea rows={3} value={editForm.objective} onChange={e => setEditForm(f => ({...f, objective: e.target.value}))} placeholder="Product objective, target consumer, key goals..." />
+                  : <p className="text-sm py-2 whitespace-pre-line">{ppd.objective || '—'}</p>}
+              </div>
+              <div className="col-span-2 space-y-2">
+                <Label>Key Benefits / Claims</Label>
+                {isAdmin
+                  ? <Textarea rows={3} value={editForm.key_benefits} onChange={e => setEditForm(f => ({...f, key_benefits: e.target.value}))} placeholder="• Claim 1&#10;• Claim 2" />
+                  : <p className="text-sm py-2 whitespace-pre-line">{ppd.key_benefits || '—'}</p>}
+              </div>
+              {isAdmin && (
+                <div className="col-span-2 space-y-2">
+                  <Label>Status</Label>
+                  <Select value={editForm.status} onValueChange={v => setEditForm(f => ({...f, status: v}))}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>{PPD_STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
+              )}
             </CardContent>
+            {isAdmin && (
+              <CardFooter className="border-t pt-4">
+                <Button onClick={handleSave} disabled={saving} className="ml-auto">
+                  {saving && <RefreshCw className="h-4 w-4 animate-spin mr-2" />}
+                  Save All Changes
+                </Button>
+              </CardFooter>
+            )}
           </Card>
         </TabsContent>
 
-        <TabsContent value="attachments">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between"><div><CardTitle>Uploaded Documents</CardTitle><CardDescription>Supports PDF, images, Excel, videos ≤ 30MB, external links</CardDescription></div><Button><Upload className="h-4 w-4 mr-2"/>Upload File</Button></CardHeader>
-            <CardContent>
-              <Table>
-                <TableHeader><TableRow><TableHead>File</TableHead><TableHead>Type</TableHead><TableHead>Size</TableHead><TableHead>Uploaded By</TableHead><TableHead>Version</TableHead><TableHead></TableHead></TableRow></TableHeader>
-                <TableBody>
-                  {[
-                    { n: 'Market_Research_Complan.pdf', t: 'PDF', s: '2.4 MB', u: 'Rahul M.', v: 'v1' },
-                    { n: 'Competitor_Analysis.xlsx', t: 'Excel', s: '186 KB', u: 'Rahul M.', v: 'v2' },
-                    { n: 'Consumer_Insights_Video.mp4', t: 'Video', s: '24 MB', u: 'Marketing', v: 'v1' },
-                    { n: 'Brand_Guidelines_Link', t: 'OneDrive Link', s: '—', u: 'Marketing', v: 'v1' },
-                  ].map((f,i)=>(
-                    <TableRow key={i}><TableCell className="font-medium">{f.n}</TableCell><TableCell><Badge variant="outline">{f.t}</Badge></TableCell><TableCell>{f.s}</TableCell><TableCell>{f.u}</TableCell><TableCell>{f.v}</TableCell><TableCell><Button size="sm" variant="ghost"><Eye className="h-4 w-4"/></Button><Button size="sm" variant="ghost"><Download className="h-4 w-4"/></Button></TableCell></TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
+        {/* ── REVIEWERS TAB ── */}
         <TabsContent value="reviewers">
           <Card>
-            <CardHeader><CardTitle>Assigned Reviewers</CardTitle><CardDescription>Functional teams & department heads that must review this PPD</CardDescription></CardHeader>
+            <CardHeader><CardTitle>Assigned Reviewers</CardTitle><CardDescription>Each functional team reviews this PPD. Their status updates are visible to everyone.</CardDescription></CardHeader>
             <CardContent className="space-y-2">
-              {[
-                { team: 'Marketing Team', head: 'Neeraj Kapoor', status: 'Reviewed', color: 'green' },
-                { team: 'R&D / F&D Team', head: 'Dr. Anjali Rao', status: 'In Progress', color: 'blue' },
-                { team: 'Regulatory Team', head: 'Amit Verma', status: 'Pending', color: 'amber' },
-                { team: 'Packaging Team', head: 'Rajesh Nair', status: 'Reviewed', color: 'green' },
-                { team: 'Sales / GDSO Team', head: 'Kavita Menon', status: 'Pending', color: 'amber' },
-              ].map((r,i)=>(
-                <div key={i} className="flex items-center justify-between p-3 border rounded-lg">
-                  <div><div className="font-medium">{r.team}</div><div className="text-xs text-muted-foreground">Head: {r.head}</div></div>
-                  <Badge variant={r.status==='Reviewed'?'default':r.status==='In Progress'?'secondary':'outline'}>{r.status}</Badge>
+              {reviewers.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-8">No reviewers assigned yet.</p>
+              ) : (
+                reviewers.map((r, i) => (
+                  <div key={i} className="flex items-center justify-between p-3 border rounded-lg gap-4">
+                    <div className="flex-1">
+                      <div className="font-medium text-sm">{r.team_label}</div>
+                      {r.head_name && <div className="text-xs text-muted-foreground">Head: {r.head_name}</div>}
+                      {r.comment && <div className="text-xs text-muted-foreground mt-1 italic">"{r.comment}"</div>}
+                      {r.updated_at && <div className="text-xs text-muted-foreground">{relTime(r.updated_at)}</div>}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Badge variant={r.status==='Reviewed'||r.status==='Approved'?'default':r.status==='Rework'?'destructive':r.status==='In Progress'?'secondary':'outline'}>
+                        {r.status}
+                      </Badge>
+                      {/* Team member can update their own review */}
+                      {r.role === myRole && (
+                        <Select value={r.status} onValueChange={v => handleReviewerUpdate(r.role, v)}>
+                          <SelectTrigger className="h-7 text-xs w-28"><SelectValue /></SelectTrigger>
+                          <SelectContent>{REVIEWER_STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+                        </Select>
+                      )}
+                      {/* Admin can update any reviewer */}
+                      {isAdmin && r.role !== myRole && (
+                        <Select value={r.status} onValueChange={v => handleReviewerUpdate(r.role, v)}>
+                          <SelectTrigger className="h-7 text-xs w-28"><SelectValue /></SelectTrigger>
+                          <SelectContent>{REVIEWER_STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+                        </Select>
+                      )}
+                    </div>
+                  </div>
+                ))
+              )}
+              {isAdmin && (
+                <div className="pt-2 text-xs text-muted-foreground">
+                  Reviewer list is auto-seeded from teams assigned to the project. Admin can manage team assignments on the project.
                 </div>
-              ))}
-              <Button variant="outline" className="w-full"><Plus className="h-4 w-4 mr-2"/>Add Reviewer</Button>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
 
+        {/* ── COMMENTS TAB ── */}
         <TabsContent value="comments">
           <Card>
-            <CardHeader><CardTitle>Review Comments & Remarks</CardTitle><CardDescription>Consolidated feedback from all reviewers</CardDescription></CardHeader>
+            <CardHeader><CardTitle>Review Comments & Remarks</CardTitle><CardDescription>Consolidated feedback from all reviewers — any update here notifies all teams</CardDescription></CardHeader>
             <CardContent className="space-y-4">
-              {[
-                { u: 'Neeraj K. (Marketing)', c: 'Please clarify positioning vs. existing Complan Original. Suggest adding cognitive benefit as primary claim.', t: '2 hrs ago' },
-                { u: 'Dr. Anjali Rao (R&D)', c: 'Formulation approach feasible. Recommend early ADL sample to validate protein source stability.', t: '4 hrs ago' },
-                { u: 'Rajesh N. (Packaging)', c: 'Costing feasible within +8% of Complan Original. Requesting artwork brief by end of week.', t: '1 day ago' },
-              ].map((c,i)=>(
-                <div key={i} className="flex gap-3 p-3 border rounded-lg">
-                  <Avatar><AvatarFallback>{c.u.split(' ').map(s=>s[0]).join('').slice(0,2)}</AvatarFallback></Avatar>
-                  <div className="flex-1">
-                    <div className="flex justify-between"><span className="font-medium text-sm">{c.u}</span><span className="text-xs text-muted-foreground">{c.t}</span></div>
-                    <p className="text-sm mt-1">{c.c}</p>
+              {comments.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-8">No comments yet. Be the first to review.</p>
+              ) : (
+                comments.map((c, i) => (
+                  <div key={i} className="flex gap-3 p-3 border rounded-lg">
+                    <Avatar className="h-9 w-9">
+                      <AvatarFallback className="text-xs bg-primary text-white">
+                        {(c.user_name || '?').split(' ').map(s => s[0]).join('').slice(0, 2).toUpperCase()}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="flex-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-sm">{c.user_name}</span>
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded text-white font-medium ${ROLES[c.user_role]?.color || 'bg-slate-600'}`}>
+                            {ROLES[c.user_role]?.label || c.user_role}
+                          </span>
+                          {c.action_tag !== 'comment' && (
+                            <Badge variant={c.action_tag==='rework'?'destructive':c.action_tag==='approve'?'default':'secondary'} className="text-xs">
+                              {c.action_tag}
+                            </Badge>
+                          )}
+                        </div>
+                        <span className="text-xs text-muted-foreground shrink-0">{relTime(c.created_at)}</span>
+                      </div>
+                      <p className="text-sm mt-1 whitespace-pre-line">{c.comment}</p>
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))
+              )}
+
+              {/* New comment box */}
               <div className="border rounded-lg p-3 space-y-2">
-                <Textarea placeholder="Add your comment..." rows={2}/>
-                <div className="flex justify-end gap-2"><Button variant="outline" size="sm">Rework</Button><Button size="sm"><MessageSquare className="h-4 w-4 mr-2"/>Post Comment</Button></div>
+                <Textarea
+                  placeholder="Add your review comment..."
+                  rows={2}
+                  value={newComment}
+                  onChange={e => setNewComment(e.target.value)}
+                />
+                <div className="flex items-center justify-between gap-2">
+                  <Select value={actionTag} onValueChange={setActionTag}>
+                    <SelectTrigger className="w-36 h-8 text-xs"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="comment">Comment</SelectItem>
+                      <SelectItem value="rework">Request Rework</SelectItem>
+                      {(isAdmin || ['mgmt','ceo','rd_head'].includes(myRole)) && <SelectItem value="approve">Approve</SelectItem>}
+                    </SelectContent>
+                  </Select>
+                  <Button size="sm" onClick={handlePostComment} disabled={postingComment || !newComment.trim()}>
+                    {postingComment ? <RefreshCw className="h-4 w-4 animate-spin mr-2" /> : <MessageSquare className="h-4 w-4 mr-2"/>}
+                    Post
+                  </Button>
+                </div>
               </div>
             </CardContent>
           </Card>
         </TabsContent>
 
+        {/* ── WORKFLOW TAB ── */}
         <TabsContent value="workflow">
           <Card>
-            <CardHeader><CardTitle>Approval Workflow</CardTitle><CardDescription>Multi-level approvals — track progress in real-time</CardDescription></CardHeader>
+            <CardHeader><CardTitle>Approval Workflow</CardTitle><CardDescription>Live status — derived from actual PPD and reviewer data</CardDescription></CardHeader>
             <CardContent>
               <div className="space-y-3">
-                {[
-                  { s: 'Source Team — PPD Created', d: 'Rahul Mehta', t: '3 days ago', st: 'done' },
-                  { s: 'Project Management Team — Departments Assigned', d: 'PM Office', t: '2 days ago', st: 'done' },
-                  { s: 'Functional Teams Review', d: 'Marketing, R&D, Regulatory, Packaging, Sales', t: 'In progress', st: 'active' },
-                  { s: 'Source Team — PPD Finalization', d: 'Waiting for consolidated feedback', t: '—', st: 'pending' },
-                  { s: 'Management Committee Approval', d: 'Marketing Head, Sales Head, R&D Head, GDSO Head, Regulatory Head, CFO', t: '—', st: 'pending' },
-                  { s: 'CEO Final Approval', d: 'CEO Office', t: '—', st: 'pending' },
-                  { s: 'Execution Phase — Formulation Development', d: '', t: '—', st: 'pending' },
-                ].map((w,i,a) => (
+                {wfSteps.map((w, i, a) => (
                   <div key={i} className="flex gap-4">
                     <div className="flex flex-col items-center">
-                      <div className={`h-9 w-9 rounded-full flex items-center justify-center shrink-0 ${w.st==='done'?'bg-emerald-600 text-white':w.st==='active'?'bg-orange-500 text-white':'bg-slate-200 text-slate-500'}`}>
+                      <div className={`h-9 w-9 rounded-full flex items-center justify-center shrink-0
+                        ${w.st==='done'?'bg-emerald-600 text-white':w.st==='active'?'bg-orange-500 text-white':'bg-slate-200 text-slate-500'}`}>
                         {w.st==='done'?<CheckCircle2 className="h-5 w-5"/>:w.st==='active'?<Clock className="h-5 w-5 animate-pulse"/>:i+1}
                       </div>
-                      {i<a.length-1 && <div className={`w-0.5 flex-1 ${w.st==='done'?'bg-emerald-600':'bg-slate-200'}`} style={{minHeight:24}}/>}
+                      {i < a.length - 1 && (
+                        <div className={`w-0.5 flex-1 ${w.st==='done'?'bg-emerald-600':'bg-slate-200'}`} style={{minHeight:24}}/>
+                      )}
                     </div>
                     <div className="pb-4 flex-1">
-                      <div className="font-medium">{w.s}</div>
-                      {w.d && <div className="text-sm text-muted-foreground">{w.d}</div>}
-                      <div className="text-xs text-muted-foreground mt-0.5">{w.t}</div>
+                      <div className="font-medium text-sm">{w.s}</div>
+                      {w.d && <div className="text-xs text-muted-foreground mt-0.5">{w.d}</div>}
                     </div>
                   </div>
                 ))}
@@ -1732,106 +2384,811 @@ function PPDView({ user }) {
           </Card>
         </TabsContent>
 
-        <TabsContent value="history">
-          <Card>
-            <CardHeader><CardTitle>Version History</CardTitle><CardDescription>Full audit trail of PPD versions</CardDescription></CardHeader>
-            <CardContent className="p-0">
-              <Table><TableHeader><TableRow><TableHead>Version</TableHead><TableHead>Changes</TableHead><TableHead>By</TableHead><TableHead>Date</TableHead><TableHead></TableHead></TableRow></TableHeader>
-                <TableBody>
-                  {[
-                    { v: 'v2.1', c: 'Updated cognitive claim + revised target consumer', u: 'Rahul M.', d: 'Today' },
-                    { v: 'v2.0', c: 'Rework post initial review — pricing revised', u: 'Rahul M.', d: '2 days ago' },
-                    { v: 'v1.0', c: 'Initial PPD submission', u: 'Rahul M.', d: '5 days ago' },
-                  ].map((v,i)=>(<TableRow key={i}><TableCell><Badge>{v.v}</Badge></TableCell><TableCell>{v.c}</TableCell><TableCell>{v.u}</TableCell><TableCell>{v.d}</TableCell><TableCell><Button size="sm" variant="outline"><Eye className="h-4 w-4 mr-2"/>View</Button></TableCell></TableRow>))}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
+        {/* ── ADMIN TAB ── */}
+        <TabsContent value="admin">
+          <div className="space-y-4">
+            {/* Role ID Card */}
+            <Card>
+              <CardHeader><CardTitle>Department & Role IDs</CardTitle><CardDescription>System identifiers for each team involved in this PPD</CardDescription></CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Role Key (ID)</TableHead>
+                      <TableHead>Department / Team</TableHead>
+                      <TableHead>Access Level</TableHead>
+                      <TableHead>Reviewer Status</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {(ppd.teams_involved || '').split(',').filter(Boolean).map(r => {
+                      const rev = reviewers.find(rv => rv.role === r)
+                      return (
+                        <TableRow key={r}>
+                          <TableCell className="font-mono text-xs font-semibold">{r}</TableCell>
+                          <TableCell>
+                            <span className={`text-xs px-2 py-0.5 rounded text-white font-medium ${ROLES[r]?.color || 'bg-slate-600'}`}>
+                              {ROLES[r]?.label || r}
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-xs text-muted-foreground">
+                            {r === 'admin' ? 'Full control' : r === 'mgmt' || r === 'ceo' ? 'View all + approve' : 'View + comment'}
+                          </TableCell>
+                          <TableCell>
+                            {rev ? (
+                              <Badge variant={rev.status==='Reviewed'||rev.status==='Approved'?'default':rev.status==='Rework'?'destructive':'secondary'} className="text-xs">
+                                {rev.status}
+                              </Badge>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">Not a reviewer</span>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+
+            {/* Admin: status management */}
+            {isAdmin && (
+              <Card>
+                <CardHeader><CardTitle>Admin Controls</CardTitle><CardDescription>Override status, manage teams, force transitions</CardDescription></CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Override Status</Label>
+                      <Select value={editForm.status} onValueChange={v => setEditForm(f => ({...f, status: v}))}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>{PPD_STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Current Version</Label>
+                      <p className="text-sm font-mono py-2">{ppd.ppd_version}</p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-3">
+                    {[
+                      { label: 'Created', value: ppd.created_at ? new Date(ppd.created_at).toLocaleString() : '—' },
+                      { label: 'Last Updated', value: ppd.updated_at ? new Date(ppd.updated_at).toLocaleString() : '—' },
+                      { label: 'Project', value: ppd.project_id },
+                    ].map(({ label, value }) => (
+                      <div key={label} className="bg-slate-50 rounded-lg p-3 border">
+                        <p className="text-xs text-muted-foreground">{label}</p>
+                        <p className="text-sm font-medium mt-0.5">{value}</p>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex justify-between items-center pt-2">
+                    <Button variant="destructive" onClick={handleDelete} disabled={deleting}>
+                      {deleting ? <RefreshCw className="h-4 w-4 animate-spin mr-2"/> : <Trash2 className="h-4 w-4 mr-2"/>}
+                      Delete PPD
+                    </Button>
+                    <Button onClick={handleSave} disabled={saving}>
+                      {saving && <RefreshCw className="h-4 w-4 animate-spin mr-2"/>}
+                      Save All Changes
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </div>
         </TabsContent>
       </Tabs>
     </div>
   )
 }
+
 function Field({ label, value }) {
   return <div className="space-y-2"><Label>{label}</Label><Input defaultValue={value}/></div>
 }
 
 /* -------------------- FORMULATION -------------------- */
-function FormulationView() {
+const FORMULA_STATUSES = ['Draft','In Testing','Sensory Pass','Recommended','Rejected']
+const FORMULA_TYPES    = ['Trial','Pilot','Final']
+const FORMULA_STATUS_COLORS = {
+  'Draft':        'bg-slate-100 text-slate-700',
+  'In Testing':   'bg-blue-100 text-blue-700',
+  'Sensory Pass': 'bg-teal-100 text-teal-700',
+  'Recommended':  'bg-green-600 text-white',
+  'Rejected':     'bg-red-100 text-red-700',
+}
+
+function FormulationView({ user, token }) {
+  const [formulas, setFormulas]           = useState([])
+  const [projects, setProjects]           = useState([])
+  const [loading, setLoading]             = useState(true)
+  const [projectFilter, setProjectFilter] = useState('all')
+  const [statusFilter, setStatusFilter]   = useState('all')
+  const [q, setQ]                         = useState('')
+
+  // Create dialog
+  const [createOpen, setCreateOpen]   = useState(false)
+  const [creating, setCreating]       = useState(false)
+  const [createForm, setCreateForm]   = useState({
+    project_id:'', formula_type:'Trial', protein_source:'', sweetener:'',
+    cocoa_pct:'', protein_pct:'', sugar_per_100g:'', cost_per_kg:'',
+    stability_40c:'', sensory_score:'', notes:'',
+  })
+  const [ingredients, setIngredients] = useState([{ name:'', qty:'', unit:'g', supplier:'' }])
+
+  // Detail dialog
+  const [selected, setSelected]       = useState(null)
+  const [detailOpen, setDetailOpen]   = useState(false)
+  const [editForm, setEditForm]       = useState({})
+  const [saving, setSaving]           = useState(false)
+  const [deleting, setDeleting]       = useState(false)
+  const [activeTab, setActiveTab]     = useState('details')
+
+  // Comments
+  const [comments, setComments]       = useState([])
+  const [commentText, setCommentText] = useState('')
+  const [postingComment, setPostingComment] = useState(false)
+
+  // Compare
   const [compareOpen, setCompareOpen] = useState(false)
+  const [compareIds, setCompareIds]   = useState([])
+
+  const canEdit = ['admin','fd','rd_head'].includes(user?.role)
+  const canDelete = ['admin','rd_head'].includes(user?.role)
+
+  // ── fetch ──
+  const fetchFormulas = useCallback(async () => {
+    setLoading(true)
+    try {
+      const params = new URLSearchParams()
+      if (projectFilter !== 'all') params.set('project_id', projectFilter)
+      if (statusFilter  !== 'all') params.set('status', statusFilter)
+      if (q) params.set('q', q)
+      const data = await apiCall(`/api/formulation?${params}`, { token })
+      setFormulas(data)
+    } catch (err) { toast.error('Failed to load formulas: ' + err.message) }
+    finally { setLoading(false) }
+  }, [projectFilter, statusFilter, q, token])
+
+  const fetchProjects = useCallback(async () => {
+    try {
+      const data = await apiCall('/api/projects', { token })
+      setProjects(data)
+    } catch {}
+  }, [token])
+
+  useEffect(() => { fetchFormulas(); fetchProjects() }, [fetchFormulas, fetchProjects])
+
+  // ── fetch comments ──
+  const fetchComments = useCallback(async (fid) => {
+    try {
+      const data = await apiCall(`/api/formulation/${fid}/comments`, { token })
+      setComments(data)
+    } catch { setComments([]) }
+  }, [token])
+
+  // ── open detail ──
+  const openDetail = (f) => {
+    setSelected(f)
+    setEditForm({
+      formula_type: f.formula_type, status: f.status,
+      protein_source: f.protein_source||'', sweetener: f.sweetener||'',
+      cocoa_pct: f.cocoa_pct||'', protein_pct: f.protein_pct||'',
+      sugar_per_100g: f.sugar_per_100g||'', cost_per_kg: f.cost_per_kg||'',
+      stability_40c: f.stability_40c||'', sensory_score: f.sensory_score||'',
+      notes: f.notes||'',
+      ingredients: f.ingredients||[],
+    })
+    setComments([])
+    setCommentText('')
+    setActiveTab('details')
+    fetchComments(f.formula_id)
+    setDetailOpen(true)
+  }
+
+  // ── create ──
+  const handleCreate = async () => {
+    if (!createForm.project_id) return toast.error('Select a project')
+    setCreating(true)
+    try {
+      await apiCall('/api/formulation', {
+        method:'POST', token,
+        body: { ...createForm, ingredients: ingredients.filter(i => i.name.trim()) }
+      })
+      toast.success('Formula created')
+      setCreateOpen(false)
+      setCreateForm({ project_id:'', formula_type:'Trial', protein_source:'', sweetener:'',
+        cocoa_pct:'', protein_pct:'', sugar_per_100g:'', cost_per_kg:'', stability_40c:'', sensory_score:'', notes:'' })
+      setIngredients([{ name:'', qty:'', unit:'g', supplier:'' }])
+      fetchFormulas()
+    } catch (err) { toast.error(err.message) }
+    finally { setCreating(false) }
+  }
+
+  // ── save edit ──
+  const handleSave = async () => {
+    setSaving(true)
+    try {
+      await apiCall(`/api/formulation/${selected.formula_id}`, {
+        method:'PUT', token, body: { ...editForm }
+      })
+      toast.success('Formula updated')
+      setDetailOpen(false)
+      fetchFormulas()
+    } catch (err) { toast.error(err.message) }
+    finally { setSaving(false) }
+  }
+
+  // ── delete ──
+  const handleDelete = async () => {
+    if (!confirm(`Delete formula ${selected.formula_id}? This cannot be undone.`)) return
+    setDeleting(true)
+    try {
+      await apiCall(`/api/formulation/${selected.formula_id}`, { method:'DELETE', token })
+      toast.success('Formula deleted')
+      setDetailOpen(false)
+      fetchFormulas()
+    } catch (err) { toast.error(err.message) }
+    finally { setDeleting(false) }
+  }
+
+  // ── post comment ──
+  const handleComment = async () => {
+    if (!commentText.trim()) return
+    setPostingComment(true)
+    try {
+      const c = await apiCall(`/api/formulation/${selected.formula_id}/comments`, {
+        method:'POST', token, body:{ comment: commentText }
+      })
+      setComments(prev => [...prev, c])
+      setCommentText('')
+    } catch (err) { toast.error(err.message) }
+    finally { setPostingComment(false) }
+  }
+
+  // ── compare helpers ──
+  const compareList = formulas.filter(f => compareIds.includes(f.formula_id))
+  const COMPARE_FIELDS = [
+    { key:'formula_type',   label:'Type' },
+    { key:'protein_source', label:'Protein Source' },
+    { key:'sweetener',      label:'Sweetener' },
+    { key:'protein_pct',    label:'Protein %' },
+    { key:'cocoa_pct',      label:'Cocoa %' },
+    { key:'sugar_per_100g', label:'Sugar (g/100g)' },
+    { key:'cost_per_kg',    label:'Cost/kg (₹)' },
+    { key:'stability_40c',  label:'Stability (40°C)' },
+    { key:'sensory_score',  label:'Sensory Score' },
+    { key:'status',         label:'Status' },
+  ]
+
+  const relTime = (iso) => {
+    if (!iso) return '—'
+    const diff = Date.now() - new Date(iso).getTime()
+    const m = Math.floor(diff / 60000)
+    if (m < 1) return 'just now'
+    if (m < 60) return `${m}m ago`
+    const h = Math.floor(m / 60)
+    if (h < 24) return `${h}h ago`
+    return `${Math.floor(h / 24)}d ago`
+  }
+
+  // ── ingredient row helpers ──
+  const addIngredient  = () => setIngredients(prev => [...prev, { name:'', qty:'', unit:'g', supplier:'' }])
+  const removeIngredient = (i) => setIngredients(prev => prev.filter((_,idx) => idx !== i))
+  const updateIngredient = (i, field, val) => setIngredients(prev => prev.map((row,idx) => idx===i ? {...row,[field]:val} : row))
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div><h1 className="text-2xl font-bold">Formulation Development</h1><p className="text-muted-foreground text-sm">R&D / F&D workspace — trials, versions, and AI-assisted analysis</p></div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={()=>setCompareOpen(true)}><GitCompare className="h-4 w-4 mr-2"/>Compare Formulas</Button>
-          <Button><Plus className="h-4 w-4 mr-2"/>New Formula Version</Button>
+      {/* ── Header ── */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold">Formulation Development</h1>
+          <p className="text-muted-foreground text-sm">R&D / F&D workspace — formula versions, ingredients, trials & comparison</p>
+        </div>
+        <div className="flex gap-2 flex-wrap">
+          {compareIds.length >= 2 && (
+            <Button variant="outline" onClick={() => setCompareOpen(true)}>
+              <GitCompare className="h-4 w-4 mr-2"/>Compare ({compareIds.length})
+            </Button>
+          )}
+          {compareIds.length > 0 && (
+            <Button variant="ghost" size="sm" onClick={() => setCompareIds([])}>Clear selection</Button>
+          )}
+          {canEdit && (
+            <Button onClick={() => setCreateOpen(true)}><Plus className="h-4 w-4 mr-2"/>New Formula</Button>
+          )}
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <Card className="lg:col-span-2">
-          <CardHeader><CardTitle>Active Formulas</CardTitle><CardDescription>Complan Pro Chocolate Boost — 4 versions in trial</CardDescription></CardHeader>
-          <CardContent className="p-0">
-            <Table><TableHeader><TableRow><TableHead>Version</TableHead><TableHead>Type</TableHead><TableHead>Protein Source</TableHead><TableHead>Sweetener</TableHead><TableHead>Status</TableHead><TableHead></TableHead></TableRow></TableHeader>
-              <TableBody>
-                {[
-                  { v: 'F-01', t: 'Trial', p: 'Whey Isolate 22%', s: 'Sucralose', st: 'Rejected' },
-                  { v: 'F-02', t: 'Trial', p: 'Whey Isolate 25%', s: 'Stevia + Sucrose', st: 'Sensory pass' },
-                  { v: 'F-03', t: 'Trial', p: 'Milk + Whey Blend', s: 'Sucrose', st: 'In Testing' },
-                  { v: 'F-04', t: 'Final', p: 'Milk + Whey (30/70)', s: 'Sucrose + Stevia', st: 'Recommended' },
-                ].map((f,i)=>(<TableRow key={i}><TableCell><Badge variant={f.st==='Recommended'?'default':'outline'}>{f.v}</Badge></TableCell><TableCell>{f.t}</TableCell><TableCell>{f.p}</TableCell><TableCell>{f.s}</TableCell><TableCell><Badge variant={f.st==='Recommended'?'default':f.st==='Rejected'?'destructive':'secondary'}>{f.st}</Badge></TableCell><TableCell><Button size="sm" variant="ghost"><Eye className="h-4 w-4"/></Button></TableCell></TableRow>))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-gradient-to-br from-primary/5 to-accent/5">
-          <CardHeader><CardTitle className="flex items-center gap-2"><Sparkles className="h-5 w-5 text-accent"/>AI Formulation Insights</CardTitle><CardDescription>Pattern analysis across 42 historical trials</CardDescription></CardHeader>
-          <CardContent className="space-y-3 text-sm">
-            <div className="p-3 rounded-lg bg-white border">
-              <div className="font-medium text-primary">✓ Recommendation</div>
-              <p className="text-muted-foreground text-xs mt-1">F-04 profile matches your 6 highest-scored historical formulas. Estimated sensory pass: <b>87%</b>.</p>
-            </div>
-            <div className="p-3 rounded-lg bg-white border">
-              <div className="font-medium text-orange-600">⚠ Watch</div>
-              <p className="text-muted-foreground text-xs mt-1">Sucralose in F-01 caused rejection in 3 similar trials. Consider stevia blends.</p>
-            </div>
-            <div className="p-3 rounded-lg bg-white border">
-              <div className="font-medium text-blue-600">ℹ Trend</div>
-              <p className="text-muted-foreground text-xs mt-1">Milk-whey blends (30/70) show +18% stability at 40°C vs. pure whey.</p>
-            </div>
-          </CardContent>
-        </Card>
+      {/* ── Stats row ── */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        {FORMULA_STATUSES.map(st => {
+          const count = formulas.filter(f => f.status === st).length
+          return (
+            <Card key={st} className={`cursor-pointer border-2 ${statusFilter===st?'border-primary':'border-transparent'}`}
+              onClick={() => setStatusFilter(s => s===st?'all':st)}>
+              <CardContent className="p-3">
+                <p className="text-xs text-muted-foreground">{st}</p>
+                <p className="text-2xl font-bold mt-1">{count}</p>
+              </CardContent>
+            </Card>
+          )
+        })}
       </div>
 
+      {/* ── Filters ── */}
       <Card>
-        <CardHeader><CardTitle>Technical Documents</CardTitle></CardHeader>
-        <CardContent className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          {['AVD Assessment','Innovation Note','Sustainability','Literature Search','Ingredient Search','Benchmarking','DOE Plan','Regulatory Check'].map(d=>(
-            <div key={d} className="p-4 border rounded-lg hover:shadow-md transition cursor-pointer">
-              <FileText className="h-6 w-6 text-primary mb-2"/><div className="font-medium text-sm">{d}</div><div className="text-xs text-muted-foreground mt-1">Click to open</div>
+        <CardHeader className="pb-3">
+          <div className="flex flex-wrap gap-3 items-center">
+            <div className="relative flex-1 min-w-[180px]">
+              <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"/>
+              <Input value={q} onChange={e => setQ(e.target.value)} placeholder="Search formulas..." className="pl-9"/>
             </div>
-          ))}
+            <Select value={projectFilter} onValueChange={setProjectFilter}>
+              <SelectTrigger className="w-52"><SelectValue placeholder="All Projects"/></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Projects</SelectItem>
+                {projects.map(p => <SelectItem key={p.project_id} value={p.project_id}>{p.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-44"><Filter className="h-4 w-4 mr-1"/><SelectValue/></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Statuses</SelectItem>
+                {FORMULA_STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Button variant="outline" size="sm" onClick={fetchFormulas}><RefreshCw className="h-4 w-4 mr-1"/>Refresh</Button>
+          </div>
+        </CardHeader>
+
+        {/* ── Table ── */}
+        <CardContent className="p-0">
+          {loading ? (
+            <div className="space-y-2 p-4">{[1,2,3,4].map(i=><div key={i} className="h-10 bg-slate-100 rounded animate-pulse"/>)}</div>
+          ) : formulas.length === 0 ? (
+            <div className="text-center py-16 text-muted-foreground">
+              <FlaskConical className="h-12 w-12 mx-auto mb-3 opacity-30"/>
+              <p className="font-medium">No formulas found</p>
+              <p className="text-sm">{canEdit ? 'Create your first formula using the button above' : 'No formulas assigned to your team yet'}</p>
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-8"></TableHead>
+                  <TableHead className="w-36">Formula ID</TableHead>
+                  <TableHead>Project</TableHead>
+                  <TableHead>Version</TableHead>
+                  <TableHead>Type</TableHead>
+                  <TableHead>Protein Source</TableHead>
+                  <TableHead>Sweetener</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Sensory</TableHead>
+                  <TableHead>Updated</TableHead>
+                  <TableHead className="w-10"></TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {formulas.map(f => (
+                  <TableRow key={f.formula_id} className="cursor-pointer hover:bg-muted/50">
+                    <TableCell onClick={e => e.stopPropagation()}>
+                      <Checkbox
+                        checked={compareIds.includes(f.formula_id)}
+                        onCheckedChange={checked => setCompareIds(prev =>
+                          checked ? [...prev, f.formula_id] : prev.filter(id => id !== f.formula_id)
+                        )}
+                      />
+                    </TableCell>
+                    <TableCell className="font-mono text-xs font-semibold" onClick={() => openDetail(f)}>{f.formula_id}</TableCell>
+                    <TableCell className="text-sm max-w-[150px] truncate" onClick={() => openDetail(f)}>{f.project_name}</TableCell>
+                    <TableCell onClick={() => openDetail(f)}><Badge variant="outline" className="font-mono text-xs">{f.version}</Badge></TableCell>
+                    <TableCell className="text-xs" onClick={() => openDetail(f)}>{f.formula_type}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground max-w-[120px] truncate" onClick={() => openDetail(f)}>{f.protein_source||'—'}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground max-w-[100px] truncate" onClick={() => openDetail(f)}>{f.sweetener||'—'}</TableCell>
+                    <TableCell onClick={() => openDetail(f)}>
+                      <span className={`text-xs px-2 py-0.5 rounded-md font-medium ${FORMULA_STATUS_COLORS[f.status]||'bg-slate-100'}`}>{f.status}</span>
+                    </TableCell>
+                    <TableCell className="text-xs" onClick={() => openDetail(f)}>{f.sensory_score||'—'}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground whitespace-nowrap" onClick={() => openDetail(f)}>{relTime(f.updated_at)}</TableCell>
+                    <TableCell><ChevronRight className="h-4 w-4 text-muted-foreground"/></TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
         </CardContent>
+        {formulas.length > 0 && (
+          <div className="px-6 py-2 border-t text-xs text-muted-foreground">
+            {formulas.length} formula{formulas.length!==1?'s':''} shown
+            {compareIds.length > 0 && <span className="ml-3 text-primary font-medium">{compareIds.length} selected for comparison</span>}
+          </div>
+        )}
       </Card>
 
+      {/* ── Create Dialog ── */}
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>New Formula</DialogTitle>
+            <DialogDescription>Create a new formula version for a project</DialogDescription>
+          </DialogHeader>
+          <Tabs defaultValue="basic">
+            <TabsList className="w-full grid grid-cols-2">
+              <TabsTrigger value="basic">Basic Info</TabsTrigger>
+              <TabsTrigger value="ingredients">Ingredients</TabsTrigger>
+            </TabsList>
+            <TabsContent value="basic" className="space-y-4 pt-2">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="col-span-2 space-y-1.5">
+                  <Label>Project <span className="text-red-500">*</span></Label>
+                  <Select value={createForm.project_id} onValueChange={v => setCreateForm(f=>({...f,project_id:v}))}>
+                    <SelectTrigger><SelectValue placeholder="Select project"/></SelectTrigger>
+                    <SelectContent>{projects.map(p=><SelectItem key={p.project_id} value={p.project_id}>{p.name}</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Formula Type</Label>
+                  <Select value={createForm.formula_type} onValueChange={v => setCreateForm(f=>({...f,formula_type:v}))}>
+                    <SelectTrigger><SelectValue/></SelectTrigger>
+                    <SelectContent>{FORMULA_TYPES.map(t=><SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Protein Source</Label>
+                  <Input value={createForm.protein_source} onChange={e=>setCreateForm(f=>({...f,protein_source:e.target.value}))} placeholder="e.g. Whey Isolate 25%"/>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Sweetener</Label>
+                  <Input value={createForm.sweetener} onChange={e=>setCreateForm(f=>({...f,sweetener:e.target.value}))} placeholder="e.g. Sucrose + Stevia"/>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Protein %</Label>
+                  <Input value={createForm.protein_pct} onChange={e=>setCreateForm(f=>({...f,protein_pct:e.target.value}))} placeholder="e.g. 26%"/>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Cocoa %</Label>
+                  <Input value={createForm.cocoa_pct} onChange={e=>setCreateForm(f=>({...f,cocoa_pct:e.target.value}))} placeholder="e.g. 15%"/>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Sugar (g/100g)</Label>
+                  <Input value={createForm.sugar_per_100g} onChange={e=>setCreateForm(f=>({...f,sugar_per_100g:e.target.value}))} placeholder="e.g. 10"/>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Cost/kg (₹)</Label>
+                  <Input value={createForm.cost_per_kg} onChange={e=>setCreateForm(f=>({...f,cost_per_kg:e.target.value}))} placeholder="e.g. 425"/>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Stability at 40°C</Label>
+                  <Input value={createForm.stability_40c} onChange={e=>setCreateForm(f=>({...f,stability_40c:e.target.value}))} placeholder="e.g. 92 days"/>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Sensory Score</Label>
+                  <Input value={createForm.sensory_score} onChange={e=>setCreateForm(f=>({...f,sensory_score:e.target.value}))} placeholder="e.g. 8.6/10"/>
+                </div>
+                <div className="col-span-2 space-y-1.5">
+                  <Label>Notes</Label>
+                  <Textarea rows={3} value={createForm.notes} onChange={e=>setCreateForm(f=>({...f,notes:e.target.value}))} placeholder="Observations, rationale, special instructions..."/>
+                </div>
+              </div>
+            </TabsContent>
+            <TabsContent value="ingredients" className="pt-2">
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <Label>Ingredient List</Label>
+                  <Button size="sm" variant="outline" onClick={addIngredient}><Plus className="h-3 w-3 mr-1"/>Add Row</Button>
+                </div>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Ingredient Name</TableHead>
+                      <TableHead>Qty</TableHead>
+                      <TableHead>Unit</TableHead>
+                      <TableHead>Supplier</TableHead>
+                      <TableHead className="w-10"></TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {ingredients.map((ing, i) => (
+                      <TableRow key={i}>
+                        <TableCell><Input value={ing.name} onChange={e=>updateIngredient(i,'name',e.target.value)} placeholder="e.g. Whey Protein Isolate"/></TableCell>
+                        <TableCell><Input value={ing.qty} onChange={e=>updateIngredient(i,'qty',e.target.value)} placeholder="25" className="w-20"/></TableCell>
+                        <TableCell>
+                          <Select value={ing.unit} onValueChange={v=>updateIngredient(i,'unit',v)}>
+                            <SelectTrigger className="w-20"><SelectValue/></SelectTrigger>
+                            <SelectContent>{['g','kg','ml','L','%','ppm'].map(u=><SelectItem key={u} value={u}>{u}</SelectItem>)}</SelectContent>
+                          </Select>
+                        </TableCell>
+                        <TableCell><Input value={ing.supplier} onChange={e=>updateIngredient(i,'supplier',e.target.value)} placeholder="Supplier name"/></TableCell>
+                        <TableCell><Button size="sm" variant="ghost" onClick={()=>removeIngredient(i)}><Trash2 className="h-3 w-3 text-red-500"/></Button></TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </TabsContent>
+          </Tabs>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button>
+            <Button onClick={handleCreate} disabled={creating}>
+              {creating && <RefreshCw className="h-4 w-4 animate-spin mr-2"/>}Create Formula
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Detail / Edit Dialog ── */}
+      {selected && (
+        <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
+          <DialogContent className="max-w-4xl max-h-[92vh] overflow-y-auto">
+            <DialogHeader>
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <DialogTitle className="text-xl font-mono">{selected.formula_id}</DialogTitle>
+                  <DialogDescription className="mt-1">{selected.project_name} • {selected.version} • by {selected.created_by}</DialogDescription>
+                </div>
+                <span className={`text-xs px-2 py-1 rounded-md font-medium whitespace-nowrap ${FORMULA_STATUS_COLORS[selected.status]||'bg-slate-100'}`}>{selected.status}</span>
+              </div>
+            </DialogHeader>
+
+            <Tabs value={activeTab} onValueChange={setActiveTab}>
+              <TabsList className="w-full grid grid-cols-4">
+                <TabsTrigger value="details">Details</TabsTrigger>
+                <TabsTrigger value="ingredients">Ingredients ({(editForm.ingredients||[]).length})</TabsTrigger>
+                <TabsTrigger value="status">Status</TabsTrigger>
+                <TabsTrigger value="comments">Comments ({comments.length})</TabsTrigger>
+              </TabsList>
+
+              {/* Details tab */}
+              <TabsContent value="details" className="space-y-4 pt-2">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <Label>Formula Type</Label>
+                    {canEdit
+                      ? <Select value={editForm.formula_type||''} onValueChange={v=>setEditForm(f=>({...f,formula_type:v}))}>
+                          <SelectTrigger><SelectValue/></SelectTrigger>
+                          <SelectContent>{FORMULA_TYPES.map(t=><SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
+                        </Select>
+                      : <p className="text-sm py-2">{editForm.formula_type}</p>}
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Protein Source</Label>
+                    {canEdit
+                      ? <Input value={editForm.protein_source||''} onChange={e=>setEditForm(f=>({...f,protein_source:e.target.value}))} placeholder="e.g. Whey Isolate 25%"/>
+                      : <p className="text-sm py-2">{editForm.protein_source||'—'}</p>}
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Sweetener</Label>
+                    {canEdit
+                      ? <Input value={editForm.sweetener||''} onChange={e=>setEditForm(f=>({...f,sweetener:e.target.value}))}/>
+                      : <p className="text-sm py-2">{editForm.sweetener||'—'}</p>}
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Protein %</Label>
+                    {canEdit
+                      ? <Input value={editForm.protein_pct||''} onChange={e=>setEditForm(f=>({...f,protein_pct:e.target.value}))}/>
+                      : <p className="text-sm py-2">{editForm.protein_pct||'—'}</p>}
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Cocoa %</Label>
+                    {canEdit
+                      ? <Input value={editForm.cocoa_pct||''} onChange={e=>setEditForm(f=>({...f,cocoa_pct:e.target.value}))}/>
+                      : <p className="text-sm py-2">{editForm.cocoa_pct||'—'}</p>}
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Sugar (g/100g)</Label>
+                    {canEdit
+                      ? <Input value={editForm.sugar_per_100g||''} onChange={e=>setEditForm(f=>({...f,sugar_per_100g:e.target.value}))}/>
+                      : <p className="text-sm py-2">{editForm.sugar_per_100g||'—'}</p>}
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Cost/kg (₹)</Label>
+                    {canEdit
+                      ? <Input value={editForm.cost_per_kg||''} onChange={e=>setEditForm(f=>({...f,cost_per_kg:e.target.value}))}/>
+                      : <p className="text-sm py-2">{editForm.cost_per_kg||'—'}</p>}
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Stability at 40°C</Label>
+                    {canEdit
+                      ? <Input value={editForm.stability_40c||''} onChange={e=>setEditForm(f=>({...f,stability_40c:e.target.value}))}/>
+                      : <p className="text-sm py-2">{editForm.stability_40c||'—'}</p>}
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Sensory Score</Label>
+                    {canEdit
+                      ? <Input value={editForm.sensory_score||''} onChange={e=>setEditForm(f=>({...f,sensory_score:e.target.value}))} placeholder="e.g. 8.6/10"/>
+                      : <p className="text-sm py-2">{editForm.sensory_score||'—'}</p>}
+                  </div>
+                  <div className="col-span-2 space-y-1.5">
+                    <Label>Notes</Label>
+                    {canEdit
+                      ? <Textarea rows={3} value={editForm.notes||''} onChange={e=>setEditForm(f=>({...f,notes:e.target.value}))}/>
+                      : <p className="text-sm py-2 whitespace-pre-line">{editForm.notes||'—'}</p>}
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-3 pt-1">
+                  {[
+                    { label:'Created', value: selected.created_at ? new Date(selected.created_at).toLocaleString():'—' },
+                    { label:'Updated', value: selected.updated_at ? new Date(selected.updated_at).toLocaleString():'—' },
+                    { label:'Version', value: selected.version },
+                  ].map(({label,value}) => (
+                    <div key={label} className="bg-slate-50 rounded-lg p-3 border">
+                      <p className="text-xs text-muted-foreground">{label}</p>
+                      <p className="text-sm font-medium mt-0.5">{value}</p>
+                    </div>
+                  ))}
+                </div>
+              </TabsContent>
+
+              {/* Ingredients tab */}
+              <TabsContent value="ingredients" className="pt-2">
+                {canEdit ? (
+                  <div className="space-y-3">
+                    <div className="flex justify-end">
+                      <Button size="sm" variant="outline" onClick={() => setEditForm(f=>({...f,ingredients:[...(f.ingredients||[]),{name:'',qty:'',unit:'g',supplier:''}]}))}>
+                        <Plus className="h-3 w-3 mr-1"/>Add Ingredient
+                      </Button>
+                    </div>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Name</TableHead><TableHead>Qty</TableHead><TableHead>Unit</TableHead><TableHead>Supplier</TableHead><TableHead className="w-10"></TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {(editForm.ingredients||[]).length === 0
+                          ? <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground py-8">No ingredients added</TableCell></TableRow>
+                          : (editForm.ingredients||[]).map((ing,i) => (
+                            <TableRow key={i}>
+                              <TableCell><Input value={ing.name||''} onChange={e=>setEditForm(f=>({...f,ingredients:f.ingredients.map((r,idx)=>idx===i?{...r,name:e.target.value}:r)}))} placeholder="Ingredient name"/></TableCell>
+                              <TableCell><Input value={ing.qty||''} onChange={e=>setEditForm(f=>({...f,ingredients:f.ingredients.map((r,idx)=>idx===i?{...r,qty:e.target.value}:r)}))} className="w-20" placeholder="Qty"/></TableCell>
+                              <TableCell>
+                                <Select value={ing.unit||'g'} onValueChange={v=>setEditForm(f=>({...f,ingredients:f.ingredients.map((r,idx)=>idx===i?{...r,unit:v}:r)}))}>
+                                  <SelectTrigger className="w-20"><SelectValue/></SelectTrigger>
+                                  <SelectContent>{['g','kg','ml','L','%','ppm'].map(u=><SelectItem key={u} value={u}>{u}</SelectItem>)}</SelectContent>
+                                </Select>
+                              </TableCell>
+                              <TableCell><Input value={ing.supplier||''} onChange={e=>setEditForm(f=>({...f,ingredients:f.ingredients.map((r,idx)=>idx===i?{...r,supplier:e.target.value}:r)}))} placeholder="Supplier"/></TableCell>
+                              <TableCell><Button size="sm" variant="ghost" onClick={()=>setEditForm(f=>({...f,ingredients:f.ingredients.filter((_,idx)=>idx!==i)}))}><Trash2 className="h-3 w-3 text-red-500"/></Button></TableCell>
+                            </TableRow>
+                          ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                ) : (
+                  <Table>
+                    <TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Qty</TableHead><TableHead>Unit</TableHead><TableHead>Supplier</TableHead></TableRow></TableHeader>
+                    <TableBody>
+                      {(selected.ingredients||[]).length === 0
+                        ? <TableRow><TableCell colSpan={4} className="text-center text-muted-foreground py-8">No ingredients listed</TableCell></TableRow>
+                        : (selected.ingredients||[]).map((ing,i)=>(
+                          <TableRow key={i}>
+                            <TableCell className="font-medium">{ing.name}</TableCell>
+                            <TableCell>{ing.qty||'—'}</TableCell>
+                            <TableCell>{ing.unit||'—'}</TableCell>
+                            <TableCell>{ing.supplier||'—'}</TableCell>
+                          </TableRow>
+                        ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </TabsContent>
+
+              {/* Status tab */}
+              <TabsContent value="status" className="space-y-4 pt-2">
+                <div className="space-y-2">
+                  <Label>Formula Status</Label>
+                  {canEdit
+                    ? <Select value={editForm.status||''} onValueChange={v=>setEditForm(f=>({...f,status:v}))}>
+                        <SelectTrigger><SelectValue/></SelectTrigger>
+                        <SelectContent>
+                          {FORMULA_STATUSES.map(s=>(
+                            <SelectItem key={s} value={s}>
+                              <span className={`text-xs px-1.5 py-0.5 rounded mr-2 ${FORMULA_STATUS_COLORS[s]||'bg-slate-100'}`}>{s}</span>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    : <div className="py-2"><span className={`text-xs px-2 py-1 rounded-md font-medium ${FORMULA_STATUS_COLORS[editForm.status]||'bg-slate-100'}`}>{editForm.status}</span></div>}
+                </div>
+                <div className="grid grid-cols-2 gap-4 pt-2">
+                  {[
+                    { label:'Protein %',       value: selected.protein_pct   },
+                    { label:'Cocoa %',          value: selected.cocoa_pct     },
+                    { label:'Sugar (g/100g)',   value: selected.sugar_per_100g},
+                    { label:'Cost/kg (₹)',      value: selected.cost_per_kg   },
+                    { label:'Stability (40°C)', value: selected.stability_40c },
+                    { label:'Sensory Score',    value: selected.sensory_score },
+                  ].map(({label,value}) => (
+                    <div key={label} className="bg-slate-50 rounded-lg p-3 border">
+                      <p className="text-xs text-muted-foreground">{label}</p>
+                      <p className="text-sm font-semibold mt-0.5">{value||'—'}</p>
+                    </div>
+                  ))}
+                </div>
+              </TabsContent>
+
+              {/* Comments tab */}
+              <TabsContent value="comments" className="pt-2">
+                <div className="space-y-3">
+                  <ScrollArea className="h-64 border rounded-lg p-3">
+                    {comments.length === 0
+                      ? <p className="text-sm text-muted-foreground text-center py-8">No comments yet</p>
+                      : comments.map(c => (
+                          <div key={c.id} className="mb-3 pb-3 border-b last:border-0">
+                            <div className="flex items-center justify-between">
+                              <span className="text-sm font-medium">{c.user_name}</span>
+                              <div className="flex items-center gap-2">
+                                <Badge variant="outline" className="text-xs">{ROLES[c.user_role]?.label||c.user_role}</Badge>
+                                <span className="text-xs text-muted-foreground">{relTime(c.created_at)}</span>
+                              </div>
+                            </div>
+                            <p className="text-sm text-muted-foreground mt-1">{c.comment}</p>
+                          </div>
+                        ))}
+                  </ScrollArea>
+                  <div className="flex gap-2">
+                    <Textarea rows={2} value={commentText} onChange={e=>setCommentText(e.target.value)}
+                      placeholder="Add a comment, observation, or note..." className="flex-1"/>
+                    <Button onClick={handleComment} disabled={postingComment||!commentText.trim()} className="self-end">
+                      {postingComment ? <RefreshCw className="h-4 w-4 animate-spin"/> : <Send className="h-4 w-4"/>}
+                    </Button>
+                  </div>
+                </div>
+              </TabsContent>
+            </Tabs>
+
+            <DialogFooter className="gap-2 pt-2">
+              {canDelete && (
+                <Button variant="destructive" onClick={handleDelete} disabled={deleting} className="mr-auto">
+                  {deleting ? <RefreshCw className="h-4 w-4 animate-spin mr-2"/> : <Trash2 className="h-4 w-4 mr-2"/>}Delete
+                </Button>
+              )}
+              <Button variant="outline" onClick={() => setDetailOpen(false)}>Close</Button>
+              {canEdit && (
+                <Button onClick={handleSave} disabled={saving}>
+                  {saving && <RefreshCw className="h-4 w-4 animate-spin mr-2"/>}Save Changes
+                </Button>
+              )}
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* ── Compare Dialog ── */}
       <Dialog open={compareOpen} onOpenChange={setCompareOpen}>
-        <DialogContent className="max-w-5xl">
-          <DialogHeader><DialogTitle>Compare Formulas Side-by-Side</DialogTitle><DialogDescription>Select up to 5 formulas to compare</DialogDescription></DialogHeader>
-          <Table><TableHeader><TableRow><TableHead>Parameter</TableHead><TableHead>F-01</TableHead><TableHead>F-02</TableHead><TableHead>F-03</TableHead><TableHead>F-04</TableHead></TableRow></TableHeader>
-            <TableBody>
-              {[
-                ['Protein %','22%','25%','24%','26%'],
-                ['Sugar (g/100g)','12','8','15','10'],
-                ['Sweetener','Sucralose','Stevia+Sucrose','Sucrose','Sucrose+Stevia'],
-                ['Cocoa %','12%','14%','13%','15%'],
-                ['Sensory Score','5.2/10','7.8/10','7.1/10','8.6/10'],
-                ['Cost/kg','₹385','₹412','₹398','₹425'],
-                ['Stability (40°C)','65 days','78 days','82 days','92 days'],
-              ].map((r,i)=>(<TableRow key={i}><TableCell className="font-medium">{r[0]}</TableCell><TableCell>{r[1]}</TableCell><TableCell>{r[2]}</TableCell><TableCell>{r[3]}</TableCell><TableCell className="font-medium text-primary">{r[4]}</TableCell></TableRow>))}
-            </TableBody>
-          </Table>
+        <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Formula Comparison</DialogTitle>
+            <DialogDescription>{compareList.length} formulas selected</DialogDescription>
+          </DialogHeader>
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-36">Parameter</TableHead>
+                  {compareList.map(f => (
+                    <TableHead key={f.formula_id}>
+                      <div className="font-mono text-xs">{f.formula_id}</div>
+                      <div className="font-normal text-xs text-muted-foreground">{f.version}</div>
+                    </TableHead>
+                  ))}
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {COMPARE_FIELDS.map(({key,label}) => (
+                  <TableRow key={key}>
+                    <TableCell className="font-medium text-sm">{label}</TableCell>
+                    {compareList.map(f => (
+                      <TableCell key={f.formula_id} className={`text-sm ${key==='status'?'':''}`}>
+                        {key === 'status'
+                          ? <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${FORMULA_STATUS_COLORS[f[key]]||'bg-slate-100'}`}>{f[key]||'—'}</span>
+                          : f[key] || '—'}
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

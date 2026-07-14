@@ -104,3 +104,77 @@ class ResetPasswordRequest(BaseModel):
     email: EmailStr
     otp: str
     new_password: str
+
+# ── PPD ───────────────────────────────────────────────────────────────────────
+class PPDCreate(BaseModel):
+    project_id: str
+    project_name: str
+    brand: str
+    product_category: Optional[str] = None
+    target_consumer: Optional[str] = None
+    market_segment: Optional[str] = None
+    expected_launch: Optional[str] = None
+    objective: Optional[str] = None
+    key_benefits: Optional[str] = None
+
+class PPDUpdate(BaseModel):
+    product_category: Optional[str] = None
+    target_consumer: Optional[str] = None
+    market_segment: Optional[str] = None
+    expected_launch: Optional[str] = None
+    objective: Optional[str] = None
+    key_benefits: Optional[str] = None
+    status: Optional[str] = None
+    reviewers: Optional[List[dict]] = None
+
+class PPDCommentCreate(BaseModel):
+    comment: str
+    action_tag: str = "comment"   # "comment" | "rework" | "approve"
+
+# ── Formulation ───────────────────────────────────────────────────────────────
+class IngredientItem(BaseModel):
+    name: str
+    qty: Optional[str] = None
+    unit: Optional[str] = None
+    supplier: Optional[str] = None
+
+class FormulaCreate(BaseModel):
+    project_id: str
+    project_name: Optional[str] = None
+    formula_type: Optional[str] = "Trial"
+    protein_source: Optional[str] = None
+    sweetener: Optional[str] = None
+    cocoa_pct: Optional[str] = None
+    protein_pct: Optional[str] = None
+    sugar_per_100g: Optional[str] = None
+    cost_per_kg: Optional[str] = None
+    stability_40c: Optional[str] = None
+    sensory_score: Optional[str] = None
+    notes: Optional[str] = None
+    ingredients: Optional[List[dict]] = None
+
+class FormulaUpdate(BaseModel):
+    formula_type: Optional[str] = None
+    status: Optional[str] = None
+    protein_source: Optional[str] = None
+    sweetener: Optional[str] = None
+    cocoa_pct: Optional[str] = None
+    protein_pct: Optional[str] = None
+    sugar_per_100g: Optional[str] = None
+    cost_per_kg: Optional[str] = None
+    stability_40c: Optional[str] = None
+    sensory_score: Optional[str] = None
+    notes: Optional[str] = None
+    ingredients: Optional[List[dict]] = None
+
+class FormulaCommentCreate(BaseModel):
+    comment: str
+
+# ── Tasks ─────────────────────────────────────────────────────────────────────
+class TaskCreate(BaseModel):
+    title: str
+    assigned_role: str
+    type: Optional[str] = "General"
+    priority: str = "Medium"
+    due_date: Optional[str] = None
+    due_label: Optional[str] = None
