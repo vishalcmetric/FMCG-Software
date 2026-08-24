@@ -61,10 +61,11 @@ async def _build_stats(db: AsyncSession, role: str, user_email: str) -> list[Sta
 
 
 async def _build_tasks(db: AsyncSession, role: str, user_email: str) -> list[PendingTask]:
-    stmt = select(Task).where(Task.status == "pending")
+    # Show all non-terminal tasks (not completed/cancelled) for the role
+    stmt = select(Task).where(Task.status.not_in(["completed", "cancelled"]))
     if role not in _FULL_ROLES:
         stmt = stmt.where(Task.assigned_role == role)
-    stmt = stmt.order_by(Task.due_date).limit(10)
+    stmt = stmt.order_by(Task.due_date).limit(20)
 
     result = await db.execute(stmt)
     return [
@@ -74,6 +75,9 @@ async def _build_tasks(db: AsyncSession, role: str, user_email: str) -> list[Pen
             priority=t.priority or "Medium",
             due=t.due_label or "—",
             project_id=t.project_id,
+            task_id=t.id,
+            task_type=t.type,
+            status=t.status or "pending",
         )
         for t in result.scalars().all()
     ]

@@ -231,10 +231,22 @@ async def update_ppd(
 
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
 
-    # Restrict status transitions to admin only
+    # Role-restricted status transitions per WBS workflow:
+    # - Approved / CEO Approved / Archived → admin only
+    # - Submitted → source (WBS step 4: source submits final PPD to management)
+    # - Under Review → pm or admin (WBS step 2: PM assigns teams)
+    # - Rework → admin, mgmt, ceo, rd_head (WBS: mgmt sends back for rework)
     admin_only_statuses = {"Approved", "CEO Approved", "Archived"}
-    if "status" in updates and updates["status"] in admin_only_statuses and role != "admin":
-        raise HTTPException(403, f"Only admin can set status to '{updates['status']}'")
+    if "status" in updates:
+        new_status = updates["status"]
+        if new_status in admin_only_statuses and role != "admin":
+            raise HTTPException(403, f"Only admin can set status to '{new_status}'")
+        if new_status == "Submitted" and role not in ("admin", "source"):
+            raise HTTPException(403, "Only Source Team or admin can submit a PPD for approval")
+        if new_status == "Under Review" and role not in ("admin", "pm"):
+            raise HTTPException(403, "Only Project Management or admin can set PPD to Under Review")
+        if new_status == "Rework" and role not in ("admin", "mgmt", "ceo", "rd_head"):
+            raise HTTPException(403, "Only Management, CEO, R&D Head or admin can send PPD for rework")
 
     # Bump version on content edits
     content_fields = {"objective", "key_benefits", "product_category", "target_consumer", "market_segment", "expected_launch"}
@@ -383,11 +395,18 @@ async def add_comment(
     )
     db.add(comment)
 
-    # If action_tag triggers a status change
+    # If action_tag triggers a status change — WBS role rules:
+    # rework: admin, mgmt, ceo, rd_head can send back for rework
+    # approve: mgmt/ceo can approve (mgmt → Approved, ceo → CEO Approved), admin can set either
     if body.action_tag == "rework" and role in ("admin", "mgmt", "ceo", "rd_head"):
         p.status = "Rework"
-    elif body.action_tag == "approve" and role == "admin":
-        p.status = "Approved"
+    elif body.action_tag == "approve":
+        if role == "admin":
+            p.status = "Approved"
+        elif role == "mgmt":
+            p.status = "Approved"
+        elif role == "ceo":
+            p.status = "CEO Approved"
 
     target_roles = (p.teams_involved or "admin").split(",")
     await notify_roles(

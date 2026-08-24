@@ -1,14 +1,4 @@
 import { NextResponse } from 'next/server'
-import { MongoClient } from 'mongodb'
-
-let client
-async function getDb() {
-  if (!client) {
-    client = new MongoClient(process.env.MONGO_URL)
-    await client.connect()
-  }
-  return client.db(process.env.DB_NAME || 'zydus_wellness')
-}
 
 function corsHeaders() {
   return {
@@ -25,8 +15,8 @@ export async function OPTIONS() {
 export async function GET(request, { params }) {
   const path = (params?.path || []).join('/')
   try {
-    if (path === 'health') return NextResponse.json({ status: 'ok', service: 'zydus-wellness' }, { headers: corsHeaders() })
-    if (path === '' || path === 'root') return NextResponse.json({ message: 'Zydus Wellness API' }, { headers: corsHeaders() })
+    if (path === 'health') return NextResponse.json({ status: 'ok', service: 'fmcg-software' }, { headers: corsHeaders() })
+    if (path === '' || path === 'root') return NextResponse.json({ message: 'FMCG Software API' }, { headers: corsHeaders() })
     return NextResponse.json({ path, method: 'GET', message: 'Endpoint reachable — backend logic to be implemented' }, { headers: corsHeaders() })
   } catch (e) {
     return NextResponse.json({ error: e.message }, { status: 500, headers: corsHeaders() })

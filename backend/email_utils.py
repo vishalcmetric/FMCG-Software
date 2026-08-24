@@ -27,9 +27,9 @@ def _build_html(otp: str, purpose: str) -> str:
   <div style="max-width:480px; margin:auto; background:#fff; border-radius:12px;
               border:1px solid #e5e7eb; overflow:hidden;">
     <div style="background:#1e293b; padding:28px 32px;">
-      <h1 style="color:#fff; margin:0; font-size:20px;">Zydus Wellness</h1>
-      <p  style="color:#94a3b8; margin:4px 0 0; font-size:13px;">Product Development Platform</p>
-    </div>
+     <h1 style="color:#fff; margin:0; font-size:20px;">FMCG Software</h1>
+     <p  style="color:#94a3b8; margin:4px 0 0; font-size:13px;">Product Development Platform</p>
+   </div>
     <div style="padding:32px;">
       <h2 style="margin:0 0 8px; color:#1f2328; font-size:18px;">{title}</h2>
       <p style="color:#57606a; margin:0 0 24px; font-size:14px; line-height:1.6;">
@@ -47,7 +47,7 @@ def _build_html(otp: str, purpose: str) -> str:
     </div>
     <div style="background:#f7f8fa; padding:16px 32px; border-top:1px solid #e5e7eb;">
       <p style="color:#57606a; font-size:12px; margin:0;">
-        &copy; 2026 Zydus Wellness Ltd. &nbsp;|&nbsp; Confidential &amp; Proprietary
+        &copy; 2026 FMCG Software. &nbsp;|&nbsp; Confidential &amp; Proprietary
       </p>
     </div>
   </div>
@@ -68,8 +68,8 @@ def send_otp_email(to_email: str, otp: str, purpose: str) -> bool:
 
     try:
         msg = MIMEMultipart("alternative")
-        msg["Subject"] = f"Your Zydus Wellness OTP: {otp}"
-        msg["From"]    = f"Zydus Wellness <{settings.smtp_user}>"
+        msg["Subject"] = f"Your FMCG Software OTP: {otp}"
+        msg["From"]    = f"FMCG Software <{settings.smtp_user}>"
         msg["To"]      = to_email
 
         msg.attach(MIMEText(_build_html(otp, purpose), "html"))

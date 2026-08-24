@@ -20,18 +20,21 @@ settings = get_settings()
 
 # ── Demo users fallback (when DB row not found) ────────────────────────────────
 DEMO_USERS = {
-    "admin@zyduswellness.com":      {"name": "Admin User",      "role": "admin",      "department": "IT"},
-    "source@zyduswellness.com":     {"name": "Rahul Mehta",     "role": "source",     "department": "Marketing"},
-    "pm@zyduswellness.com":         {"name": "Priti Nair",      "role": "pm",         "department": "PMO"},
-    "fd@zyduswellness.com":         {"name": "Priya Sharma",    "role": "fd",         "department": "R&D"},
-    "rd_head@zyduswellness.com":    {"name": "Dr. Anjali Rao",  "role": "rd_head",    "department": "R&D"},
-    "marketing@zyduswellness.com":  {"name": "Neeraj Kapoor",   "role": "marketing",  "department": "Marketing"},
-    "regulatory@zyduswellness.com": {"name": "Amit Verma",      "role": "regulatory", "department": "Regulatory"},
-    "packaging@zyduswellness.com":  {"name": "Rajesh Nair",     "role": "packaging",  "department": "Packaging"},
-    "production@zyduswellness.com": {"name": "Anil Kumar",      "role": "production", "department": "Production"},
-    "ceo@zyduswellness.com":        {"name": "CEO Office",      "role": "ceo",        "department": "Leadership"},
-    "mgmt@zyduswellness.com":       {"name": "Management MC",   "role": "mgmt",       "department": "Leadership"},
-    "demo.user@zyduswellness.com":  {"name": "Demo User",       "role": "admin",      "department": "IT"},
+    "admin@fmcgsoftware.com":      {"name": "Admin User",       "role": "admin",      "department": "IT"},
+    "source@fmcgsoftware.com":     {"name": "Rahul Mehta",      "role": "source",     "department": "Marketing"},
+    "pm@fmcgsoftware.com":         {"name": "Priti Nair",       "role": "pm",         "department": "PMO"},
+    "fd@fmcgsoftware.com":         {"name": "Priya Sharma",     "role": "fd",         "department": "R&D"},
+    "rd_head@fmcgsoftware.com":    {"name": "Dr. Anjali Rao",   "role": "rd_head",    "department": "R&D"},
+    "marketing@fmcgsoftware.com":  {"name": "Neeraj Kapoor",    "role": "marketing",  "department": "Marketing"},
+    "regulatory@fmcgsoftware.com": {"name": "Amit Verma",       "role": "regulatory", "department": "Regulatory"},
+    "packaging@fmcgsoftware.com":  {"name": "Rajesh Nair",      "role": "packaging",  "department": "Packaging"},
+    "production@fmcgsoftware.com": {"name": "Anil Kumar",       "role": "production", "department": "Production"},
+    "ceo@fmcgsoftware.com":        {"name": "CEO Office",       "role": "ceo",        "department": "Leadership"},
+    "mgmt@fmcgsoftware.com":       {"name": "Management MC",    "role": "mgmt",       "department": "Leadership"},
+    "adl@fmcgsoftware.com":        {"name": "Dr. Suresh ADL",   "role": "adl",        "department": "ADL Lab"},
+    "pmsa@fmcgsoftware.com":       {"name": "Meena PMSA",       "role": "pmsa",       "department": "PM & SA"},
+    "sa@fmcgsoftware.com":         {"name": "Kavita SA",        "role": "sa",         "department": "Scientific Affairs"},
+    "demo.user@fmcgsoftware.com":  {"name": "Demo User",        "role": "admin",      "department": "IT"},
 }
 
 # ── helpers ────────────────────────────────────────────────────────────────────
@@ -90,7 +93,7 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
         await db.commit()
     else:
         demo = DEMO_USERS.get(body.email.lower())
-        if not demo and "@zyduswellness.com" not in body.email.lower():
+        if not demo and "@fmcgsoftware.com" not in body.email.lower():
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "User not found")
         if demo:
             role, name = body.role or demo["role"], demo["name"]

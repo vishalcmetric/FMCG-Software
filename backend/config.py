@@ -7,10 +7,10 @@ class Settings(BaseSettings):
     mysql_port: int = 3306
     mysql_user: str = "root"
     mysql_password: str = ""
-    mysql_db: str = "zydus_wellness"
+    mysql_db: str = "fmcg_software"
 
     # JWT
-    secret_key: str = "zydus-wellness-super-secret-key-change-in-production"
+    secret_key: str = "fmcg-software-secret-key-change-in-production"
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 480
 

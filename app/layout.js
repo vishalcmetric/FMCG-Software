@@ -2,8 +2,8 @@ import './globals.css'
 import { Toaster } from '@/components/ui/sonner'
 
 export const metadata = {
-  title: 'Zydus Wellness — Product Development Platform',
-  description: 'Enterprise product development lifecycle management for Zydus Wellness FMCG',
+  title: 'FMCG Software — Product Development Platform',
+  description: 'Enterprise FMCG product development lifecycle management platform',
 }
 
 export default function RootLayout({ children }) {

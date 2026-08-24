@@ -31,6 +31,9 @@ class PendingTask(BaseModel):
     priority: str
     due: str
     project_id: Optional[str] = None
+    task_id: Optional[int] = None        # DB task.id — used to mark complete
+    task_type: Optional[str] = None      # e.g. "formulation" "regulatory" "report"
+    status: Optional[str] = "pending"   # current task status (pending/in_progress/approved/etc.)
 
 class ActivityItem(BaseModel):
     user: str

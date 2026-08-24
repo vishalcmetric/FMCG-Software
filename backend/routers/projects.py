@@ -75,7 +75,7 @@ async def create_project(
 ):
     year = datetime.now(timezone.utc).year
     count = (await db.execute(select(func.count()).select_from(Project))).scalar() or 0
-    pid = f"ZW-{year}-{str(count + 1).zfill(3)}"
+    pid = f"NP-{year}-{str(count + 1).zfill(3)}"
 
     role = current_user.get("role", "fd")
 
@@ -275,6 +275,22 @@ def _task_out(t: Task) -> dict:
     }
 
 
+# ── IMPORTANT: /tasks/mine must be registered BEFORE /{project_id}/tasks ──────
+@router.get("/tasks/mine")
+async def get_my_tasks(
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return all pending tasks assigned to the current user's role."""
+    role = current_user.get("role", "fd")
+    stmt = select(Task).where(Task.status == "pending")
+    if role not in ("admin", "mgmt", "ceo"):
+        stmt = stmt.where(Task.assigned_role == role)
+    stmt = stmt.order_by(Task.due_date.asc()).limit(50)
+    result = await db.execute(stmt)
+    return [_task_out(t) for t in result.scalars().all()]
+
+
 @router.get("/{project_id}/tasks")
 async def list_project_tasks(
     project_id: str,
@@ -341,3 +357,170 @@ async def create_project_task(
     await db.commit()
     await db.refresh(task)
     return _task_out(task)
+
+
+@router.patch("/{project_id}/tasks/{task_id}/complete")
+async def complete_task(
+    project_id: str,
+    task_id: int,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Any role in the project's teams_involved can mark their assigned task as completed.
+    Admin can complete any task. The status change is visible on admin panel + audit log.
+    """
+    result = await db.execute(select(Task).where(Task.id == task_id, Task.project_id == project_id))
+    task = result.scalars().first()
+    if not task:
+        raise HTTPException(404, "Task not found")
+
+    role = current_user.get("role", "fd")
+    # Only the assigned role or admin/mgmt/ceo can complete
+    if role not in ("admin", "mgmt", "ceo") and task.assigned_role != role:
+        raise HTTPException(403, "You are not assigned to this task")
+
+    task.status = "completed"
+
+    proj_result = await db.execute(select(Project).where(Project.project_id == project_id))
+    p = proj_result.scalars().first()
+
+    db.add(AuditLog(
+        user_name=current_user.get("name", ""),
+        user_email=current_user.get("sub", ""),
+        action="UPDATE",
+        action_label=f"completed task '{task.title}' on {project_id}",
+        entity=project_id,
+        involved_roles="admin",
+        time_ago="just now",
+    ))
+
+    # Notify admin that a task was completed
+    await notify_roles(
+        db,
+        roles=["admin", "mgmt"],
+        title=f"Task Completed: {task.title}",
+        message=f"{current_user.get('name','User')} ({role}) completed task '{task.title}' on {p.name if p else project_id}.",
+        action_type="task_assigned",
+        entity_id=project_id,
+        entity_name=p.name if p else project_id,
+        created_by=current_user.get("name", ""),
+    )
+
+    await db.commit()
+    return {"ok": True, "task": _task_out(task)}
+
+
+# ── ROLE-AWARE TASK STATUS UPDATE ─────────────────────────────────────────────
+# Allowed status transitions per role type:
+#   approval tasks  → approve | reject | rework | in_progress
+#   lab/formulation → in_progress | completed
+#   sensory         → in_progress | completed (pass/fail recorded in SensoryEvaluation)
+#   regulatory      → in_progress | approve | rework | completed
+#   plant/production→ in_progress | completed
+#   generic         → in_progress | completed
+
+ROLE_ALLOWED_STATUSES: dict[str, list[str]] = {
+    "source":     ["in_progress", "approved", "rejected", "rework", "completed"],
+    "pm":         ["in_progress", "completed"],
+    "fd":         ["in_progress", "completed"],
+    "rd_head":    ["in_progress", "approved", "rejected", "rework", "completed"],
+    "marketing":  ["in_progress", "approved", "rework", "completed"],
+    "regulatory": ["in_progress", "approved", "rework", "completed"],
+    "packaging":  ["in_progress", "completed"],
+    "adl":        ["in_progress", "completed"],
+    "pmsa":       ["in_progress", "completed"],
+    "sa":         ["in_progress", "approved", "rejected", "completed"],
+    "mgmt":       ["in_progress", "approved", "rejected", "rework", "completed"],
+    "ceo":        ["in_progress", "approved", "rejected", "completed"],
+    "production": ["in_progress", "completed"],
+    "admin":      ["in_progress", "approved", "rejected", "rework", "completed", "cancelled"],
+}
+
+STATUS_LABELS: dict[str, str] = {
+    "in_progress": "Mark In Progress",
+    "approved":    "Approve",
+    "rejected":    "Reject",
+    "rework":      "Request Rework",
+    "completed":   "Mark Complete",
+    "cancelled":   "Cancel Task",
+}
+
+
+@router.patch("/{project_id}/tasks/{task_id}/status")
+async def update_task_status(
+    project_id: str,
+    task_id: int,
+    body: dict,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Role-aware task status update.
+    Each role can only set statuses defined in ROLE_ALLOWED_STATUSES.
+    Only the assigned role (or admin/mgmt/ceo) can update a task.
+    """
+    new_status = (body.get("status") or "").strip()
+    if not new_status:
+        raise HTTPException(400, "status is required")
+
+    result = await db.execute(select(Task).where(Task.id == task_id, Task.project_id == project_id))
+    task = result.scalars().first()
+    if not task:
+        raise HTTPException(404, "Task not found")
+
+    role = current_user.get("role", "fd")
+
+    # Only the assigned role or admin/mgmt/ceo can update
+    if role not in ("admin", "mgmt", "ceo") and task.assigned_role != role:
+        raise HTTPException(403, "You are not assigned to this task")
+
+    # Validate allowed statuses for this role
+    allowed = ROLE_ALLOWED_STATUSES.get(role, ["in_progress", "completed"])
+    if new_status not in allowed:
+        raise HTTPException(403, f"Role '{role}' cannot set status '{new_status}'")
+
+    old_status = task.status
+    task.status = new_status
+
+    proj_result = await db.execute(select(Project).where(Project.project_id == project_id))
+    p = proj_result.scalars().first()
+
+    db.add(AuditLog(
+        user_name=current_user.get("name", ""),
+        user_email=current_user.get("sub", ""),
+        action="UPDATE",
+        action_label=f"updated task '{task.title}' status: {old_status} → {new_status}",
+        entity=project_id,
+        involved_roles=f"admin,{role}",
+        time_ago="just now",
+    ))
+
+    await notify_roles(
+        db,
+        roles=["admin", "mgmt"],
+        title=f"Task Status Updated: {task.title}",
+        message=f"{current_user.get('name','User')} ({role}) changed task '{task.title}' from '{old_status}' to '{new_status}' on {p.name if p else project_id}.",
+        action_type="task_assigned",
+        entity_id=project_id,
+        entity_name=p.name if p else project_id,
+        created_by=current_user.get("name", ""),
+    )
+
+    await db.commit()
+    return {"ok": True, "task": _task_out(task)}
+
+
+@router.get("/tasks/allowed-statuses")
+async def get_allowed_statuses(
+    current_user: dict = Depends(get_current_user),
+):
+    """Return the allowed task status transitions for the current user's role."""
+    role = current_user.get("role", "fd")
+    allowed = ROLE_ALLOWED_STATUSES.get(role, ["in_progress", "completed"])
+    return {
+        "role": role,
+        "allowed_statuses": allowed,
+        "labels": {s: STATUS_LABELS.get(s, s.replace("_", " ").title()) for s in allowed},
+    }
+
