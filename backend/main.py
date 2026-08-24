@@ -27,8 +27,18 @@ settings = get_settings()
 async def lifespan(app: FastAPI):
     try:
         await create_tables()   # CREATE TABLE IF NOT EXISTS on startup
+        from database import AsyncSessionLocal
+        from orm_models import Project
+        from sqlalchemy import select, func
+        async with AsyncSessionLocal() as session:
+            res = await session.execute(select(func.count(Project.id)))
+            count = res.scalar() or 0
+            if count == 0:
+                print("Database is empty. Auto-seeding demo data...")
+                import seed as _seed_mod
+                await _seed_mod.seed()
     except Exception as e:
-        print(f"Startup table creation warning: {e}")
+        print(f"Startup table creation/seed warning: {e}")
     yield
 
 app = FastAPI(
