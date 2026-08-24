@@ -2565,16 +2565,22 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
           </div>
         </div>
         <div className="flex gap-2 shrink-0 flex-wrap">
-          {/* Source: Save as Draft (WBS: source saves draft before submitting) */}
+          {/* Locked status banner indicator */}
+          {ppd.status === 'CEO Approved' && (
+            <Badge className="bg-purple-600 text-white px-3 py-1 text-xs gap-1.5 shadow-sm">
+              <ShieldCheck className="h-4 w-4" /> PPD Locked — Formulation Unlocked
+            </Badge>
+          )}
+          {/* Source: Save as Draft */}
           {isSource && ['Draft','Rework'].includes(ppd.status) && (
             <Button variant="outline" size="sm" onClick={() => handleSave()} disabled={saving}>
               {saving ? <RefreshCw className="h-4 w-4 animate-spin mr-1"/> : <Edit className="h-4 w-4 mr-1"/>}
               Save as Draft
             </Button>
           )}
-          {/* Source: Submit Final PPD for Mgmt approval (WBS step 4) */}
+          {/* Source: Submit Final PPD for Mgmt approval (Step 4) */}
           {isSource && ['Draft','Under Review','Rework'].includes(ppd.status) && (
-            <Button size="sm" className="gap-1" onClick={async () => {
+            <Button size="sm" className="gap-1 bg-amber-600 hover:bg-amber-700 text-white" onClick={async () => {
               setSaving(true)
               try {
                 await apiCall(`/api/ppd/${ppd.ppd_id}`, { method: 'PUT', token, body: { ...editForm, status: 'Submitted' } })
@@ -2588,7 +2594,7 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
               Submit for Approval
             </Button>
           )}
-          {/* PM: Set Under Review after assigning teams (WBS step 2) */}
+          {/* PM: Set Under Review after assigning teams (Step 2) */}
           {isPM && ppd.status === 'Draft' && (
             <Button size="sm" variant="outline" onClick={async () => {
               try {
@@ -2601,19 +2607,19 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
               <Users className="h-4 w-4 mr-1"/>Assign & Set Under Review
             </Button>
           )}
-          {/* Mgmt: Approve or Rework (WBS step 5) */}
-          {isMgmt && ['Submitted','Approved'].includes(ppd.status) && (
+          {/* Mgmt Committee: Approve or Rework (Step 5) */}
+          {(isMgmt || ['rd_head','regulatory','marketing','sa'].includes(user?.role)) && ['Submitted','Approved'].includes(ppd.status) && (
             <>
               <Button size="sm" variant="outline" className="border-emerald-300 text-emerald-700 hover:bg-emerald-50"
                 onClick={async () => {
                   try {
-                    await apiCall(`/api/ppd/${ppd.ppd_id}/comments`, { method: 'POST', token, body: { comment: 'Management Committee approved.', action_tag: 'approve' } })
+                    await apiCall(`/api/ppd/${ppd.ppd_id}/comments`, { method: 'POST', token, body: { comment: `${ROLES[user?.role]?.label || user?.role} approved PPD.`, action_tag: 'approve' } })
                     const updated = await apiCall(`/api/ppd/${ppd.ppd_id}`, { token })
                     setPpd(updated); fetchComments()
-                    toast.success('PPD approved by Mgmt Committee')
+                    toast.success('PPD approved')
                   } catch (err) { toast.error(err.message) }
                 }}>
-                <CheckCircle2 className="h-4 w-4 mr-1"/>Approve
+                <CheckCircle2 className="h-4 w-4 mr-1"/>Approve (Committee)
               </Button>
               <Button size="sm" variant="outline" className="border-red-300 text-red-700 hover:bg-red-50"
                 onClick={async () => {
@@ -2630,18 +2636,18 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
               </Button>
             </>
           )}
-          {/* CEO: Final Approval (WBS step 6) */}
-          {isCEOUser && ppd.status === 'Approved' && (
-            <Button size="sm" className="gap-1" onClick={async () => {
+          {/* CEO: Final Approval (Step 6) */}
+          {(isCEOUser || isAdmin) && ['Submitted','Approved'].includes(ppd.status) && (
+            <Button size="sm" className="gap-1 bg-purple-700 hover:bg-purple-800 text-white" onClick={async () => {
               try {
                 await apiCall(`/api/ppd/${ppd.ppd_id}/comments`, { method: 'POST', token, body: { comment: 'CEO final approval granted. Proceeding to execution.', action_tag: 'approve' } })
                 await apiCall(`/api/ppd/${ppd.ppd_id}`, { method: 'PUT', token, body: { status: 'CEO Approved' } })
                 const updated = await apiCall(`/api/ppd/${ppd.ppd_id}`, { token })
                 setPpd(updated); fetchComments()
-                toast.success('CEO approved! Formulation phase can now begin.')
+                toast.success('CEO Approved! Project moved to Formulation phase.')
               } catch (err) { toast.error(err.message) }
             }}>
-              <CheckCircle2 className="h-4 w-4 mr-1"/>CEO Final Approval
+              <BadgeCheck className="h-4 w-4 mr-1"/>CEO Final Approval
             </Button>
           )}
           {/* Admin: full controls */}

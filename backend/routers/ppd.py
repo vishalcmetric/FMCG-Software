@@ -169,7 +169,7 @@ async def create_ppd(
         expected_launch=body.expected_launch,
         objective=body.objective,
         key_benefits=body.key_benefits,
-        status="Draft",
+        status="Under Review",
         ppd_version="v1.0",
         teams_involved=project.teams_involved or "admin",
         created_by=current_user.get("name", ""),
@@ -178,6 +178,21 @@ async def create_ppd(
         reviewers=reviewers,
     )
     db.add(ppd)
+
+    # Auto-assign review tasks to R&D/F&D (fd) and PM (pm)
+    from orm_models import Task
+    for target_role in ["fd", "pm"]:
+        db.add(Task(
+            title=f"Review PPD {ppd_id} for {body.project_name}",
+            project_name=body.project_name,
+            project_id=body.project_id,
+            assigned_role=target_role,
+            type="ppd_review",
+            status="pending",
+            priority="High",
+            due_label="Today"
+        ))
+
     db.add(AuditLog(
         user_name=current_user.get("name", ""),
         user_email=current_user.get("sub", ""),
@@ -193,7 +208,7 @@ async def create_ppd(
         db,
         roles=target_roles,
         title=f"New PPD Created: {body.project_name}",
-        message=f"{current_user.get('name','User')} created a PPD for {body.project_id} ({body.brand}). Status: Draft.",
+        message=f"{current_user.get('name','User')} created a PPD for {body.project_id} ({body.brand}). Assigned to PM & F&D for review.",
         action_type="ppd_created",
         entity_id=ppd_id,
         entity_name=body.project_name,
@@ -216,7 +231,7 @@ async def update_ppd(
 ):
     """
     Update PPD details or status.
-    Status changes to Approved / CEO Approved / Archived are admin-only.
+    Status changes to Approved / CEO Approved / Archived are role-managed.
     Any team member in teams_involved can update content fields (objective, etc.).
     """
     result = await db.execute(select(PPDSubmission).where(PPDSubmission.ppd_id == ppd_id))
@@ -231,22 +246,24 @@ async def update_ppd(
 
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
 
-    # Role-restricted status transitions per WBS workflow:
-    # - Approved / CEO Approved / Archived → admin only
-    # - Submitted → source (WBS step 4: source submits final PPD to management)
-    # - Under Review → pm or admin (WBS step 2: PM assigns teams)
-    # - Rework → admin, mgmt, ceo, rd_head (WBS: mgmt sends back for rework)
-    admin_only_statuses = {"Approved", "CEO Approved", "Archived"}
     if "status" in updates:
         new_status = updates["status"]
-        if new_status in admin_only_statuses and role != "admin":
-            raise HTTPException(403, f"Only admin can set status to '{new_status}'")
+        if new_status == "CEO Approved" and role not in ("admin", "ceo"):
+            raise HTTPException(403, "Only CEO Office or admin can approve final PPD")
         if new_status == "Submitted" and role not in ("admin", "source"):
-            raise HTTPException(403, "Only Source Team or admin can submit a PPD for approval")
-        if new_status == "Under Review" and role not in ("admin", "pm"):
-            raise HTTPException(403, "Only Project Management or admin can set PPD to Under Review")
+            raise HTTPException(403, "Only Source Team or admin can submit a PPD for management approval")
+        if new_status == "Under Review" and role not in ("admin", "pm", "source"):
+            raise HTTPException(403, "Only Project Management, Source or admin can set PPD to Under Review")
         if new_status == "Rework" and role not in ("admin", "mgmt", "ceo", "rd_head"):
             raise HTTPException(403, "Only Management, CEO, R&D Head or admin can send PPD for rework")
+
+        # If CEO Approved -> unlock Formulation phase in linked Project
+        if new_status == "CEO Approved":
+            proj_res = await db.execute(select(Project).where(Project.project_id == p.project_id))
+            proj = proj_res.scalars().first()
+            if proj:
+                proj.status = "Formulation"
+                proj.progress = max(proj.progress or 0, 30)
 
     # Bump version on content edits
     content_fields = {"objective", "key_benefits", "product_category", "target_consumer", "market_segment", "expected_launch"}
