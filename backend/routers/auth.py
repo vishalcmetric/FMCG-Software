@@ -82,15 +82,21 @@ async def _validate_otp(db: AsyncSession, email: str, otp: str, purpose: str) ->
 
 @router.post("/login", response_model=TokenResponse)
 async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
-    db_user = await _get_user(db, body.email)
+    db_user = None
+    try:
+        db_user = await _get_user(db, body.email)
+    except Exception as e:
+        print(f"Login DB fetch warning: {e}")
 
     if db_user:
         if not verify_password(body.password, db_user.password_hash or ""):
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid credentials")
         role, name, email = db_user.role, db_user.name, db_user.email
-        # update last_login
-        db_user.last_login = _now()
-        await db.commit()
+        try:
+            db_user.last_login = _now()
+            await db.commit()
+        except Exception:
+            pass
     else:
         demo = DEMO_USERS.get(body.email.lower())
         if not demo and "@fmcgsoftware.com" not in body.email.lower():
