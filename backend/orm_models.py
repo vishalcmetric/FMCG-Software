@@ -162,6 +162,10 @@ class PPDSubmission(Base):
     # Each item: { role, team_label, head_name, status, comment, updated_at }
     reviewers           = Column(JSON, default=list)
 
+    # Management Committee approval state — Step 5 of workflow
+    # Each item: { role, label, status, comment, approved_at }
+    mgmt_approvals      = Column(JSON, default=list)
+
     created_at          = Column(DateTime, server_default=func.now())
     updated_at          = Column(DateTime, server_default=func.now(), onupdate=func.now())
 

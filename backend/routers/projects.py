@@ -79,15 +79,13 @@ async def create_project(
 
     role = current_user.get("role", "fd")
 
-    # Admin-created projects are visible to ALL roles by default
-    if role == "admin":
-        teams = ALL_ROLES
-    elif body.teams_involved:
-        # Caller explicitly set teams — ensure admin is always in
-        teams_list = list(dict.fromkeys(["admin"] + body.teams_involved))
-        teams = ",".join(teams_list)
+    # Ensure key workflow roles are in teams_involved
+    default_workflow_roles = ["admin", "source", "pm", "fd", "marketing", "regulatory", "packaging", "sa"]
+    if role == "admin" or not body.teams_involved:
+        teams = ",".join(default_workflow_roles)
     else:
-        teams = f"admin,{role}"
+        teams_list = list(dict.fromkeys(default_workflow_roles + body.teams_involved))
+        teams = ",".join(teams_list)
 
     project = Project(
         project_id=pid,
@@ -104,27 +102,46 @@ async def create_project(
         teams_involved=teams,
     )
     db.add(project)
+
+    # Auto-assign initial tasks for the 6-stage workflow
+    initial_tasks = [
+        ("Create PPD for Project", "source", "PPD Creation"),
+        ("Review Project Scope & Assign Teams", "pm", "PM Review"),
+        ("Initial R&D / F&D Feasibility Assessment", "fd", "Feasibility"),
+    ]
+    for title, task_role, task_type in initial_tasks:
+        db.add(Task(
+            title=f"{title} ({pid})",
+            project_name=body.name,
+            project_id=pid,
+            assigned_role=task_role,
+            type=task_type,
+            status="pending",
+            priority=body.priority or "High",
+            due_label="Today"
+        ))
+
     db.add(AuditLog(
         user_name=current_user.get("name", ""),
         user_email=current_user.get("sub", ""),
         action="CREATE",
         action_label=f"created new project: {body.name}",
         entity=body.name,
-        involved_roles="admin",
+        involved_roles=teams,
         time_ago="just now",
     ))
 
-    # Notify all roles that a new project was added by admin
-    target_roles = teams.split(",") if teams != ALL_ROLES else ["all"]
+    # Notify all roles that a new project was added
+    target_roles = teams.split(",")
     await notify_roles(
         db,
         roles=target_roles,
         title=f"New Project: {body.name}",
-        message=f"{current_user.get('name','Admin')} created project {pid} ({body.brand} • {body.type}). Priority: {body.priority}.",
+        message=f"{current_user.get('name','User')} created project {pid} ({body.brand} • {body.type}). Initial tasks assigned to Source, PM & F&D.",
         action_type="project_created",
         entity_id=pid,
         entity_name=body.name,
-        created_by=current_user.get("name", "Admin"),
+        created_by=current_user.get("name", ""),
     )
 
     await db.commit()

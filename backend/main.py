@@ -20,6 +20,7 @@ from routers.claims import router as claims_router
 from routers.masterconfig import router as masterconfig_router
 from routers.reports import router as reports_router
 from routers.artwork import router as artwork_router
+from routers.reports_pdf import router as reports_pdf_router
 
 settings = get_settings()
 
@@ -64,6 +65,7 @@ app.include_router(users.router)
 app.include_router(audit.router)
 app.include_router(notifications_router)
 app.include_router(ppd_router)
+app.include_router(reports_pdf_router)   # before formulation_router — /report/{id} must not match /{formula_id}
 app.include_router(formulation_router)
 app.include_router(labbook_router)
 app.include_router(planttrials_router)
