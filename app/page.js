@@ -101,7 +101,7 @@ const STATUS_COLORS = {
 }
 
 /* -------------------- API CONFIG -------------------- */
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+const API_BASE = (process.env.NEXT_PUBLIC_API_URL || 'https://fmcg-software.onrender.com').replace(/\/$/, '')
 
 async function apiCall(path, { method = 'GET', body, token } = {}) {
   const opts = {
