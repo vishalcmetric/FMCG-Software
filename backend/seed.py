@@ -296,19 +296,19 @@ USERS = [
 #  SEED FUNCTION
 # ─────────────────────────────────────────────────────────────
 async def seed():
-    engine = create_async_engine(settings.async_db_url, echo=False)
+    from database import AsyncSessionLocal
+    print("Seeding database with demo data...")
+    async with AsyncSessionLocal() as db:
+        # Delete existing data safely in reverse dependency order
+        from sqlalchemy import text
+        for tbl in ["audit_logs", "notifications", "tasks", "ppd_comments", "ppd_submissions", "formula_comments", "formulas", "lab_experiments", "plant_trials", "regulatory_checks", "sensory_evaluations", "costing_records", "claim_records", "artwork_briefs", "master_config", "users", "projects"]:
+            try:
+                await db.execute(text(f"DELETE FROM `{tbl}`"))
+            except Exception:
+                pass
+        await db.commit()
 
-    try:
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.drop_all)
-            await conn.run_sync(Base.metadata.create_all)
-        print("  Tables created / recreated")
-    except Exception as e:
-        print(f"  Warning during table drop/create: {e}")
-
-    SessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-
-    async with SessionLocal() as db:
+    async with AsyncSessionLocal() as db:
         for p in PROJECTS:       db.add(Project(**p))
         await db.flush();        print(f"  {len(PROJECTS)} projects")
 
@@ -371,7 +371,6 @@ async def seed():
 
         await db.commit()
 
-    await engine.dispose()
     print("\nSeed complete -- all demo data loaded into MySQL.")
 
 
