@@ -298,10 +298,13 @@ USERS = [
 async def seed():
     engine = create_async_engine(settings.async_db_url, echo=False)
 
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
-        await conn.run_sync(Base.metadata.create_all)
-    print("  Tables created / recreated")
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.drop_all)
+            await conn.run_sync(Base.metadata.create_all)
+        print("  Tables created / recreated")
+    except Exception as e:
+        print(f"  Warning during table drop/create: {e}")
 
     SessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
