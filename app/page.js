@@ -229,10 +229,7 @@ function Login({ onLogin }) {
       onLogin(data.user, data.access_token)
       toast.success(`Welcome, ${ROLES[data.user.role]?.label || data.user.role}`)
     } catch (err) {
-      toast.warning('API offline — using demo mode')
-      const demoUser = { email, name: email.split('@')[0].split('.').map(s => s[0].toUpperCase()+s.slice(1)).join(' '), role }
-      onLogin(demoUser, null)
-      toast.success(`Welcome, ${ROLES[role]?.label || role}`)
+      toast.error(err.message || 'Login failed')
     } finally { setLoading(false) }
   }
 
