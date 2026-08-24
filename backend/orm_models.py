@@ -67,10 +67,6 @@ class Project(Base):
     created_at  = Column(DateTime, server_default=func.now())
     updated_at  = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
-    __table_args__ = (
-        Index("ix_projects_status_teams", "status", "teams_involved"),
-    )
-
 # ── Tasks ─────────────────────────────────────────────────────────────────────
 class Task(Base):
     __tablename__ = "tasks"

@@ -25,7 +25,10 @@ settings = get_settings()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await create_tables()   # CREATE TABLE IF NOT EXISTS on startup
+    try:
+        await create_tables()   # CREATE TABLE IF NOT EXISTS on startup
+    except Exception as e:
+        print(f"Startup table creation warning: {e}")
     yield
 
 app = FastAPI(
