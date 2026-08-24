@@ -308,66 +308,83 @@ async def seed():
                 pass
         await db.commit()
 
+    STATIC_HASH = "$2b$12$e0MYzXyjpJS7Pd0RVvHw4.O4rVn66iF0G./5L7L01V.6k54vO3i6."
     async with AsyncSessionLocal() as db:
-        for p in PROJECTS:       db.add(Project(**p))
-        await db.flush();        print(f"  {len(PROJECTS)} projects")
+        try:
+            for p in PROJECTS:       db.add(Project(**p))
+            await db.flush()
+        except Exception as e: print("Seed project error:", e)
 
-        for t in TASKS:          db.add(Task(**t))
-        await db.flush();        print(f"  {len(TASKS)} tasks")
+        try:
+            for t in TASKS:          db.add(Task(**t))
+            await db.flush()
+        except Exception as e: print("Seed task error:", e)
 
-        # PPD
-        for p in PPD_DATA:       db.add(PPDSubmission(**p))
-        await db.flush();        print(f"  {len(PPD_DATA)} PPDs")
-        for c in PPD_COMMENTS:   db.add(PPDComment(**c))
-        await db.flush();        print(f"  {len(PPD_COMMENTS)} PPD comments")
+        try:
+            for p in PPD_DATA:       db.add(PPDSubmission(**p))
+            await db.flush()
+            for c in PPD_COMMENTS:   db.add(PPDComment(**c))
+            await db.flush()
+        except Exception as e: print("Seed PPD error:", e)
 
-        # Formulation
-        for f in FORMULAS:       db.add(Formula(**f))
-        await db.flush();        print(f"  {len(FORMULAS)} formulas")
-        for c in FORMULA_COMMENTS: db.add(FormulaComment(**c))
-        await db.flush();        print(f"  {len(FORMULA_COMMENTS)} formula comments")
+        try:
+            for f in FORMULAS:       db.add(Formula(**f))
+            await db.flush()
+            for c in FORMULA_COMMENTS: db.add(FormulaComment(**c))
+            await db.flush()
+        except Exception as e: print("Seed formula error:", e)
 
-        # Lab
-        for e in LAB_EXPS:       db.add(LabExperiment(**e))
-        await db.flush();        print(f"  {len(LAB_EXPS)} lab experiments")
+        try:
+            for e in LAB_EXPS:       db.add(LabExperiment(**e))
+            await db.flush()
+        except Exception as e: print("Seed lab error:", e)
 
-        # Plant Trials
-        for t in PLANT_TRIALS:   db.add(PlantTrial(**t))
-        await db.flush();        print(f"  {len(PLANT_TRIALS)} plant trials")
+        try:
+            for t in PLANT_TRIALS:   db.add(PlantTrial(**t))
+            await db.flush()
+        except Exception as e: print("Seed plant trial error:", e)
 
-        # Regulatory
-        for r in REG_CHECKS:     db.add(RegulatoryCheck(**r))
-        await db.flush();        print(f"  {len(REG_CHECKS)} regulatory checks")
+        try:
+            for r in REG_CHECKS:     db.add(RegulatoryCheck(**r))
+            await db.flush()
+        except Exception as e: print("Seed regulatory error:", e)
 
-        # Sensory
-        for s in SENSORY_EVALS:  db.add(SensoryEvaluation(**s))
-        await db.flush();        print(f"  {len(SENSORY_EVALS)} sensory evaluations")
+        try:
+            for s in SENSORY_EVALS:  db.add(SensoryEvaluation(**s))
+            await db.flush()
+        except Exception as e: print("Seed sensory error:", e)
 
-        # Costing
-        for c in COSTING:        db.add(CostingRecord(**c))
-        await db.flush();        print(f"  {len(COSTING)} costing records")
+        try:
+            for c in COSTING:        db.add(CostingRecord(**c))
+            await db.flush()
+        except Exception as e: print("Seed costing error:", e)
 
-        # Claims
-        for c in CLAIMS:         db.add(ClaimRecord(**c))
-        await db.flush();        print(f"  {len(CLAIMS)} claims")
+        try:
+            for c in CLAIMS:         db.add(ClaimRecord(**c))
+            await db.flush()
+        except Exception as e: print("Seed claims error:", e)
 
-        # Artwork
-        for a in ARTWORKS:       db.add(ArtworkBrief(**a))
-        await db.flush();        print(f"  {len(ARTWORKS)} artwork briefs")
+        try:
+            for a in ARTWORKS:       db.add(ArtworkBrief(**a))
+            await db.flush()
+        except Exception as e: print("Seed artwork error:", e)
 
-        # Audit logs
-        for a in AUDIT_LOGS:     db.add(AuditLog(**a))
-        await db.flush();        print(f"  {len(AUDIT_LOGS)} audit logs")
+        try:
+            for a in AUDIT_LOGS:     db.add(AuditLog(**a))
+            await db.flush()
+        except Exception as e: print("Seed audit error:", e)
 
-        # Users
-        for u in USERS:
-            db.add(User(**u, password_hash=pwd_context.hash("Welcome@123"), created_at=NOW))
-        await db.flush();        print(f"  {len(USERS)} users")
+        try:
+            for u in USERS:
+                db.add(User(**u, password_hash=STATIC_HASH, created_at=NOW))
+            await db.flush()
+        except Exception as e: print("Seed users error:", e)
 
-        # SAP codes
-        for s in SAP_CODES:
-            db.add(MasterConfig(**s, is_active=True, sort_order=0))
-        await db.flush();        print(f"  {len(SAP_CODES)} SAP codes")
+        try:
+            for s in SAP_CODES:
+                db.add(MasterConfig(**s, is_active=True, sort_order=0))
+            await db.flush()
+        except Exception as e: print("Seed SAP error:", e)
 
         await db.commit()
 
