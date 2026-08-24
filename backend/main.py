@@ -87,10 +87,12 @@ async def health():
 @app.post("/api/seed")
 async def run_seed():
     """
-    Populate the database with demo data (drops and recreates all rows).
-    Only call this in development — protected by requiring the X-Seed-Key header
-    equal to the SECRET_KEY to prevent accidental prod wipes.
+    Populate the database with demo data.
     """
-    import seed as _seed_mod
-    await _seed_mod.seed()
-    return {"ok": True, "message": "Demo data seeded successfully"}
+    try:
+        import seed as _seed_mod
+        await _seed_mod.seed()
+        return {"ok": True, "message": "Demo data seeded successfully"}
+    except Exception as e:
+        import traceback
+        return {"ok": False, "error": str(e), "traceback": traceback.format_exc()}
