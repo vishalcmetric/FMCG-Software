@@ -29,16 +29,22 @@ class Settings(BaseSettings):
 
     @property
     def async_db_url(self) -> str:
+        from urllib.parse import quote_plus
+        user = quote_plus(self.mysql_user)
+        pwd = quote_plus(self.mysql_password)
         return (
-            f"mysql+aiomysql://{self.mysql_user}:{self.mysql_password}"
+            f"mysql+aiomysql://{user}:{pwd}"
             f"@{self.mysql_host}:{self.mysql_port}/{self.mysql_db}"
             f"?charset=utf8mb4"
         )
 
     @property
     def sync_db_url(self) -> str:
+        from urllib.parse import quote_plus
+        user = quote_plus(self.mysql_user)
+        pwd = quote_plus(self.mysql_password)
         return (
-            f"mysql+pymysql://{self.mysql_user}:{self.mysql_password}"
+            f"mysql+pymysql://{user}:{pwd}"
             f"@{self.mysql_host}:{self.mysql_port}/{self.mysql_db}"
             f"?charset=utf8mb4"
         )
