@@ -1193,26 +1193,12 @@ function Dashboard({ user, setView, token }) {
           <h1 className="text-2xl font-bold">Welcome back, {user.name.split(' ')[0]} 👋</h1>
           <p className="text-muted-foreground">
             Signed in as <span className="font-medium text-foreground">{ROLES[user.role]?.label || user.role}</span>
-            {error && <span className="ml-2 text-amber-500 text-sm">(demo data — API offline)</span>}
           </p>
         </div>
         <div className="flex gap-2 flex-wrap">
           <Button variant="outline" size="icon" onClick={() => fetchDashboard(true)} disabled={refreshing} title="Refresh dashboard">
             <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
           </Button>
-          {user.role === 'admin' && (
-            <Button variant="outline" size="sm" className="gap-2 text-amber-700 border-amber-300 hover:bg-amber-50"
-              onClick={async () => {
-                if (!confirm('This will DROP all tables and re-seed demo data. Continue?')) return
-                try {
-                  await apiCall('/api/seed', { method: 'POST', token })
-                  toast.success('Demo data seeded! Refreshing...')
-                  fetchDashboard(true)
-                } catch(err) { toast.error('Seed failed: ' + err.message) }
-              }}>
-              <Database className="h-4 w-4"/>Seed Demo Data
-            </Button>
-          )}
           {/* Only source, pm, and admin can create new projects per WBS */}
           {['admin','source','pm'].includes(user.role) && (
             <Button onClick={() => setView('projects')} className="gap-2"><Plus className="h-4 w-4"/>New Project</Button>
