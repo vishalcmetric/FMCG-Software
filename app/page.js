@@ -125,14 +125,26 @@ async function apiCall(path, { method = 'GET', body, token } = {}) {
 const SESSION_TIMEOUT_MS = 5 * 60 * 1000  // 5 minutes
 
 export default function App() {
-  const [user, setUser] = useState(() => {
-    try { const u = localStorage.getItem('fmcg_user'); return u ? JSON.parse(u) : null } catch { return null }
-  })
-  const [token, setToken] = useState(() => {
-    try { return localStorage.getItem('fmcg_token') || null } catch { return null }
-  })
-  const [view, setView] = useState('dashboard')
+  // Start as null on both server and client to avoid SSR hydration mismatch.
+  // After mount (client-only), restore from localStorage if a session was saved.
+  const [user, setUser]   = useState(null)
+  const [token, setToken] = useState(null)
+  const [view, setView]   = useState('dashboard')
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [hydrated, setHydrated] = useState(false)
+
+  // Restore session from localStorage after first client render
+  useEffect(() => {
+    try {
+      const savedToken = localStorage.getItem('fmcg_token')
+      const savedUser  = localStorage.getItem('fmcg_user')
+      if (savedToken && savedUser) {
+        setToken(savedToken)
+        setUser(JSON.parse(savedUser))
+      }
+    } catch {}
+    setHydrated(true)
+  }, [])
 
   const handleLogin = (userData, accessToken) => {
     setUser(userData)
@@ -170,6 +182,8 @@ export default function App() {
     }
   }, [user])
 
+  // Don't render anything until localStorage has been read (avoids hydration flash)
+  if (!hydrated) return null
   if (!user) return <Login onLogin={handleLogin} />
   return <Shell user={user} token={token} view={view} setView={setView} sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen} onLogout={handleLogout} />
 }
