@@ -74,8 +74,17 @@ async def create_project(
     db: AsyncSession = Depends(get_db),
 ):
     year = datetime.now(timezone.utc).year
-    count = (await db.execute(select(func.count()).select_from(Project))).scalar() or 0
-    pid = f"NP-{year}-{str(count + 1).zfill(3)}"
+
+    # Use MAX(id) instead of COUNT(*) so deleted rows don't cause collisions.
+    # Then keep incrementing until we find a project_id that doesn't exist yet.
+    max_id = (await db.execute(select(func.max(Project.id)))).scalar() or 0
+    candidate = max_id + 1
+    while True:
+        pid = f"NP-{year}-{str(candidate).zfill(3)}"
+        existing = (await db.execute(select(Project.id).where(Project.project_id == pid))).scalar()
+        if not existing:
+            break
+        candidate += 1
 
     role = current_user.get("role", "fd")
 

@@ -102,10 +102,10 @@ async def create_artwork(
     if not project:
         raise HTTPException(404, f"Project {body.project_id} not found")
 
-    count = (await db.execute(
-        select(func.count()).select_from(ArtworkBrief).where(ArtworkBrief.project_id == body.project_id)
-    )).scalar() or 0
-    artwork_id = f"ART-{body.project_id}-{str(count + 1).zfill(2)}"
+    seq = ((await db.execute(select(func.count()).select_from(ArtworkBrief).where(ArtworkBrief.project_id == body.project_id))).scalar() or 0) + 1
+    while (await db.execute(select(ArtworkBrief.id).where(ArtworkBrief.artwork_id == f"ART-{body.project_id}-{str(seq).zfill(2)}"))).scalar():
+        seq += 1
+    artwork_id = f"ART-{body.project_id}-{str(seq).zfill(2)}"
 
     art = ArtworkBrief(
         artwork_id=artwork_id,

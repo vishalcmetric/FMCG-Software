@@ -81,8 +81,10 @@ async def create_check(body: RegCreate, current_user: dict = Depends(get_current
     project = proj_result.scalars().first()
     if not project:
         raise HTTPException(404, f"Project {body.project_id} not found")
-    count = (await db.execute(select(func.count()).select_from(RegulatoryCheck).where(RegulatoryCheck.project_id == body.project_id))).scalar() or 0
-    reg_id = f"REG-{body.project_id}-{str(count + 1).zfill(2)}"
+    seq = ((await db.execute(select(func.count()).select_from(RegulatoryCheck).where(RegulatoryCheck.project_id == body.project_id))).scalar() or 0) + 1
+    while (await db.execute(select(RegulatoryCheck.id).where(RegulatoryCheck.reg_id == f"REG-{body.project_id}-{str(seq).zfill(2)}"))).scalar():
+        seq += 1
+    reg_id = f"REG-{body.project_id}-{str(seq).zfill(2)}"
     check = RegulatoryCheck(
         reg_id=reg_id, project_id=body.project_id, project_name=project.name,
         check_type=body.check_type, ingredient_or_claim=body.ingredient_or_claim,

@@ -87,8 +87,10 @@ async def create_costing(body: CostingCreate, current_user: dict = Depends(get_c
     project = proj_result.scalars().first()
     if not project:
         raise HTTPException(404, f"Project {body.project_id} not found")
-    count = (await db.execute(select(func.count()).select_from(CostingRecord).where(CostingRecord.project_id == body.project_id))).scalar() or 0
-    cost_id = f"CST-{body.project_id}-{str(count + 1).zfill(2)}"
+    seq = ((await db.execute(select(func.count()).select_from(CostingRecord).where(CostingRecord.project_id == body.project_id))).scalar() or 0) + 1
+    while (await db.execute(select(CostingRecord.id).where(CostingRecord.cost_id == f"CST-{body.project_id}-{str(seq).zfill(2)}"))).scalar():
+        seq += 1
+    cost_id = f"CST-{body.project_id}-{str(seq).zfill(2)}"
     rec = CostingRecord(
         cost_id=cost_id, project_id=body.project_id, project_name=project.name,
         formula_id=body.formula_id, cost_breakdown=body.cost_breakdown or [],

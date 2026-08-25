@@ -127,12 +127,11 @@ async def create_formula(
     if not project:
         raise HTTPException(404, f"Project {body.project_id} not found")
 
-    # Generate formula ID
-    year = datetime.now(timezone.utc).year
-    count = (await db.execute(
-        select(func.count()).select_from(Formula).where(Formula.project_id == body.project_id)
-    )).scalar() or 0
-    fid = f"F-{body.project_id}-{str(count + 1).zfill(2)}"
+    # Generate formula ID — use count+1 but skip any IDs already taken
+    seq = ((await db.execute(select(func.count()).select_from(Formula).where(Formula.project_id == body.project_id))).scalar() or 0) + 1
+    while (await db.execute(select(Formula.id).where(Formula.formula_id == f"F-{body.project_id}-{str(seq).zfill(2)}"))).scalar():
+        seq += 1
+    fid = f"F-{body.project_id}-{str(seq).zfill(2)}"
 
     formula = Formula(
         formula_id=fid,

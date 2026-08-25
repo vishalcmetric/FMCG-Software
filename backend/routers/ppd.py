@@ -15,7 +15,7 @@ Workflow:
   Step 6 — Project moves to Formulation phase (PPD locked).
 """
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 import copy
@@ -27,6 +27,9 @@ from notify import notify_roles
 from datetime import datetime, timezone
 
 router = APIRouter(prefix="/api/ppd", tags=["ppd"])
+
+# Full team list — used as a fallback when a project's teams_involved is missing or narrow
+ALL_ROLES = "admin,source,pm,fd,rd_head,marketing,regulatory,packaging,adl,pmsa,sa,mgmt,ceo,production"
 
 # Step 2 reviewers — ONLY fd and pm, both active in parallel (no sequential dependency)
 DEFAULT_REVIEWERS = [
@@ -187,20 +190,36 @@ async def create_ppd(
     if role not in ("admin",) and role not in (project.teams_involved or "").split(","):
         raise HTTPException(403, "You are not assigned to this project")
 
-    # Count existing PPDs for this project to generate a sequential ID
-    from sqlalchemy import func as sqlfunc
-    count_result = await db.execute(
-        select(sqlfunc.count(PPDSubmission.id)).where(PPDSubmission.project_id == body.project_id)
+    # Find the highest existing sequence number for this project to avoid collisions
+    # when PPDs have been deleted (COUNT would reuse a taken ID).
+    max_seq_result = await db.execute(
+        select(func.max(PPDSubmission.id)).where(PPDSubmission.project_id == body.project_id)
     )
-    existing_count = count_result.scalar() or 0
-    seq = existing_count + 1
-    ppd_id = f"PPD-{body.project_id}-{seq}"
+    max_id = max_seq_result.scalar() or 0
+    # Also count existing so seq stays human-friendly (e.g. -3 means 3rd PPD on project)
+    count_result = await db.execute(
+        select(func.count(PPDSubmission.id)).where(PPDSubmission.project_id == body.project_id)
+    )
+    seq = (count_result.scalar() or 0) + 1
+    # Keep incrementing seq until we find an unused ppd_id
+    while True:
+        ppd_id = f"PPD-{body.project_id}-{seq}"
+        taken = (await db.execute(select(PPDSubmission.id).where(PPDSubmission.ppd_id == ppd_id))).scalar()
+        if not taken:
+            break
+        seq += 1
 
     # Seed reviewers from DEFAULT_REVIEWERS
     reviewers = list(DEFAULT_REVIEWERS)
 
     # Seed management committee approvals (all start Pending)
     mgmt_approvals = [dict(m) for m in MGMT_COMMITTEE]
+
+    # Use the project's full team list, but fall back to ALL_ROLES if the project was
+    # created before full-team seeding existed (i.e. only "admin" or "admin,source").
+    _NARROW_TEAMS = {"admin", "source", "admin,source"}
+    _proj_teams = (project.teams_involved or "").strip()
+    ppd_teams = _proj_teams if _proj_teams not in _NARROW_TEAMS else ALL_ROLES
 
     ppd = PPDSubmission(
         ppd_id=ppd_id,
@@ -216,7 +235,7 @@ async def create_ppd(
         key_benefits=body.key_benefits,
         status="Draft",          # Step 1 — always starts as Draft
         ppd_version="v1.0",
-        teams_involved=project.teams_involved or "admin",
+        teams_involved=ppd_teams,
         created_by=current_user.get("name", ""),
         created_by_email=current_user.get("sub", ""),
         created_by_role=role,
@@ -244,11 +263,11 @@ async def create_ppd(
         action="CREATE",
         action_label=f"created PPD {ppd_id} for project {body.project_id}: {body.project_name}",
         entity=ppd_id,
-        involved_roles=project.teams_involved or "admin",
+        involved_roles=ppd_teams,
         time_ago="just now",
     ))
 
-    target_roles = (project.teams_involved or "admin").split(",")
+    target_roles = ppd_teams.split(",")
     await notify_roles(
         db,
         roles=target_roles,

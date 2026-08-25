@@ -89,8 +89,10 @@ async def create_trial(body: TrialCreate, current_user: dict = Depends(get_curre
     project = proj_result.scalars().first()
     if not project:
         raise HTTPException(404, f"Project {body.project_id} not found")
-    count = (await db.execute(select(func.count()).select_from(PlantTrial).where(PlantTrial.project_id == body.project_id))).scalar() or 0
-    trial_id = f"PT-{body.project_id}-{str(count + 1).zfill(2)}"
+    seq = ((await db.execute(select(func.count()).select_from(PlantTrial).where(PlantTrial.project_id == body.project_id))).scalar() or 0) + 1
+    while (await db.execute(select(PlantTrial.id).where(PlantTrial.trial_id == f"PT-{body.project_id}-{str(seq).zfill(2)}"))).scalar():
+        seq += 1
+    trial_id = f"PT-{body.project_id}-{str(seq).zfill(2)}"
     trial = PlantTrial(
         trial_id=trial_id, project_id=body.project_id, project_name=project.name,
         plant_location=body.plant_location, batch_size=body.batch_size, stage=body.stage or "Pilot",

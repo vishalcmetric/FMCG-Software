@@ -95,8 +95,10 @@ async def create_experiment(body: ExperimentCreate, current_user: dict = Depends
     project = proj_result.scalars().first()
     if not project:
         raise HTTPException(404, f"Project {body.project_id} not found")
-    count = (await db.execute(select(func.count()).select_from(LabExperiment).where(LabExperiment.project_id == body.project_id))).scalar() or 0
-    exp_id = f"EXP-{body.project_id}-{str(count + 1).zfill(2)}"
+    seq = ((await db.execute(select(func.count()).select_from(LabExperiment).where(LabExperiment.project_id == body.project_id))).scalar() or 0) + 1
+    while (await db.execute(select(LabExperiment.id).where(LabExperiment.exp_id == f"EXP-{body.project_id}-{str(seq).zfill(2)}"))).scalar():
+        seq += 1
+    exp_id = f"EXP-{body.project_id}-{str(seq).zfill(2)}"
     exp = LabExperiment(
         exp_id=exp_id, project_id=body.project_id, project_name=project.name,
         title=body.title, batch_no=body.batch_no, temperature=body.temperature,

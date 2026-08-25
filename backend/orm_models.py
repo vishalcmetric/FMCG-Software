@@ -62,8 +62,8 @@ class Project(Base):
     owner_email = Column(String(255))
     objective   = Column(Text)
     target_launch = Column(String(50))
-    # Comma-separated role keys e.g. "admin,source,fd"
-    teams_involved = Column(String(500), default="admin")
+    # Comma-separated role keys — always the full team list from creation
+    teams_involved = Column(String(500), default="admin,source,pm,fd,rd_head,marketing,regulatory,packaging,adl,pmsa,sa,mgmt,ceo,production")
     created_at  = Column(DateTime, server_default=func.now())
     updated_at  = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
@@ -152,7 +152,7 @@ class PPDSubmission(Base):
     ppd_version         = Column(String(10), default="v1.0")
 
     # Comma-separated role keys — matches project's teams_involved
-    teams_involved      = Column(String(500), default="admin")
+    teams_involved      = Column(String(500), default="admin,source,pm,fd,rd_head,marketing,regulatory,packaging,adl,pmsa,sa,mgmt,ceo,production")
 
     # Owner / submitter info
     created_by          = Column(String(150))

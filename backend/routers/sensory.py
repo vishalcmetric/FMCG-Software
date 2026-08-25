@@ -102,8 +102,10 @@ async def create_eval(body: SensoryCreate, current_user: dict = Depends(get_curr
     project = proj_result.scalars().first()
     if not project:
         raise HTTPException(404, f"Project {body.project_id} not found")
-    count = (await db.execute(select(func.count()).select_from(SensoryEvaluation).where(SensoryEvaluation.project_id == body.project_id))).scalar() or 0
-    eval_id = f"SE-{body.project_id}-{str(count + 1).zfill(2)}"
+    seq = ((await db.execute(select(func.count()).select_from(SensoryEvaluation).where(SensoryEvaluation.project_id == body.project_id))).scalar() or 0) + 1
+    while (await db.execute(select(SensoryEvaluation.id).where(SensoryEvaluation.eval_id == f"SE-{body.project_id}-{str(seq).zfill(2)}"))).scalar():
+        seq += 1
+    eval_id = f"SE-{body.project_id}-{str(seq).zfill(2)}"
     ev = SensoryEvaluation(
         eval_id=eval_id, project_id=body.project_id, project_name=project.name,
         formula_id=body.formula_id, panel_size=body.panel_size or 0,
