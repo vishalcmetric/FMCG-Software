@@ -26,6 +26,8 @@ class ExperimentCreate(BaseModel):
     duration: Optional[str] = None
     observations: Optional[str] = None
     result: Optional[str] = None
+    formula_id: Optional[str] = None   # link to a formula (optional)
+    version: Optional[str] = None      # formula version at time of experiment
 
 
 class ExperimentUpdate(BaseModel):
@@ -36,6 +38,8 @@ class ExperimentUpdate(BaseModel):
     observations: Optional[str] = None
     result: Optional[str] = None
     status: Optional[str] = None
+    formula_id: Optional[str] = None
+    version: Optional[str] = None
 
 
 def _out(e: LabExperiment) -> dict:
@@ -44,6 +48,7 @@ def _out(e: LabExperiment) -> dict:
         "project_name": e.project_name, "title": e.title, "batch_no": e.batch_no,
         "temperature": e.temperature, "duration": e.duration,
         "observations": e.observations, "result": e.result, "status": e.status,
+        "formula_id": e.formula_id or "", "version": e.version or "",
         "created_by": e.created_by, "created_by_role": e.created_by_role,
         "created_at": e.created_at.isoformat() if e.created_at else None,
         "updated_at": e.updated_at.isoformat() if e.updated_at else None,
@@ -96,6 +101,7 @@ async def create_experiment(body: ExperimentCreate, current_user: dict = Depends
         exp_id=exp_id, project_id=body.project_id, project_name=project.name,
         title=body.title, batch_no=body.batch_no, temperature=body.temperature,
         duration=body.duration, observations=body.observations, result=body.result,
+        formula_id=body.formula_id, version=body.version,
         status="Active", created_by=current_user.get("name", ""), created_by_role=role,
     )
     db.add(exp)

@@ -2154,7 +2154,7 @@ function PPDView({ user, token, can }) {
   const [createOpen, setCreateOpen]   = useState(false)
   const [creating, setCreating]       = useState(false)
   const [createForm, setCreateForm]   = useState({
-    project_id:'', project_name:'', brand:'', product_category:'',
+    project_id:'', project_name:'', brand:'', ppd_title:'', product_category:'',
     target_consumer:'', market_segment:'', expected_launch:'', objective:'', key_benefits:''
   })
 
@@ -2202,12 +2202,13 @@ function PPDView({ user, token, can }) {
 
   const handleCreate = async () => {
     if (!createForm.project_id || !createForm.project_name) return toast.error('Project is required')
+    if (!createForm.ppd_title?.trim()) return toast.error('PPD Title is required')
     setCreating(true)
     try {
       const ppd = await apiCall('/api/ppd', { method: 'POST', token, body: createForm })
       toast.success(`PPD created: ${ppd.ppd_id}`)
       setCreateOpen(false)
-      setCreateForm({ project_id:'', project_name:'', brand:'', product_category:'', target_consumer:'', market_segment:'', expected_launch:'', objective:'', key_benefits:'' })
+      setCreateForm({ project_id:'', project_name:'', brand:'', ppd_title:'', product_category:'', target_consumer:'', market_segment:'', expected_launch:'', objective:'', key_benefits:'' })
       fetchPPDs()
     } catch (err) { toast.error(err.message) }
     finally { setCreating(false) }
@@ -2291,6 +2292,7 @@ function PPDView({ user, token, can }) {
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-36">PPD ID</TableHead>
+                  <TableHead>Title</TableHead>
                   <TableHead>Project</TableHead>
                   <TableHead>Brand</TableHead>
                   <TableHead>Status</TableHead>
@@ -2305,6 +2307,9 @@ function PPDView({ user, token, can }) {
                 {ppds.map(p => (
                   <TableRow key={p.ppd_id} className="cursor-pointer hover:bg-muted/50" onClick={() => setSelected(p)}>
                     <TableCell className="font-mono text-xs text-muted-foreground">{p.ppd_id}</TableCell>
+                    <TableCell>
+                      <div className="font-medium text-sm max-w-[180px] truncate">{p.ppd_title || '—'}</div>
+                    </TableCell>
                     <TableCell>
                       <div className="font-medium text-sm max-w-[200px] truncate">{p.project_name}</div>
                       <div className="text-xs text-muted-foreground">{p.project_id}</div>
@@ -2375,6 +2380,11 @@ function PPDView({ user, token, can }) {
                 <span className="font-medium">Project:</span> {createForm.project_name}
               </div>
             )}
+            <div className="col-span-2 space-y-2">
+              <Label>PPD Title <span className="text-red-500">*</span></Label>
+              <Input value={createForm.ppd_title} onChange={e => setCreateForm(f => ({...f, ppd_title: e.target.value}))} placeholder="e.g. Initial Formulation Brief, Reformulation v2, Cost Optimisation..." />
+              <p className="text-xs text-muted-foreground">Give this PPD a short title to distinguish it from other PPDs on the same project.</p>
+            </div>
             <div className="space-y-2">
               <Label>Product Category</Label>
               <Input value={createForm.product_category} onChange={e => setCreateForm(f => ({...f, product_category: e.target.value}))} placeholder="e.g. Nutrition Powder" />
@@ -2623,12 +2633,12 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
           <Separator orientation="vertical" className="h-6" />
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-xl font-bold">{ppd.project_name}</h1>
+              <h1 className="text-xl font-bold">{ppd.ppd_title || ppd.project_name}</h1>
               <span className={`text-xs px-2 py-0.5 rounded-md font-medium ${PPD_STATUS_COLORS[ppd.status] || 'bg-slate-100'}`}>{ppd.status}</span>
               <Badge variant="secondary" className="font-mono text-xs">{ppd.ppd_version}</Badge>
             </div>
             <p className="text-xs text-muted-foreground mt-0.5">
-              {ppd.ppd_id} • {ppd.brand} • Created by {ppd.created_by}
+              {ppd.ppd_id} • {ppd.project_name} • {ppd.brand} • Created by {ppd.created_by}
               {' '}• <span className="font-medium text-foreground">ID: {ppd.project_id}</span>
             </p>
           </div>
@@ -2824,12 +2834,13 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
               <CardTitle>Parallel Review — R&amp;D/F&amp;D &amp; PM</CardTitle>
               <CardDescription>
                 {(() => {
-                  const doneCount = reviewers.filter(r => ['Reviewed','Approved'].includes(r.status)).length
-                  const allDone   = reviewers.length > 0 && doneCount === reviewers.length
-                  if (allDone) return '✓ Both reviewers have approved — Source Team can now submit for Management Committee approval.'
-                  if (isAdmin || isSource) return `${doneCount}/${reviewers.length} reviewers have completed their review. Both R&D/F&D and PM review independently in parallel.`
-                  return 'Review this PPD and update your status. R&D/F&D and PM both review simultaneously — no waiting required.'
-                })()}
+                    const doneCount = reviewers.filter(r => ['Reviewed','Approved'].includes(r.status)).length
+                    const allDone   = reviewers.length > 0 && doneCount === reviewers.length
+                    if (allDone) return '✓ Both reviewers have approved — Source Team can now submit for Management Committee approval.'
+                    if (isAdmin || isSource) return `${doneCount}/${reviewers.length} reviewers have completed their review. Both R&D/F&D and PM review independently in parallel.`
+                    if (isMgmtCommittee && !myReviewerEntry) return `View only — R&D/F&D and PM complete Step 2 review before source team submits. ${doneCount}/${reviewers.length} done.`
+                    return 'Review this PPD and update your status. R&D/F&D and PM both review simultaneously — no waiting required.'
+                  })()}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-2">
@@ -3142,8 +3153,9 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
                       <p className="text-sm font-mono py-2">{ppd.ppd_version}</p>
                     </div>
                   </div>
-                  <div className="grid grid-cols-3 gap-3">
+                  <div className="grid grid-cols-4 gap-3">
                     {[
+                      { label: 'PPD Title', value: ppd.ppd_title || '—' },
                       { label: 'Created', value: ppd.created_at ? new Date(ppd.created_at).toLocaleString() : '—' },
                       { label: 'Last Updated', value: ppd.updated_at ? new Date(ppd.updated_at).toLocaleString() : '—' },
                       { label: 'Project', value: ppd.project_id },
@@ -3906,159 +3918,100 @@ function FormulationView({ user, token, can }) {
 }
 
 /* -------------------- LAB NOTEBOOK -------------------- */
-function LabBookView({ user, token, can }) {
-  const [exps, setExps] = useState([])
-  const [selected, setSelected] = useState(null)
-  const [loading, setLoading] = useState(true)
-  const [showAdd, setShowAdd] = useState(false)
-  const [projects, setProjects] = useState([])
-  const [form, setForm] = useState({ project_id:'', title:'', batch_no:'', temperature:'', duration:'', observations:'', result:'Pass' })
-  const [saving, setSaving] = useState(false)
-  const [editMode, setEditMode] = useState(false)
-  const [editObs, setEditObs] = useState('')
+function LabBookView({ user, token }) {
+  const [formulas, setFormulas] = useState([])
+  const [loading, setLoading]   = useState(true)
 
-  const canCreate = ['admin','fd','rd_head','adl'].includes(user?.role) || (can && can('Lab Notebook','create'))
+  const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://fmcg-software.onrender.com'
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const [eData, pData] = await Promise.all([
-        apiCall('/api/labbook', { token }),
-        apiCall('/api/projects', { token }),
-      ])
-      setExps(Array.isArray(eData) ? eData : [])
-      setProjects(Array.isArray(pData) ? pData : [])
-      if (eData?.length && !selected) setSelected(eData[0])
-    } catch(e) { toast.error('Failed to load experiments') }
+      const data = await apiCall('/api/formulation', { token })
+      setFormulas(Array.isArray(data) ? data : [])
+    } catch { toast.error('Failed to load formulas') }
     finally { setLoading(false) }
   }, [token])
 
   useEffect(() => { load() }, [load])
 
-  const handleCreate = async () => {
-    if (!form.project_id || !form.title) return toast.error('Project and title required')
-    setSaving(true)
-    try {
-      const res = await apiCall('/api/labbook', { method:'POST', body: form, token })
-      toast.success(`Experiment ${res.exp_id} created`)
-      setShowAdd(false)
-      setForm({ project_id:'', title:'', batch_no:'', temperature:'', duration:'', observations:'', result:'Pass' })
-      await load()
-      setSelected(res)
-    } catch(e) { toast.error(e.message || 'Failed to create') }
-    finally { setSaving(false) }
+  const openReport = (projectId) => {
+    window.open(`${API_BASE}/api/formulation/report/${projectId}?token=${encodeURIComponent(token)}`, '_blank')
   }
 
-  const handleUpdateObs = async () => {
-    if (!selected) return
-    setSaving(true)
-    try {
-      await apiCall(`/api/labbook/${selected.exp_id}`, { method:'PUT', body:{ observations: editObs }, token })
-      toast.success('Observations saved')
-      setEditMode(false)
-      setSelected(s => ({ ...s, observations: editObs }))
-      setExps(es => es.map(e => e.exp_id === selected.exp_id ? { ...e, observations: editObs } : e))
-    } catch(e) { toast.error(e.message || 'Failed to save') }
-    finally { setSaving(false) }
+  const STATUS_COLOR = {
+    'Draft':          'bg-slate-100 text-slate-700',
+    'In Testing':     'bg-blue-100 text-blue-700',
+    'Sensory Pass':   'bg-emerald-100 text-emerald-700',
+    'Recommended':    'bg-green-100 text-green-800',
+    'Rejected':       'bg-red-100 text-red-700',
   }
-
-  const RESULTS = ['Pass','Fail','Inconclusive','In Progress']
 
   return (
-    <div className="space-y-4">
-      {/* ── My Assigned Tasks (Lab Notebook) ── */}
-      <MyTasksPanel user={user} token={token} taskTypes={['labbook','lab','Lab Testing']} onStatusChange={load} />
-
-      <div className="flex justify-between items-center">
-        <div><h1 className="text-2xl font-bold">E-Lab Notebook</h1><p className="text-muted-foreground text-sm">Digitized experiment records — {exps.length} total</p></div>
-        {canCreate && <Button onClick={()=>setShowAdd(true)}><Plus className="h-4 w-4 mr-2"/>New Experiment</Button>}
+    <div className="space-y-6">
+      {/* ── Header ── */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">E-Lab Notebook</h1>
+          <p className="text-muted-foreground text-sm">
+            {loading ? 'Loading…' : `${formulas.length} formula record${formulas.length !== 1 ? 's' : ''} — click any card to preview the project report`}
+          </p>
+        </div>
+        <Button variant="outline" size="sm" onClick={load}>
+          <RefreshCw className="h-4 w-4 mr-1"/>Refresh
+        </Button>
       </div>
 
-      <Dialog open={showAdd} onOpenChange={setShowAdd}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader><DialogTitle>New Experiment</DialogTitle></DialogHeader>
-          <div className="space-y-3">
-            <div><Label>Project</Label>
-              <Select value={form.project_id} onValueChange={v=>setForm(f=>({...f,project_id:v}))}>
-                <SelectTrigger><SelectValue placeholder="Select project"/></SelectTrigger>
-                <SelectContent>{projects.map(p=><SelectItem key={p.project_id} value={p.project_id}>{p.project_id} — {p.name}</SelectItem>)}</SelectContent>
-              </Select>
-            </div>
-            <div><Label>Title</Label><Input value={form.title} onChange={e=>setForm(f=>({...f,title:e.target.value}))} placeholder="e.g. Whey solubility trial"/></div>
-            <div className="grid grid-cols-3 gap-2">
-              <div><Label>Batch No.</Label><Input value={form.batch_no} onChange={e=>setForm(f=>({...f,batch_no:e.target.value}))} placeholder="B-2026-001"/></div>
-              <div><Label>Temperature</Label><Input value={form.temperature} onChange={e=>setForm(f=>({...f,temperature:e.target.value}))} placeholder="40°C"/></div>
-              <div><Label>Duration</Label><Input value={form.duration} onChange={e=>setForm(f=>({...f,duration:e.target.value}))} placeholder="4 hrs"/></div>
-            </div>
-            <div><Label>Observations</Label><Textarea rows={3} value={form.observations} onChange={e=>setForm(f=>({...f,observations:e.target.value}))} placeholder="Record detailed observations here…"/></div>
-            <div><Label>Result</Label>
-              <Select value={form.result} onValueChange={v=>setForm(f=>({...f,result:v}))}>
-                <SelectTrigger><SelectValue/></SelectTrigger>
-                <SelectContent>{RESULTS.map(r=><SelectItem key={r} value={r}>{r}</SelectItem>)}</SelectContent>
-              </Select>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={()=>setShowAdd(false)}>Cancel</Button>
-            <Button disabled={saving} onClick={handleCreate}>{saving?'Creating…':'Create Experiment'}</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* ── Cards grid ── */}
+      {loading ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+          {[1,2,3,4,5,6,7,8].map(i => (
+            <div key={i} className="h-36 rounded-xl bg-slate-100 animate-pulse" />
+          ))}
+        </div>
+      ) : formulas.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-24 text-muted-foreground">
+          <FileText className="h-12 w-12 mb-3 opacity-30" />
+          <p className="font-medium">No formulas found</p>
+          <p className="text-sm">Formulas created in Formulation Dev will appear here</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+          {formulas.map(f => (
+            <div
+              key={f.formula_id}
+              onClick={() => openReport(f.project_id)}
+              className="group relative flex flex-col gap-3 p-4 bg-white border border-slate-200 rounded-xl cursor-pointer
+                         hover:border-primary/50 hover:shadow-md transition-all duration-150"
+            >
+              {/* Top row: formula_id + status badge */}
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-mono text-xs font-semibold text-primary truncate">{f.formula_id}</span>
+                <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium whitespace-nowrap ${STATUS_COLOR[f.status] || 'bg-slate-100 text-slate-600'}`}>
+                  {f.status}
+                </span>
+              </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <Card className="lg:col-span-1">
-          <CardHeader><CardTitle>Experiments</CardTitle></CardHeader>
-          <CardContent className="p-0">
-            {loading ? <div className="p-6 text-center text-muted-foreground text-sm">Loading…</div> :
-            <ScrollArea className="h-[500px]"><div className="p-2 space-y-1">
-              {exps.length === 0 ? <div className="p-4 text-muted-foreground text-sm">No experiments yet</div> :
-              exps.map(e=>(
-                <div key={e.exp_id} onClick={()=>{ setSelected(e); setEditMode(false) }}
-                  className={`p-3 rounded-lg cursor-pointer hover:bg-slate-100 ${selected?.exp_id===e.exp_id?'bg-primary/5 border border-primary/20':''}`}>
-                  <div className="flex justify-between"><span className="text-xs text-muted-foreground font-mono">{e.exp_id}</span>
-                    <Badge variant={e.result==='Pass'?'default':e.result==='Fail'?'destructive':'secondary'} className="text-[10px]">{e.result||'—'}</Badge>
-                  </div>
-                  <div className="font-medium text-sm mt-1 truncate">{e.title}</div>
-                  <div className="text-xs text-muted-foreground">{e.project_id}</div>
-                </div>
-              ))}
-            </div></ScrollArea>}
-          </CardContent>
-        </Card>
-
-        <Card className="lg:col-span-2">
-          {!selected ? <CardContent className="p-12 text-center text-muted-foreground">Select an experiment to view details</CardContent> : (
-          <>
-            <CardHeader className="flex flex-row justify-between items-start">
-              <div><CardTitle>{selected.exp_id} — {selected.title}</CardTitle>
-                <CardDescription>By {selected.created_by} ({selected.created_by_role}) • {selected.project_id}</CardDescription>
-              </div>
-              <div className="flex gap-2">
-                <Badge variant={selected.result==='Pass'?'default':selected.result==='Fail'?'destructive':'secondary'}>{selected.result||'Pending'}</Badge>
-                {canCreate && <Button size="sm" variant="outline" onClick={()=>{ setEditMode(true); setEditObs(selected.observations||'') }}><Edit className="h-3 w-3 mr-1"/>Edit</Button>}
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="p-3 border rounded-lg"><div className="text-xs text-muted-foreground">Batch #</div><div className="font-medium">{selected.batch_no||'—'}</div></div>
-                <div className="p-3 border rounded-lg"><div className="text-xs text-muted-foreground">Temperature</div><div className="font-medium">{selected.temperature||'—'}</div></div>
-                <div className="p-3 border rounded-lg"><div className="text-xs text-muted-foreground">Duration</div><div className="font-medium">{selected.duration||'—'}</div></div>
-                <div className="p-3 border rounded-lg"><div className="text-xs text-muted-foreground">Status</div><div className="font-medium">{selected.status}</div></div>
-              </div>
+              {/* Middle: Project name */}
               <div>
-                <div className="flex justify-between items-center mb-1"><Label>Observations</Label></div>
-                {editMode ? (
-                  <div className="space-y-2">
-                    <Textarea rows={5} value={editObs} onChange={e=>setEditObs(e.target.value)}/>
-                    <div className="flex gap-2"><Button size="sm" disabled={saving} onClick={handleUpdateObs}>{saving?'Saving…':'Save'}</Button><Button size="sm" variant="outline" onClick={()=>setEditMode(false)}>Cancel</Button></div>
-                  </div>
-                ) : <div className="p-3 bg-slate-50 rounded-lg text-sm whitespace-pre-wrap min-h-[80px]">{selected.observations||'No observations recorded yet.'}</div>}
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wide mb-0.5">Project</p>
+                <p className="text-sm font-medium leading-snug line-clamp-2">{f.project_name || f.project_id}</p>
+                <p className="text-xs text-muted-foreground font-mono mt-0.5">{f.project_id}</p>
               </div>
-              <div className="text-xs text-muted-foreground">Created: {selected.created_at ? new Date(selected.created_at).toLocaleString() : '—'} • Updated: {selected.updated_at ? new Date(selected.updated_at).toLocaleString() : '—'}</div>
-            </CardContent>
-          </>)}
-        </Card>
-      </div>
+
+              {/* Bottom row: Version + Type */}
+              <div className="flex items-center gap-2 mt-auto pt-2 border-t border-slate-100">
+                <span className="text-[11px] font-mono bg-slate-100 text-slate-700 px-2 py-0.5 rounded">{f.version}</span>
+                <span className="text-[11px] text-muted-foreground">{f.formula_type}</span>
+                {/* Preview icon — visible on hover */}
+                <span className="ml-auto opacity-0 group-hover:opacity-100 transition-opacity text-primary">
+                  <FileText className="h-4 w-4" />
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

@@ -69,6 +69,9 @@ async def _migrate_columns() -> None:
     migrations = [
         # (table, column, column_definition)
         ("ppd_submissions", "mgmt_approvals", "JSON NULL"),
+        ("ppd_submissions", "ppd_title", "VARCHAR(255) NULL"),
+        ("lab_experiments", "formula_id", "VARCHAR(30) NULL"),
+        ("lab_experiments", "version",    "VARCHAR(10) NULL"),
     ]
     try:
         conn = await aiomysql.connect(

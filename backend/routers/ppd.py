@@ -64,6 +64,7 @@ def _ppd_out(p: PPDSubmission) -> dict:
         "ppd_id":           p.ppd_id,
         "project_id":       p.project_id,
         "project_name":     p.project_name,
+        "ppd_title":        p.ppd_title or "",
         "brand":            p.brand,
         "product_category": p.product_category,
         "target_consumer":  p.target_consumer,
@@ -120,7 +121,9 @@ async def list_ppds(
     role = current_user.get("role", "fd")
     stmt = select(PPDSubmission)
 
-    if role not in ("admin", "mgmt", "ceo"):
+    # Committee members and senior approvers can see all PPDs (view-only)
+    FULL_VISIBILITY_ROLES = {"admin", "mgmt", "ceo", "rd_head", "regulatory", "sa", "cfo", "gdso", "marketing"}
+    if role not in FULL_VISIBILITY_ROLES:
         stmt = stmt.where(PPDSubmission.teams_involved.contains(role))
     if status != "all":
         stmt = stmt.where(PPDSubmission.status == status)
@@ -152,7 +155,8 @@ async def get_ppd(
     if not p:
         raise HTTPException(404, "PPD not found")
     role = current_user.get("role", "fd")
-    if role not in ("admin", "mgmt", "ceo") and role not in (p.teams_involved or "").split(","):
+    FULL_VISIBILITY_ROLES = {"admin", "mgmt", "ceo", "rd_head", "regulatory", "sa", "cfo", "gdso", "marketing"}
+    if role not in FULL_VISIBILITY_ROLES and role not in (p.teams_involved or "").split(","):
         raise HTTPException(403, "You are not assigned to this project's PPD")
     return _ppd_out(p)
 
@@ -171,6 +175,7 @@ async def create_ppd(
     - Auto-tasks created for R&D/F&D (fd) and PM to review the draft
     - Reviewer list seeded from DEFAULT_REVIEWERS
     - mgmt_approvals seeded from MGMT_COMMITTEE (all Pending)
+    - Multiple PPDs can be created per project (each gets a unique sequential ppd_id)
     """
     # Verify project exists and caller is allowed
     proj_result = await db.execute(select(Project).where(Project.project_id == body.project_id))
@@ -182,12 +187,14 @@ async def create_ppd(
     if role not in ("admin",) and role not in (project.teams_involved or "").split(","):
         raise HTTPException(403, "You are not assigned to this project")
 
-    # Check no duplicate PPD
-    existing = await db.execute(select(PPDSubmission).where(PPDSubmission.project_id == body.project_id))
-    if existing.scalars().first():
-        raise HTTPException(400, f"A PPD already exists for project {body.project_id}. Use PUT to update it.")
-
-    ppd_id = f"PPD-{body.project_id}"
+    # Count existing PPDs for this project to generate a sequential ID
+    from sqlalchemy import func as sqlfunc
+    count_result = await db.execute(
+        select(sqlfunc.count(PPDSubmission.id)).where(PPDSubmission.project_id == body.project_id)
+    )
+    existing_count = count_result.scalar() or 0
+    seq = existing_count + 1
+    ppd_id = f"PPD-{body.project_id}-{seq}"
 
     # Seed reviewers from DEFAULT_REVIEWERS
     reviewers = list(DEFAULT_REVIEWERS)
@@ -197,6 +204,7 @@ async def create_ppd(
 
     ppd = PPDSubmission(
         ppd_id=ppd_id,
+        ppd_title=body.ppd_title or f"PPD #{seq} — {body.project_name}",
         project_id=body.project_id,
         project_name=body.project_name,
         brand=body.brand,
@@ -283,8 +291,9 @@ async def update_ppd(
         raise HTTPException(404, "PPD not found")
 
     role = current_user.get("role", "fd")
+    FULL_VISIBILITY_ROLES = {"admin", "mgmt", "ceo", "rd_head", "regulatory", "sa", "cfo", "gdso", "marketing"}
     # Access check
-    if role not in ("admin", "mgmt", "ceo") and role not in (p.teams_involved or "").split(","):
+    if role not in FULL_VISIBILITY_ROLES and role not in (p.teams_involved or "").split(","):
         raise HTTPException(403, "You are not assigned to this PPD's project")
 
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
@@ -679,7 +688,8 @@ async def add_comment(
         raise HTTPException(404, "PPD not found")
 
     role = current_user.get("role", "fd")
-    if role not in ("admin", "mgmt", "ceo") and role not in (p.teams_involved or "").split(","):
+    FULL_VISIBILITY_ROLES = {"admin", "mgmt", "ceo", "rd_head", "regulatory", "sa", "cfo", "gdso", "marketing"}
+    if role not in FULL_VISIBILITY_ROLES and role not in (p.teams_involved or "").split(","):
         raise HTTPException(403, "You are not assigned to this PPD")
 
     comment = PPDComment(

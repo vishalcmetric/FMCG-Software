@@ -136,9 +136,10 @@ class PPDSubmission(Base):
     __tablename__ = "ppd_submissions"
 
     id                  = Column(Integer, primary_key=True, autoincrement=True)
-    ppd_id              = Column(String(30), unique=True, nullable=False, index=True)   # e.g. PPD-ZW-2026-001
+    ppd_id              = Column(String(50), unique=True, nullable=False, index=True)   # e.g. PPD-ZW-2026-001-1
     project_id          = Column(String(20), nullable=False, index=True)                # FK to projects.project_id
     project_name        = Column(String(255))
+    ppd_title           = Column(String(255))                                            # short descriptive title per PPD
     brand               = Column(String(100))
     product_category    = Column(String(150))
     target_consumer     = Column(String(255))
@@ -258,6 +259,8 @@ class LabExperiment(Base):
     observations    = Column(Text)
     result          = Column(String(100))   # Pass / Fail / Inconclusive
     status          = Column(String(30), default="Active")  # Active / Closed / Archived
+    formula_id      = Column(String(30), nullable=True)     # linked formula (optional)
+    version         = Column(String(10), nullable=True)     # formula version at time of experiment
     created_by      = Column(String(150))
     created_by_role = Column(String(50))
     created_at      = Column(DateTime, server_default=func.now())

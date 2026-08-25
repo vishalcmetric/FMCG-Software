@@ -113,6 +113,7 @@ class PPDCreate(BaseModel):
     project_id: str
     project_name: str
     brand: str
+    ppd_title: Optional[str] = None        # short title to distinguish multiple PPDs on same project
     product_category: Optional[str] = None
     target_consumer: Optional[str] = None
     market_segment: Optional[str] = None
