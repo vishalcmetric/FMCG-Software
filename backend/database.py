@@ -68,17 +68,24 @@ ALL_ROLES = "admin,source,pm,fd,rd_head,marketing,regulatory,packaging,adl,pmsa,
 
 
 async def _migrate_columns() -> None:
-    """Add any new columns and run one-time data fixes on already-deployed tables."""
+    """Add any new columns to already-deployed tables."""
     column_migrations = [
         # (table, column, column_definition)
         ("ppd_submissions", "mgmt_approvals", "JSON NULL"),
         ("ppd_submissions", "ppd_title",      "VARCHAR(255) NULL"),
         ("lab_experiments", "formula_id",     "VARCHAR(30) NULL"),
         ("lab_experiments", "version",        "VARCHAR(10) NULL"),
+        ("lab_experiments", "ppd_id",         "VARCHAR(50) NULL"),
+        ("formulas",         "ppd_id",         "VARCHAR(50) NULL"),
+        ("plant_trials",    "ppd_id",          "VARCHAR(50) NULL"),
+        ("regulatory_checks","ppd_id",         "VARCHAR(50) NULL"),
+        ("sensory_evaluations","ppd_id",       "VARCHAR(50) NULL"),
+        ("costing_records", "ppd_id",          "VARCHAR(50) NULL"),
+        ("claim_records",   "ppd_id",          "VARCHAR(50) NULL"),
+        ("artwork_briefs",  "ppd_id",          "VARCHAR(50) NULL"),
+        ("tasks",           "ppd_id",          "VARCHAR(50) NULL"),
     ]
 
-    # Open connection once; each fix runs in its own try/except so one failure
-    # does not silently abort the remaining migrations.
     try:
         conn = await aiomysql.connect(
             host=settings.mysql_host,
@@ -92,8 +99,6 @@ async def _migrate_columns() -> None:
         return
 
     async with conn.cursor() as cur:
-
-        # ── 1. Column additions ────────────────────────────────────────────
         for table, column, col_def in column_migrations:
             try:
                 await cur.execute(
@@ -111,40 +116,7 @@ async def _migrate_columns() -> None:
             except Exception as e:
                 print(f"Warning: column migration {table}.{column} failed ({e})")
 
-        # ── 2. Fix projects with narrow teams_involved ─────────────────────
-        # Root cause: the ORM column used to default to "admin" so old rows only
-        # had "admin" or "admin,source".  We detect those by checking for absence
-        # of "fd" (a role that must always be present in the full list).
-        try:
-            await cur.execute(
-                "UPDATE `projects` SET `teams_involved` = %s "
-                "WHERE `teams_involved` NOT LIKE %s",
-                (ALL_ROLES, "%fd%"),
-            )
-            fixed = cur.rowcount
-            await conn.commit()
-            if fixed:
-                print(f"Migration: fixed teams_involved on {fixed} project(s) → ALL_ROLES")
-        except Exception as e:
-            print(f"Warning: projects teams_involved backfill failed ({e})")
-
-        # ── 3. Fix PPD submissions with narrow teams_involved ──────────────
-        try:
-            await cur.execute(
-                "UPDATE `ppd_submissions` SET `teams_involved` = %s "
-                "WHERE `teams_involved` NOT LIKE %s",
-                (ALL_ROLES, "%fd%"),
-            )
-            fixed_ppd = cur.rowcount
-            await conn.commit()
-            if fixed_ppd:
-                print(f"Migration: fixed teams_involved on {fixed_ppd} ppd_submission(s) → ALL_ROLES")
-        except Exception as e:
-            print(f"Warning: ppd_submissions teams_involved backfill failed ({e})")
-
-        # ── 4. Backfill PPD submissions with empty reviewers ──────────────
-        # Old records created before DEFAULT_REVIEWERS seeding was added have
-        # reviewers = NULL or [].  Seed them now so the review workflow works.
+        # Backfill PPD submissions with empty reviewers/mgmt_approvals
         _default_reviewers = (
             '[{"role":"fd","team_label":"R&D / F&D Team","head_name":"",'
             '"status":"Pending","comment":"","updated_at":""},'
@@ -165,10 +137,7 @@ async def _migrate_columns() -> None:
                 "WHERE `reviewers` IS NULL OR JSON_LENGTH(`reviewers`) = 0",
                 (_default_reviewers,),
             )
-            fixed_rev = cur.rowcount
             await conn.commit()
-            if fixed_rev:
-                print(f"Migration: seeded reviewers on {fixed_rev} ppd_submission(s)")
         except Exception as e:
             print(f"Warning: ppd_submissions reviewers backfill failed ({e})")
 
@@ -178,10 +147,7 @@ async def _migrate_columns() -> None:
                 "WHERE `mgmt_approvals` IS NULL OR JSON_LENGTH(`mgmt_approvals`) = 0",
                 (_default_mgmt,),
             )
-            fixed_mgmt = cur.rowcount
             await conn.commit()
-            if fixed_mgmt:
-                print(f"Migration: seeded mgmt_approvals on {fixed_mgmt} ppd_submission(s)")
         except Exception as e:
             print(f"Warning: ppd_submissions mgmt_approvals backfill failed ({e})")
 

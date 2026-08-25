@@ -1,13 +1,13 @@
 """
 Claim Substantiation router.
-Roles: admin, sa, rd_head can create/update.
+Roles: admin, sa, rd_head, regulatory can create/update.
 """
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_db
 from auth import get_current_user
-from orm_models import ClaimRecord, Project, AuditLog
+from orm_models import ClaimRecord, PPDSubmission, AuditLog
 from notify import notify_roles
 from pydantic import BaseModel
 from typing import Optional
@@ -15,10 +15,11 @@ from typing import Optional
 router = APIRouter(prefix="/api/claims", tags=["claims"])
 ALLOWED_ROLES = {"admin", "sa", "rd_head", "regulatory"}
 STATUS_LIST = ["Pending", "In Review", "Verified", "Rejected"]
+ALL_ROLES = "admin,source,pm,fd,rd_head,marketing,regulatory,packaging,adl,pmsa,sa,mgmt,ceo,production"
 
 
 class ClaimCreate(BaseModel):
-    project_id: str
+    ppd_id: str
     claim_text: str
     evidence: Optional[str] = None
     assigned_to: Optional[str] = None
@@ -37,7 +38,7 @@ class ClaimUpdate(BaseModel):
 
 def _out(c: ClaimRecord) -> dict:
     return {
-        "id": c.id, "claim_id": c.claim_id, "project_id": c.project_id,
+        "id": c.id, "claim_id": c.claim_id, "ppd_id": c.ppd_id,
         "project_name": c.project_name, "claim_text": c.claim_text,
         "evidence": c.evidence, "assigned_to": c.assigned_to,
         "assigned_role": c.assigned_role, "status": c.status, "notes": c.notes,
@@ -49,21 +50,16 @@ def _out(c: ClaimRecord) -> dict:
 
 @router.get("")
 async def list_claims(
-    project_id: str = Query(""), status: str = Query("all"), q: str = Query(""),
+    ppd_id: str = Query(""), status: str = Query("all"), q: str = Query(""),
     current_user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db),
 ):
-    role = current_user.get("role", "fd")
     stmt = select(ClaimRecord)
-    if project_id:
-        stmt = stmt.where(ClaimRecord.project_id == project_id)
+    if ppd_id:
+        stmt = stmt.where(ClaimRecord.ppd_id == ppd_id)
     if status != "all":
         stmt = stmt.where(ClaimRecord.status == status)
     if q:
         stmt = stmt.where(ClaimRecord.claim_text.ilike(f"%{q}%") | ClaimRecord.project_name.ilike(f"%{q}%"))
-    if role not in ("admin", "mgmt", "ceo"):
-        proj_stmt = select(Project.project_id).where(Project.teams_involved.contains(role))
-        ids = [r[0] for r in (await db.execute(proj_stmt)).all()]
-        stmt = stmt.where(ClaimRecord.project_id.in_(ids))
     stmt = stmt.order_by(ClaimRecord.updated_at.desc()).limit(200)
     result = await db.execute(stmt)
     return [_out(c) for c in result.scalars().all()]
@@ -74,16 +70,16 @@ async def create_claim(body: ClaimCreate, current_user: dict = Depends(get_curre
     role = current_user.get("role", "fd")
     if role not in ALLOWED_ROLES:
         raise HTTPException(403, "Only admin, sa, rd_head, regulatory can create claims")
-    proj_result = await db.execute(select(Project).where(Project.project_id == body.project_id))
-    project = proj_result.scalars().first()
-    if not project:
-        raise HTTPException(404, f"Project {body.project_id} not found")
-    seq = ((await db.execute(select(func.count()).select_from(ClaimRecord).where(ClaimRecord.project_id == body.project_id))).scalar() or 0) + 1
-    while (await db.execute(select(ClaimRecord.id).where(ClaimRecord.claim_id == f"CLM-{body.project_id}-{str(seq).zfill(2)}"))).scalar():
+    ppd_result = await db.execute(select(PPDSubmission).where(PPDSubmission.ppd_id == body.ppd_id))
+    ppd = ppd_result.scalars().first()
+    if not ppd:
+        raise HTTPException(404, f"PPD {body.ppd_id} not found")
+    seq = ((await db.execute(select(func.count()).select_from(ClaimRecord).where(ClaimRecord.ppd_id == body.ppd_id))).scalar() or 0) + 1
+    while (await db.execute(select(ClaimRecord.id).where(ClaimRecord.claim_id == f"CLM-{body.ppd_id}-{str(seq).zfill(2)}"))).scalar():
         seq += 1
-    claim_id = f"CLM-{body.project_id}-{str(seq).zfill(2)}"
+    claim_id = f"CLM-{body.ppd_id}-{str(seq).zfill(2)}"
     claim = ClaimRecord(
-        claim_id=claim_id, project_id=body.project_id, project_name=project.name,
+        claim_id=claim_id, ppd_id=body.ppd_id, project_name=ppd.project_name,
         claim_text=body.claim_text, evidence=body.evidence,
         assigned_to=body.assigned_to, assigned_role=body.assigned_role or "sa",
         status="Pending", notes=body.notes,
@@ -91,13 +87,13 @@ async def create_claim(body: ClaimCreate, current_user: dict = Depends(get_curre
     )
     db.add(claim)
     db.add(AuditLog(user_name=current_user.get("name",""), user_email=current_user.get("sub",""),
-        action="CREATE", action_label=f"created claim {claim_id} for {project.name}",
-        entity=claim_id, involved_roles=project.teams_involved or "admin", time_ago="just now"))
+        action="CREATE", action_label=f"created claim {claim_id} for {ppd.project_name}",
+        entity=claim_id, involved_roles=ppd.teams_involved or ALL_ROLES, time_ago="just now"))
     assigned = body.assigned_role or "sa"
     await notify_roles(db, roles=[assigned, "admin"],
-        title=f"Claim Substantiation Task: {project.name}",
-        message=f"{current_user.get('name','User')} assigned claim substantiation for '{body.claim_text[:60]}' on {project.name}.",
-        action_type="task_assigned", entity_id=body.project_id, entity_name=project.name,
+        title=f"Claim Substantiation Task: {ppd.project_name}",
+        message=f"{current_user.get('name','User')} assigned claim substantiation for '{body.claim_text[:60]}' on {ppd.project_name}.",
+        action_type="task_assigned", entity_id=body.ppd_id, entity_name=ppd.project_name,
         created_by=current_user.get("name", ""))
     await db.commit()
     await db.refresh(claim)
@@ -121,12 +117,12 @@ async def update_claim(claim_id: str, body: ClaimUpdate, current_user: dict = De
         action="UPDATE", action_label=f"updated claim {claim_id} — {change}",
         entity=claim_id, involved_roles="admin", time_ago="just now"))
     if body.status and body.status != old_status:
-        proj_result = await db.execute(select(Project).where(Project.project_id == c.project_id))
-        project = proj_result.scalars().first()
-        teams = (project.teams_involved if project else "admin").split(",")
+        ppd_result = await db.execute(select(PPDSubmission).where(PPDSubmission.ppd_id == c.ppd_id))
+        ppd = ppd_result.scalars().first()
+        teams = (ppd.teams_involved if ppd else ALL_ROLES).split(",")
         await notify_roles(db, roles=teams, title=f"Claim Status Updated: {c.project_name}",
             message=f"{current_user.get('name','User')} updated claim {claim_id} — {change}.",
-            action_type="info", entity_id=c.project_id, entity_name=c.project_name,
+            action_type="info", entity_id=c.ppd_id, entity_name=c.project_name,
             created_by=current_user.get("name", ""))
     await db.commit()
     return {"ok": True}

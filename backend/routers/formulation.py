@@ -3,9 +3,9 @@ Formulation Development router.
 
 Rules:
   - Admin, fd, rd_head can create / update formulas.
-  - Any role in the project's teams_involved can view and comment.
+  - Any role in teams_involved can view and comment.
   - Status changes to Recommended / Rejected are admin / rd_head only.
-  - All mutations fire notifications to teams on the project.
+  - All mutations fire notifications to all roles.
 """
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, func
@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_db
 from auth import get_current_user
 from models import FormulaCreate, FormulaUpdate, FormulaCommentCreate
-from orm_models import Formula, FormulaComment, Project, AuditLog
+from orm_models import Formula, FormulaComment, PPDSubmission, AuditLog
 from notify import notify_roles
 from datetime import datetime, timezone
 
@@ -22,12 +22,14 @@ router = APIRouter(prefix="/api/formulation", tags=["formulation"])
 FORMULA_STATUSES = ["Draft", "In Testing", "Sensory Pass", "Recommended", "Rejected"]
 ALLOWED_CREATE_ROLES = {"admin", "fd", "rd_head"}
 
+ALL_ROLES = "admin,source,pm,fd,rd_head,marketing,regulatory,packaging,adl,pmsa,sa,mgmt,ceo,production"
+
 
 def _formula_out(f: Formula) -> dict:
     return {
         "id":             f.id,
         "formula_id":     f.formula_id,
-        "project_id":     f.project_id,
+        "ppd_id":         f.ppd_id,
         "project_name":   f.project_name,
         "version":        f.version,
         "formula_type":   f.formula_type,
@@ -64,17 +66,17 @@ def _comment_out(c: FormulaComment) -> dict:
 
 @router.get("")
 async def list_formulas(
-    project_id: str = Query("", description="Filter by project ID"),
-    status:     str = Query("all"),
-    q:          str = Query(""),
+    ppd_id:  str = Query("", description="Filter by PPD ID"),
+    status:  str = Query("all"),
+    q:       str = Query(""),
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     role = current_user.get("role", "fd")
     stmt = select(Formula)
 
-    if project_id:
-        stmt = stmt.where(Formula.project_id == project_id)
+    if ppd_id:
+        stmt = stmt.where(Formula.ppd_id == ppd_id)
     if status != "all":
         stmt = stmt.where(Formula.status == status)
     if q:
@@ -82,12 +84,6 @@ async def list_formulas(
         stmt = stmt.where(
             Formula.formula_id.ilike(pattern) | Formula.project_name.ilike(pattern)
         )
-    # Non-admin can only see formulas from projects they belong to
-    if role not in ("admin", "mgmt", "ceo"):
-        # subquery: get project_ids where role is in teams_involved
-        proj_stmt = select(Project.project_id).where(Project.teams_involved.contains(role))
-        proj_ids = [r[0] for r in (await db.execute(proj_stmt)).all()]
-        stmt = stmt.where(Formula.project_id.in_(proj_ids))
 
     stmt = stmt.order_by(Formula.updated_at.desc()).limit(200)
     result = await db.execute(stmt)
@@ -121,22 +117,22 @@ async def create_formula(
     if role not in ALLOWED_CREATE_ROLES:
         raise HTTPException(403, "Only admin, fd, or rd_head can create formulas")
 
-    # Verify project exists
-    proj_result = await db.execute(select(Project).where(Project.project_id == body.project_id))
-    project = proj_result.scalars().first()
-    if not project:
-        raise HTTPException(404, f"Project {body.project_id} not found")
+    # Look up PPD to get project_name
+    ppd_result = await db.execute(select(PPDSubmission).where(PPDSubmission.ppd_id == body.ppd_id))
+    ppd = ppd_result.scalars().first()
+    if not ppd:
+        raise HTTPException(404, f"PPD {body.ppd_id} not found")
 
-    # Generate formula ID — use count+1 but skip any IDs already taken
-    seq = ((await db.execute(select(func.count()).select_from(Formula).where(Formula.project_id == body.project_id))).scalar() or 0) + 1
-    while (await db.execute(select(Formula.id).where(Formula.formula_id == f"F-{body.project_id}-{str(seq).zfill(2)}"))).scalar():
+    # Generate formula ID
+    seq = ((await db.execute(select(func.count()).select_from(Formula).where(Formula.ppd_id == body.ppd_id))).scalar() or 0) + 1
+    while (await db.execute(select(Formula.id).where(Formula.formula_id == f"F-{body.ppd_id}-{str(seq).zfill(2)}"))).scalar():
         seq += 1
-    fid = f"F-{body.project_id}-{str(seq).zfill(2)}"
+    fid = f"F-{body.ppd_id}-{str(seq).zfill(2)}"
 
     formula = Formula(
         formula_id=fid,
-        project_id=body.project_id,
-        project_name=body.project_name or project.name,
+        ppd_id=body.ppd_id,
+        project_name=body.project_name or ppd.project_name,
         version="v1.0",
         formula_type=body.formula_type or "Trial",
         status="Draft",
@@ -158,21 +154,21 @@ async def create_formula(
         user_name=current_user.get("name", ""),
         user_email=current_user.get("sub", ""),
         action="CREATE",
-        action_label=f"created formula {fid} for project {body.project_id}",
+        action_label=f"created formula {fid} for PPD {body.ppd_id}",
         entity=fid,
-        involved_roles=project.teams_involved or "admin",
+        involved_roles=ppd.teams_involved or ALL_ROLES,
         time_ago="just now",
     ))
 
-    target_roles = (project.teams_involved or "admin").split(",")
+    target_roles = (ppd.teams_involved or ALL_ROLES).split(",")
     await notify_roles(
         db,
         roles=target_roles,
         title=f"New Formula: {fid}",
-        message=f"{current_user.get('name','User')} created formula {fid} ({body.formula_type or 'Trial'}) for {project.name}.",
+        message=f"{current_user.get('name','User')} created formula {fid} ({body.formula_type or 'Trial'}) for {ppd.project_name}.",
         action_type="info",
-        entity_id=body.project_id,
-        entity_name=project.name,
+        entity_id=body.ppd_id,
+        entity_name=ppd.project_name,
         created_by=current_user.get("name", ""),
     )
 
@@ -224,10 +220,10 @@ async def update_formula(
     if "formula_type" in updates: change_parts.append(f"type → {updates['formula_type']}")
     change_summary = ", ".join(change_parts) if change_parts else "details updated"
 
-    # Get project teams for notifications
-    proj_result = await db.execute(select(Project).where(Project.project_id == f.project_id))
-    project = proj_result.scalars().first()
-    teams = (project.teams_involved if project else "admin")
+    # Get PPD teams for notifications
+    ppd_result = await db.execute(select(PPDSubmission).where(PPDSubmission.ppd_id == f.ppd_id))
+    ppd = ppd_result.scalars().first()
+    teams = ppd.teams_involved if ppd else ALL_ROLES
 
     db.add(AuditLog(
         user_name=current_user.get("name", ""),
@@ -235,18 +231,18 @@ async def update_formula(
         action="UPDATE",
         action_label=f"updated formula {formula_id} — {change_summary}",
         entity=formula_id,
-        involved_roles=teams or "admin",
+        involved_roles=teams or ALL_ROLES,
         time_ago="just now",
     ))
 
-    target_roles = (teams or "admin").split(",")
+    target_roles = (teams or ALL_ROLES).split(",")
     await notify_roles(
         db,
         roles=target_roles,
         title=f"Formula Updated: {formula_id}",
         message=f"{current_user.get('name','User')} updated {formula_id} — {change_summary}.",
         action_type="info",
-        entity_id=f.project_id,
+        entity_id=f.ppd_id,
         entity_name=f.project_name,
         created_by=current_user.get("name", ""),
     )
@@ -324,17 +320,17 @@ async def add_comment(
     )
     db.add(comment)
 
-    proj_result = await db.execute(select(Project).where(Project.project_id == f.project_id))
-    project = proj_result.scalars().first()
-    teams = (project.teams_involved if project else "admin")
+    ppd_result = await db.execute(select(PPDSubmission).where(PPDSubmission.ppd_id == f.ppd_id))
+    ppd = ppd_result.scalars().first()
+    teams = ppd.teams_involved if ppd else ALL_ROLES
 
     await notify_roles(
         db,
-        roles=(teams or "admin").split(","),
+        roles=(teams or ALL_ROLES).split(","),
         title=f"New Comment on Formula: {formula_id}",
         message=f"{current_user.get('name','User')} ({role}) commented on {formula_id}: {body.comment[:80]}",
         action_type="info",
-        entity_id=f.project_id,
+        entity_id=f.ppd_id,
         entity_name=f.project_name,
         created_by=current_user.get("name", ""),
     )

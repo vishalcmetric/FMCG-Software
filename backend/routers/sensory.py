@@ -7,17 +7,18 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_db
 from auth import get_current_user
-from orm_models import SensoryEvaluation, Project, AuditLog
+from orm_models import SensoryEvaluation, PPDSubmission, AuditLog
 from notify import notify_roles
 from pydantic import BaseModel
 from typing import Optional
 
 router = APIRouter(prefix="/api/sensory", tags=["sensory"])
 ALLOWED_ROLES = {"admin", "pmsa", "adl", "rd_head"}
+ALL_ROLES = "admin,source,pm,fd,rd_head,marketing,regulatory,packaging,adl,pmsa,sa,mgmt,ceo,production"
 
 
 class SensoryCreate(BaseModel):
-    project_id: str
+    ppd_id: str
     formula_id: Optional[str] = None
     panel_size: Optional[int] = 0
     eval_date: Optional[str] = None
@@ -56,7 +57,7 @@ class SensoryUpdate(BaseModel):
 
 def _out(e: SensoryEvaluation) -> dict:
     return {
-        "id": e.id, "eval_id": e.eval_id, "project_id": e.project_id,
+        "id": e.id, "eval_id": e.eval_id, "ppd_id": e.ppd_id,
         "project_name": e.project_name, "formula_id": e.formula_id,
         "panel_size": e.panel_size, "eval_date": e.eval_date,
         "overall_score": e.overall_score, "aroma": e.aroma, "taste": e.taste,
@@ -73,21 +74,16 @@ def _out(e: SensoryEvaluation) -> dict:
 
 @router.get("")
 async def list_evals(
-    project_id: str = Query(""), status: str = Query("all"), q: str = Query(""),
+    ppd_id: str = Query(""), status: str = Query("all"), q: str = Query(""),
     current_user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db),
 ):
-    role = current_user.get("role", "fd")
     stmt = select(SensoryEvaluation)
-    if project_id:
-        stmt = stmt.where(SensoryEvaluation.project_id == project_id)
+    if ppd_id:
+        stmt = stmt.where(SensoryEvaluation.ppd_id == ppd_id)
     if status != "all":
         stmt = stmt.where(SensoryEvaluation.status == status)
     if q:
         stmt = stmt.where(SensoryEvaluation.project_name.ilike(f"%{q}%"))
-    if role not in ("admin", "mgmt", "ceo"):
-        proj_stmt = select(Project.project_id).where(Project.teams_involved.contains(role))
-        ids = [r[0] for r in (await db.execute(proj_stmt)).all()]
-        stmt = stmt.where(SensoryEvaluation.project_id.in_(ids))
     stmt = stmt.order_by(SensoryEvaluation.updated_at.desc()).limit(200)
     result = await db.execute(stmt)
     return [_out(e) for e in result.scalars().all()]
@@ -98,16 +94,16 @@ async def create_eval(body: SensoryCreate, current_user: dict = Depends(get_curr
     role = current_user.get("role", "fd")
     if role not in ALLOWED_ROLES:
         raise HTTPException(403, "Only admin, pmsa, adl, rd_head can create evaluations")
-    proj_result = await db.execute(select(Project).where(Project.project_id == body.project_id))
-    project = proj_result.scalars().first()
-    if not project:
-        raise HTTPException(404, f"Project {body.project_id} not found")
-    seq = ((await db.execute(select(func.count()).select_from(SensoryEvaluation).where(SensoryEvaluation.project_id == body.project_id))).scalar() or 0) + 1
-    while (await db.execute(select(SensoryEvaluation.id).where(SensoryEvaluation.eval_id == f"SE-{body.project_id}-{str(seq).zfill(2)}"))).scalar():
+    ppd_result = await db.execute(select(PPDSubmission).where(PPDSubmission.ppd_id == body.ppd_id))
+    ppd = ppd_result.scalars().first()
+    if not ppd:
+        raise HTTPException(404, f"PPD {body.ppd_id} not found")
+    seq = ((await db.execute(select(func.count()).select_from(SensoryEvaluation).where(SensoryEvaluation.ppd_id == body.ppd_id))).scalar() or 0) + 1
+    while (await db.execute(select(SensoryEvaluation.id).where(SensoryEvaluation.eval_id == f"SE-{body.ppd_id}-{str(seq).zfill(2)}"))).scalar():
         seq += 1
-    eval_id = f"SE-{body.project_id}-{str(seq).zfill(2)}"
+    eval_id = f"SE-{body.ppd_id}-{str(seq).zfill(2)}"
     ev = SensoryEvaluation(
-        eval_id=eval_id, project_id=body.project_id, project_name=project.name,
+        eval_id=eval_id, ppd_id=body.ppd_id, project_name=ppd.project_name,
         formula_id=body.formula_id, panel_size=body.panel_size or 0,
         eval_date=body.eval_date, overall_score=body.overall_score, aroma=body.aroma,
         taste=body.taste, mouthfeel=body.mouthfeel, aftertaste=body.aftertaste,
@@ -119,12 +115,12 @@ async def create_eval(body: SensoryCreate, current_user: dict = Depends(get_curr
     )
     db.add(ev)
     db.add(AuditLog(user_name=current_user.get("name",""), user_email=current_user.get("sub",""),
-        action="CREATE", action_label=f"created sensory evaluation {eval_id} for {project.name}",
-        entity=eval_id, involved_roles=project.teams_involved or "admin", time_ago="just now"))
-    teams = (project.teams_involved or "admin").split(",")
-    await notify_roles(db, roles=teams, title=f"Sensory Evaluation Submitted: {project.name}",
-        message=f"{current_user.get('name','User')} submitted sensory evaluation {eval_id} for {project.name}.",
-        action_type="info", entity_id=body.project_id, entity_name=project.name,
+        action="CREATE", action_label=f"created sensory evaluation {eval_id} for {ppd.project_name}",
+        entity=eval_id, involved_roles=ppd.teams_involved or ALL_ROLES, time_ago="just now"))
+    teams = (ppd.teams_involved or ALL_ROLES).split(",")
+    await notify_roles(db, roles=teams, title=f"Sensory Evaluation Submitted: {ppd.project_name}",
+        message=f"{current_user.get('name','User')} submitted sensory evaluation {eval_id} for {ppd.project_name}.",
+        action_type="info", entity_id=body.ppd_id, entity_name=ppd.project_name,
         created_by=current_user.get("name", ""))
     await db.commit()
     await db.refresh(ev)
@@ -148,12 +144,12 @@ async def update_eval(eval_id: str, body: SensoryUpdate, current_user: dict = De
         action="UPDATE", action_label=f"updated sensory eval {eval_id} — {change}",
         entity=eval_id, involved_roles="admin", time_ago="just now"))
     if body.status and body.status != old_status:
-        proj_result = await db.execute(select(Project).where(Project.project_id == e.project_id))
-        project = proj_result.scalars().first()
-        teams = (project.teams_involved if project else "admin").split(",")
+        ppd_result = await db.execute(select(PPDSubmission).where(PPDSubmission.ppd_id == e.ppd_id))
+        ppd = ppd_result.scalars().first()
+        teams = (ppd.teams_involved if ppd else ALL_ROLES).split(",")
         await notify_roles(db, roles=teams, title=f"Sensory Result Updated: {e.project_name}",
             message=f"{current_user.get('name','User')} updated {eval_id} — {change}.",
-            action_type="info", entity_id=e.project_id, entity_name=e.project_name,
+            action_type="info", entity_id=e.ppd_id, entity_name=e.project_name,
             created_by=current_user.get("name", ""))
     await db.commit()
     return {"ok": True}

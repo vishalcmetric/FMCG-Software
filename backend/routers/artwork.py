@@ -7,17 +7,16 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_db
 from auth import get_current_user
-from orm_models import ArtworkBrief, Project, AuditLog
+from orm_models import ArtworkBrief, PPDSubmission, AuditLog
 from notify import notify_roles
 from pydantic import BaseModel
 from typing import Optional
 
 router = APIRouter(prefix="/api/artwork", tags=["artwork"])
 
-# Who can create a brief: marketing, packaging, admin
 CREATE_ROLES = {"admin", "marketing", "packaging", "rd_head"}
-# Who can update status / upload design: packaging, admin
 UPDATE_ROLES = {"admin", "packaging", "marketing"}
+ALL_ROLES = "admin,source,pm,fd,rd_head,marketing,regulatory,packaging,adl,pmsa,sa,mgmt,ceo,production"
 
 ART_STATUSES = [
     "Brief Pending", "Design In Progress", "Under Review", "Approved", "Rework", "Rejected"
@@ -26,7 +25,7 @@ ART_TYPES = ["Label", "Carton", "Pouch", "Shipper", "Digital Banner", "POS Mater
 
 
 class ArtworkCreate(BaseModel):
-    project_id: str
+    ppd_id: str
     artwork_type: Optional[str] = "Label"
     sku: Optional[str] = None
     brief_notes: Optional[str] = None
@@ -47,7 +46,7 @@ class ArtworkUpdate(BaseModel):
 
 def _out(a: ArtworkBrief) -> dict:
     return {
-        "id": a.id, "artwork_id": a.artwork_id, "project_id": a.project_id,
+        "id": a.id, "artwork_id": a.artwork_id, "ppd_id": a.ppd_id,
         "project_name": a.project_name, "brand": a.brand, "version": a.version,
         "artwork_type": a.artwork_type, "sku": a.sku, "brief_notes": a.brief_notes,
         "design_link": a.design_link, "comment": a.comment, "status": a.status,
@@ -60,16 +59,15 @@ def _out(a: ArtworkBrief) -> dict:
 
 @router.get("")
 async def list_artwork(
-    project_id: str = Query(""),
+    ppd_id: str = Query(""),
     status: str = Query("all"),
     q: str = Query(""),
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    role = current_user.get("role", "fd")
     stmt = select(ArtworkBrief)
-    if project_id:
-        stmt = stmt.where(ArtworkBrief.project_id == project_id)
+    if ppd_id:
+        stmt = stmt.where(ArtworkBrief.ppd_id == ppd_id)
     if status != "all":
         stmt = stmt.where(ArtworkBrief.status == status)
     if q:
@@ -78,11 +76,6 @@ async def list_artwork(
             ArtworkBrief.sku.ilike(f"%{q}%") |
             ArtworkBrief.artwork_id.ilike(f"%{q}%")
         )
-    # Role filter: admin/mgmt/ceo see all; others see only their project's artworks
-    if role not in ("admin", "mgmt", "ceo"):
-        proj_stmt = select(Project.project_id).where(Project.teams_involved.contains(role))
-        ids = [r[0] for r in (await db.execute(proj_stmt)).all()]
-        stmt = stmt.where(ArtworkBrief.project_id.in_(ids))
     stmt = stmt.order_by(ArtworkBrief.updated_at.desc()).limit(200)
     result = await db.execute(stmt)
     return [_out(a) for a in result.scalars().all()]
@@ -97,21 +90,21 @@ async def create_artwork(
     role = current_user.get("role", "fd")
     if role not in CREATE_ROLES:
         raise HTTPException(403, "Only marketing, packaging, admin can create artwork briefs")
-    proj_result = await db.execute(select(Project).where(Project.project_id == body.project_id))
-    project = proj_result.scalars().first()
-    if not project:
-        raise HTTPException(404, f"Project {body.project_id} not found")
+    ppd_result = await db.execute(select(PPDSubmission).where(PPDSubmission.ppd_id == body.ppd_id))
+    ppd = ppd_result.scalars().first()
+    if not ppd:
+        raise HTTPException(404, f"PPD {body.ppd_id} not found")
 
-    seq = ((await db.execute(select(func.count()).select_from(ArtworkBrief).where(ArtworkBrief.project_id == body.project_id))).scalar() or 0) + 1
-    while (await db.execute(select(ArtworkBrief.id).where(ArtworkBrief.artwork_id == f"ART-{body.project_id}-{str(seq).zfill(2)}"))).scalar():
+    seq = ((await db.execute(select(func.count()).select_from(ArtworkBrief).where(ArtworkBrief.ppd_id == body.ppd_id))).scalar() or 0) + 1
+    while (await db.execute(select(ArtworkBrief.id).where(ArtworkBrief.artwork_id == f"ART-{body.ppd_id}-{str(seq).zfill(2)}"))).scalar():
         seq += 1
-    artwork_id = f"ART-{body.project_id}-{str(seq).zfill(2)}"
+    artwork_id = f"ART-{body.ppd_id}-{str(seq).zfill(2)}"
 
     art = ArtworkBrief(
         artwork_id=artwork_id,
-        project_id=body.project_id,
-        project_name=project.name,
-        brand=project.brand,
+        ppd_id=body.ppd_id,
+        project_name=ppd.project_name,
+        brand=ppd.brand,
         artwork_type=body.artwork_type or "Label",
         sku=body.sku,
         brief_notes=body.brief_notes,
@@ -126,19 +119,17 @@ async def create_artwork(
         user_name=current_user.get("name", ""),
         user_email=current_user.get("sub", ""),
         action="CREATE",
-        action_label=f"created artwork brief {artwork_id} for {project.name}",
+        action_label=f"created artwork brief {artwork_id} for {ppd.project_name}",
         entity=artwork_id,
-        involved_roles=project.teams_involved or "admin",
+        involved_roles=ppd.teams_involved or ALL_ROLES,
         time_ago="just now",
     ))
-    # Notify packaging team
-    teams = (project.teams_involved or "admin").split(",")
     await notify_roles(
         db, roles=["packaging", "admin"],
-        title=f"Artwork Brief Created: {project.name}",
-        message=f"{current_user.get('name','User')} created {body.artwork_type or 'Label'} artwork brief for {project.name} ({artwork_id}).",
-        action_type="task_assigned", entity_id=body.project_id,
-        entity_name=project.name, created_by=current_user.get("name", ""),
+        title=f"Artwork Brief Created: {ppd.project_name}",
+        message=f"{current_user.get('name','User')} created {body.artwork_type or 'Label'} artwork brief for {ppd.project_name} ({artwork_id}).",
+        action_type="task_assigned", entity_id=body.ppd_id,
+        entity_name=ppd.project_name, created_by=current_user.get("name", ""),
     )
     await db.commit()
     await db.refresh(art)
@@ -175,16 +166,15 @@ async def update_artwork(
         involved_roles="admin",
         time_ago="just now",
     ))
-    # Notify on status change
     if body.status and body.status != old_status:
-        proj_result = await db.execute(select(Project).where(Project.project_id == a.project_id))
-        project = proj_result.scalars().first()
-        teams = (project.teams_involved if project else "admin").split(",")
+        ppd_result = await db.execute(select(PPDSubmission).where(PPDSubmission.ppd_id == a.ppd_id))
+        ppd = ppd_result.scalars().first()
+        teams = (ppd.teams_involved if ppd else ALL_ROLES).split(",")
         await notify_roles(
             db, roles=teams,
             title=f"Artwork Updated: {a.project_name}",
             message=f"{current_user.get('name','User')} updated artwork {artwork_id} — {change}.",
-            action_type="info", entity_id=a.project_id,
+            action_type="info", entity_id=a.ppd_id,
             entity_name=a.project_name, created_by=current_user.get("name", ""),
         )
     await db.commit()

@@ -1,16 +1,14 @@
 """
 PPD (Product Development Plan) router.
 
+PPD is now the top-level entity — project_name and brand are entered directly.
+
 Workflow:
   Step 1 — Source Team creates PPD → status "Draft"
            Auto-tasks created for BOTH R&D/F&D (fd) AND PM simultaneously.
   Step 2 — R&D/F&D and PM review the PPD IN PARALLEL — no dependency between them.
-           Both can approve/review at the same time independently.
-  Step 3 — Source Team sees both reviews done → clicks "Submit for Approval" → "Submitted"
-           Auto-tasks created for ALL 6 Mgmt Committee members simultaneously.
-  Step 4 — Management Committee: Marketing Head, Sales Head, R&D Head, GDSO Head,
-           Regulatory Head, CFO — ALL approve IN PARALLEL, no dependency on each other.
-           When ALL 6 have approved → auto-advance to "Approved".
+  Step 3 — Source Team submits for Management Committee approval → "Submitted"
+  Step 4 — Management Committee: ALL 6 approve IN PARALLEL → auto-advance to "Approved"
   Step 5 — CEO Final Approval → status "CEO Approved"
   Step 6 — Project moves to Formulation phase (PPD locked).
 """
@@ -22,22 +20,22 @@ import copy
 from database import get_db
 from auth import get_current_user, require_admin
 from models import PPDCreate, PPDUpdate, PPDCommentCreate
-from orm_models import PPDSubmission, PPDComment, Project, AuditLog, Task
+from orm_models import PPDSubmission, PPDComment, AuditLog, Task
 from notify import notify_roles
 from datetime import datetime, timezone
 
 router = APIRouter(prefix="/api/ppd", tags=["ppd"])
 
-# Full team list — used as a fallback when a project's teams_involved is missing or narrow
+# Full team list — always used for PPD visibility
 ALL_ROLES = "admin,source,pm,fd,rd_head,marketing,regulatory,packaging,adl,pmsa,sa,mgmt,ceo,production"
 
-# Step 2 reviewers — ONLY fd and pm, both active in parallel (no sequential dependency)
+# Step 2 reviewers — ONLY fd and pm, both active in parallel
 DEFAULT_REVIEWERS = [
     {"role": "fd", "team_label": "R&D / F&D Team",    "head_name": "", "status": "Pending", "comment": "", "updated_at": ""},
     {"role": "pm", "team_label": "Project Management", "head_name": "", "status": "Pending", "comment": "", "updated_at": ""},
 ]
 
-# Management Committee members — each must approve independently (Step 5)
+# Management Committee members — each must approve independently (Step 4)
 MGMT_COMMITTEE = [
     {"role": "marketing_head", "label": "Marketing Head",    "status": "Pending", "comment": "", "approved_at": ""},
     {"role": "sales_head",     "label": "Sales Head",        "status": "Pending", "comment": "", "approved_at": ""},
@@ -48,11 +46,8 @@ MGMT_COMMITTEE = [
 ]
 
 # Map system role keys → which mgmt_committee role they can approve
-# mgmt role can represent marketing_head, sales_head, gdso_head, cfo
-# rd_head role maps to rd_head committee slot
-# regulatory role maps to regulatory committee slot
 ROLE_TO_COMMITTEE: dict[str, str] = {
-    "mgmt":        "marketing_head",   # default mgmt → acts as Marketing Head slot (admin can override)
+    "mgmt":        "marketing_head",
     "rd_head":     "rd_head",
     "regulatory":  "regulatory",
     "sa":          "sales_head",
@@ -65,7 +60,6 @@ def _ppd_out(p: PPDSubmission) -> dict:
     return {
         "id":               p.id,
         "ppd_id":           p.ppd_id,
-        "project_id":       p.project_id,
         "project_name":     p.project_name,
         "ppd_title":        p.ppd_title or "",
         "brand":            p.brand,
@@ -117,14 +111,10 @@ async def list_ppds(
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Return all PPDs visible to the current user's role.
-    Admin / mgmt / ceo see everything; others see only their team's PPDs.
-    """
+    """Return all PPDs visible to the current user's role."""
     role = current_user.get("role", "fd")
     stmt = select(PPDSubmission)
 
-    # Committee members and senior approvers can see all PPDs (view-only)
     FULL_VISIBILITY_ROLES = {"admin", "mgmt", "ceo", "rd_head", "regulatory", "sa", "cfo", "gdso", "marketing"}
     if role not in FULL_VISIBILITY_ROLES:
         stmt = stmt.where(PPDSubmission.teams_involved.contains(role))
@@ -137,7 +127,6 @@ async def list_ppds(
         stmt = stmt.where(
             PPDSubmission.project_name.ilike(pattern)
             | PPDSubmission.ppd_id.ilike(pattern)
-            | PPDSubmission.project_id.ilike(pattern)
         )
 
     stmt = stmt.order_by(PPDSubmission.updated_at.desc()).limit(100)
@@ -160,7 +149,7 @@ async def get_ppd(
     role = current_user.get("role", "fd")
     FULL_VISIBILITY_ROLES = {"admin", "mgmt", "ceo", "rd_head", "regulatory", "sa", "cfo", "gdso", "marketing"}
     if role not in FULL_VISIBILITY_ROLES and role not in (p.teams_involved or "").split(","):
-        raise HTTPException(403, "You are not assigned to this project's PPD")
+        raise HTTPException(403, "You are not assigned to this PPD")
     return _ppd_out(p)
 
 
@@ -173,58 +162,33 @@ async def create_ppd(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Step 1 — Source Team (or admin) creates PPD linked to a project.
+    Step 1 — Source Team (or admin) creates a PPD directly.
+    - project_name and brand are entered on the form (no project lookup).
     - Status starts as "Draft"
     - Auto-tasks created for R&D/F&D (fd) and PM to review the draft
     - Reviewer list seeded from DEFAULT_REVIEWERS
     - mgmt_approvals seeded from MGMT_COMMITTEE (all Pending)
-    - Multiple PPDs can be created per project (each gets a unique sequential ppd_id)
+    - teams_involved always = ALL_ROLES
     """
-    # Verify project exists and caller is allowed
-    proj_result = await db.execute(select(Project).where(Project.project_id == body.project_id))
-    project = proj_result.scalars().first()
-    if not project:
-        raise HTTPException(404, f"Project {body.project_id} not found")
-
     role = current_user.get("role", "fd")
-    if role not in ("admin",) and role not in (project.teams_involved or "").split(","):
-        raise HTTPException(403, "You are not assigned to this project")
 
-    # Find the highest existing sequence number for this project to avoid collisions
-    # when PPDs have been deleted (COUNT would reuse a taken ID).
-    max_seq_result = await db.execute(
-        select(func.max(PPDSubmission.id)).where(PPDSubmission.project_id == body.project_id)
-    )
-    max_id = max_seq_result.scalar() or 0
-    # Also count existing so seq stays human-friendly (e.g. -3 means 3rd PPD on project)
-    count_result = await db.execute(
-        select(func.count(PPDSubmission.id)).where(PPDSubmission.project_id == body.project_id)
-    )
+    # Generate a global sequential ppd_id
+    count_result = await db.execute(select(func.count(PPDSubmission.id)))
     seq = (count_result.scalar() or 0) + 1
-    # Keep incrementing seq until we find an unused ppd_id
+    # Keep incrementing until we find an unused ppd_id
     while True:
-        ppd_id = f"PPD-{body.project_id}-{seq}"
+        ppd_id = f"PPD-ZW-{datetime.now(timezone.utc).year}-{str(seq).zfill(3)}"
         taken = (await db.execute(select(PPDSubmission.id).where(PPDSubmission.ppd_id == ppd_id))).scalar()
         if not taken:
             break
         seq += 1
 
-    # Seed reviewers from DEFAULT_REVIEWERS
     reviewers = list(DEFAULT_REVIEWERS)
-
-    # Seed management committee approvals (all start Pending)
     mgmt_approvals = [dict(m) for m in MGMT_COMMITTEE]
-
-    # Use the project's full team list, but fall back to ALL_ROLES if the project was
-    # created before full-team seeding existed (i.e. only "admin" or "admin,source").
-    _NARROW_TEAMS = {"admin", "source", "admin,source"}
-    _proj_teams = (project.teams_involved or "").strip()
-    ppd_teams = _proj_teams if _proj_teams not in _NARROW_TEAMS else ALL_ROLES
 
     ppd = PPDSubmission(
         ppd_id=ppd_id,
         ppd_title=body.ppd_title or f"PPD #{seq} — {body.project_name}",
-        project_id=body.project_id,
         project_name=body.project_name,
         brand=body.brand,
         product_category=body.product_category,
@@ -233,9 +197,9 @@ async def create_ppd(
         expected_launch=body.expected_launch,
         objective=body.objective,
         key_benefits=body.key_benefits,
-        status="Draft",          # Step 1 — always starts as Draft
+        status="Draft",
         ppd_version="v1.0",
-        teams_involved=ppd_teams,
+        teams_involved=ALL_ROLES,
         created_by=current_user.get("name", ""),
         created_by_email=current_user.get("sub", ""),
         created_by_role=role,
@@ -249,7 +213,7 @@ async def create_ppd(
         db.add(Task(
             title=f"Review PPD {ppd_id} — {body.project_name}",
             project_name=body.project_name,
-            project_id=body.project_id,
+            ppd_id=ppd_id,
             assigned_role=target_role,
             type="ppd_review",
             status="pending",
@@ -261,19 +225,19 @@ async def create_ppd(
         user_name=current_user.get("name", ""),
         user_email=current_user.get("sub", ""),
         action="CREATE",
-        action_label=f"created PPD {ppd_id} for project {body.project_id}: {body.project_name}",
+        action_label=f"created PPD {ppd_id}: {body.project_name}",
         entity=ppd_id,
-        involved_roles=ppd_teams,
+        involved_roles=ALL_ROLES,
         time_ago="just now",
     ))
 
-    target_roles = ppd_teams.split(",")
+    target_roles = ALL_ROLES.split(",")
     await notify_roles(
         db,
         roles=target_roles,
         title=f"New PPD Created: {body.project_name}",
         message=(
-            f"{current_user.get('name','User')} (Source Team) created PPD {ppd_id} for project {body.project_id}. "
+            f"{current_user.get('name','User')} (Source Team) created PPD {ppd_id}: {body.project_name}. "
             f"R&D/F&D and PM have been assigned review tasks."
         ),
         action_type="ppd_created",
@@ -296,14 +260,6 @@ async def update_ppd(
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Update PPD details or status.
-    Key transitions:
-      Draft/Rework/Under Review → "Submitted" (Source Team only, Step 4)
-        → Creates approval tasks for all 6 management committee roles.
-      "Submitted"/"Approved" → "CEO Approved" (CEO only, Step 6)
-        → Unlocks Formulation phase on parent project.
-    """
     result = await db.execute(select(PPDSubmission).where(PPDSubmission.ppd_id == ppd_id))
     p = result.scalars().first()
     if not p:
@@ -311,25 +267,23 @@ async def update_ppd(
 
     role = current_user.get("role", "fd")
     FULL_VISIBILITY_ROLES = {"admin", "mgmt", "ceo", "rd_head", "regulatory", "sa", "cfo", "gdso", "marketing"}
-    # Access check
     if role not in FULL_VISIBILITY_ROLES and role not in (p.teams_involved or "").split(","):
-        raise HTTPException(403, "You are not assigned to this PPD's project")
+        raise HTTPException(403, "You are not assigned to this PPD")
 
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
 
     if "status" in updates:
         new_status = updates["status"]
 
-        # Step 4: Source Team submits for management approval
+        # Step 3: Source Team submits for management approval
         if new_status == "Submitted":
             if role not in ("admin", "source"):
                 raise HTTPException(403, "Only Source Team or admin can submit a PPD for management approval")
-            # Create approval tasks for all 6 mgmt committee roles
             committee_role_map = {
                 "marketing_head": "marketing",
                 "sales_head":     "sa",
                 "rd_head":        "rd_head",
-                "gdso_head":      "sa",       # GDSO sits under sa for now
+                "gdso_head":      "sa",
                 "regulatory":     "regulatory",
                 "cfo":            "mgmt",
             }
@@ -337,14 +291,13 @@ async def update_ppd(
                 db.add(Task(
                     title=f"Approve PPD {ppd_id} — {p.project_name}",
                     project_name=p.project_name,
-                    project_id=p.project_id,
+                    ppd_id=ppd_id,
                     assigned_role=sys_role,
                     type="ppd_mgmt_approval",
                     status="pending",
                     priority="High",
                     due_label="Today",
                 ))
-            # Reset mgmt_approvals to Pending on re-submit (deep copy — avoids SQLAlchemy JSON mutation miss)
             p.mgmt_approvals = [copy.deepcopy({**m, "status": "Pending", "comment": "", "approved_at": ""}) for m in (p.mgmt_approvals or MGMT_COMMITTEE)]
             flag_modified(p, "mgmt_approvals")
             await notify_roles(
@@ -361,17 +314,10 @@ async def update_ppd(
                 created_by=current_user.get("name", ""),
             )
 
-        # Step 6: CEO Final Approval
+        # Step 5: CEO Final Approval
         elif new_status == "CEO Approved":
             if role not in ("admin", "ceo"):
                 raise HTTPException(403, "Only CEO Office or admin can grant final PPD approval")
-            # Unlock Formulation phase on linked project
-            proj_res = await db.execute(select(Project).where(Project.project_id == p.project_id))
-            proj = proj_res.scalars().first()
-            if proj:
-                proj.status = "Formulation"
-                proj.progress = max(proj.progress or 0, 30)
-            # Notify all teams
             await notify_roles(
                 db,
                 roles=(p.teams_involved or "admin").split(","),
@@ -406,7 +352,6 @@ async def update_ppd(
     for field, value in updates.items():
         setattr(p, field, value)
 
-    # Build change summary
     change_parts = []
     if "status" in updates:    change_parts.append(f"status → {updates['status']}")
     if "ppd_version" in updates: change_parts.append(f"version → {p.ppd_version}")
@@ -449,11 +394,6 @@ async def update_reviewers(
 ):
     """
     Step 2 — Parallel functional review by R&D/F&D and PM.
-    Rules:
-      - fd and pm can each update their own entry independently — NO sequential gate.
-      - Both can approve at the same time without waiting for the other.
-      - Admin can update any entry freely.
-      - When BOTH fd and pm have approved/reviewed → notify Source Team to submit.
     body: { reviewers: [{role, team_label, head_name, status, comment}] }
     """
     result = await db.execute(select(PPDSubmission).where(PPDSubmission.ppd_id == ppd_id))
@@ -471,12 +411,10 @@ async def update_reviewers(
     else:
         current_reviewers = copy.deepcopy(p.reviewers or [])
 
-        # Find this role's entry — no sequential gate, anyone can act on their own slot
         my_index = next((i for i, r in enumerate(current_reviewers) if r.get("role") == role), None)
         if my_index is None:
             raise HTTPException(403, "Your role is not in the reviewer list for this PPD")
 
-        # Apply update to this role's own entry only
         new_status = None
         for r in current_reviewers:
             if r.get("role") == role:
@@ -491,7 +429,6 @@ async def update_reviewers(
         p.reviewers = current_reviewers
         flag_modified(p, "reviewers")
 
-        # After this update check if ALL reviewers are now done → notify Source Team
         if new_status in DONE_STATUSES:
             all_done = all(r.get("status") in DONE_STATUSES for r in current_reviewers)
             if all_done:
@@ -501,7 +438,7 @@ async def update_reviewers(
                     title=f"PPD Review Complete — Please Submit: {p.project_name}",
                     message=(
                         f"Both R&D/F&D and PM have reviewed PPD {ppd_id}. "
-                        f"Please review the feedback and click 'Submit for Approval' to send to the Management Committee."
+                        f"Please review the feedback and click 'Submit for Approval'."
                     ),
                     action_type="ppd_review_complete",
                     entity_id=ppd_id,
@@ -509,7 +446,6 @@ async def update_reviewers(
                     created_by=current_user.get("name", ""),
                 )
             else:
-                # Notify the other reviewer(s) that haven't acted yet — just a reminder
                 pending_roles = [r.get("role") for r in current_reviewers if r.get("status") not in DONE_STATUSES]
                 if pending_roles:
                     await notify_roles(
@@ -562,15 +498,9 @@ async def mgmt_committee_approve(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Step 5 — Management Committee member approves or requests rework on a Submitted PPD.
+    Step 4 — Management Committee member approves or requests rework on a Submitted PPD.
     body: { action: "approve" | "rework", comment: "...", committee_role: "<slot>" }
-
-    The committee_role param lets admin/mgmt act on behalf of a specific slot.
-    Otherwise the slot is inferred from the user's role.
-
-    When ALL 6 committee members have approved → PPD status auto-advances to "Approved"
-    and Source Team is notified to await CEO Final Approval.
-    If any member requests rework → status goes back to "Rework" and Source Team is notified.
+    When ALL 6 have approved → auto-advance to "Approved".
     """
     result = await db.execute(select(PPDSubmission).where(PPDSubmission.ppd_id == ppd_id))
     p = result.scalars().first()
@@ -581,7 +511,6 @@ async def mgmt_committee_approve(
         raise HTTPException(400, f"PPD is not in a state that allows management approval (current: {p.status})")
 
     role = current_user.get("role", "fd")
-    # Determine which committee slot this user is acting on
     committee_role = body.get("committee_role") or ROLE_TO_COMMITTEE.get(role)
     if not committee_role and role != "admin":
         raise HTTPException(403, "Your role is not part of the Management Committee for this PPD")
@@ -592,7 +521,6 @@ async def mgmt_committee_approve(
     if action not in ("approve", "rework"):
         raise HTTPException(400, "action must be 'approve' or 'rework'")
 
-    # Authorisation: only the mapped role or admin can act on a slot
     allowed_for_slot = {
         "marketing_head": {"mgmt", "marketing", "admin"},
         "sales_head":     {"sa", "mgmt", "admin"},
@@ -604,7 +532,6 @@ async def mgmt_committee_approve(
     if role != "admin" and role not in allowed_for_slot.get(committee_role, set()):
         raise HTTPException(403, f"Role '{role}' cannot act on committee slot '{committee_role}'")
 
-    # Deep-copy so SQLAlchemy detects the mutation on the JSON column
     approvals = copy.deepcopy(p.mgmt_approvals or [dict(m) for m in MGMT_COMMITTEE])
     for entry in approvals:
         if entry.get("role") == committee_role:
@@ -618,7 +545,6 @@ async def mgmt_committee_approve(
     target_roles = (p.teams_involved or "admin").split(",")
 
     if action == "rework":
-        # Send PPD back to Source Team for rework
         p.status = "Rework"
         await notify_roles(
             db,
@@ -634,7 +560,6 @@ async def mgmt_committee_approve(
             created_by=current_user.get("name", ""),
         )
     else:
-        # Check if ALL committee members have now approved
         if _all_mgmt_approved(approvals):
             p.status = "Approved"
             await notify_roles(
@@ -723,11 +648,6 @@ async def add_comment(
     # CEO can approve via comment too (legacy support)
     if body.action_tag == "approve" and role in ("ceo", "admin"):
         p.status = "CEO Approved"
-        proj_res = await db.execute(select(Project).where(Project.project_id == p.project_id))
-        proj = proj_res.scalars().first()
-        if proj:
-            proj.status = "Formulation"
-            proj.progress = max(proj.progress or 0, 30)
 
     target_roles = (p.teams_involved or "admin").split(",")
     await notify_roles(

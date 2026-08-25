@@ -7,13 +7,14 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_db
 from auth import get_current_user
-from orm_models import CostingRecord, Project, AuditLog
+from orm_models import CostingRecord, PPDSubmission, AuditLog
 from notify import notify_roles
 from pydantic import BaseModel
 from typing import Optional, List
 
 router = APIRouter(prefix="/api/costing", tags=["costing"])
 ALLOWED_ROLES = {"admin", "packaging", "rd_head", "mgmt"}
+ALL_ROLES = "admin,source,pm,fd,rd_head,marketing,regulatory,packaging,adl,pmsa,sa,mgmt,ceo,production"
 
 
 class CostItem(BaseModel):
@@ -29,7 +30,7 @@ class PackagingItem(BaseModel):
 
 
 class CostingCreate(BaseModel):
-    project_id: str
+    ppd_id: str
     formula_id: Optional[str] = None
     cost_breakdown: Optional[List[dict]] = None
     total_cost_per_kg: Optional[str] = None
@@ -48,7 +49,7 @@ class CostingUpdate(BaseModel):
 
 def _out(c: CostingRecord) -> dict:
     return {
-        "id": c.id, "cost_id": c.cost_id, "project_id": c.project_id,
+        "id": c.id, "cost_id": c.cost_id, "ppd_id": c.ppd_id,
         "project_name": c.project_name, "formula_id": c.formula_id,
         "cost_breakdown": c.cost_breakdown or [], "total_cost_per_kg": c.total_cost_per_kg,
         "packaging_items": c.packaging_items or [], "status": c.status, "notes": c.notes,
@@ -60,19 +61,14 @@ def _out(c: CostingRecord) -> dict:
 
 @router.get("")
 async def list_costing(
-    project_id: str = Query(""), status: str = Query("all"),
+    ppd_id: str = Query(""), status: str = Query("all"),
     current_user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db),
 ):
-    role = current_user.get("role", "fd")
     stmt = select(CostingRecord)
-    if project_id:
-        stmt = stmt.where(CostingRecord.project_id == project_id)
+    if ppd_id:
+        stmt = stmt.where(CostingRecord.ppd_id == ppd_id)
     if status != "all":
         stmt = stmt.where(CostingRecord.status == status)
-    if role not in ("admin", "mgmt", "ceo"):
-        proj_stmt = select(Project.project_id).where(Project.teams_involved.contains(role))
-        ids = [r[0] for r in (await db.execute(proj_stmt)).all()]
-        stmt = stmt.where(CostingRecord.project_id.in_(ids))
     stmt = stmt.order_by(CostingRecord.updated_at.desc()).limit(200)
     result = await db.execute(stmt)
     return [_out(c) for c in result.scalars().all()]
@@ -83,16 +79,16 @@ async def create_costing(body: CostingCreate, current_user: dict = Depends(get_c
     role = current_user.get("role", "fd")
     if role not in ALLOWED_ROLES:
         raise HTTPException(403, "Only admin, packaging, rd_head, mgmt can create costing records")
-    proj_result = await db.execute(select(Project).where(Project.project_id == body.project_id))
-    project = proj_result.scalars().first()
-    if not project:
-        raise HTTPException(404, f"Project {body.project_id} not found")
-    seq = ((await db.execute(select(func.count()).select_from(CostingRecord).where(CostingRecord.project_id == body.project_id))).scalar() or 0) + 1
-    while (await db.execute(select(CostingRecord.id).where(CostingRecord.cost_id == f"CST-{body.project_id}-{str(seq).zfill(2)}"))).scalar():
+    ppd_result = await db.execute(select(PPDSubmission).where(PPDSubmission.ppd_id == body.ppd_id))
+    ppd = ppd_result.scalars().first()
+    if not ppd:
+        raise HTTPException(404, f"PPD {body.ppd_id} not found")
+    seq = ((await db.execute(select(func.count()).select_from(CostingRecord).where(CostingRecord.ppd_id == body.ppd_id))).scalar() or 0) + 1
+    while (await db.execute(select(CostingRecord.id).where(CostingRecord.cost_id == f"CST-{body.ppd_id}-{str(seq).zfill(2)}"))).scalar():
         seq += 1
-    cost_id = f"CST-{body.project_id}-{str(seq).zfill(2)}"
+    cost_id = f"CST-{body.ppd_id}-{str(seq).zfill(2)}"
     rec = CostingRecord(
-        cost_id=cost_id, project_id=body.project_id, project_name=project.name,
+        cost_id=cost_id, ppd_id=body.ppd_id, project_name=ppd.project_name,
         formula_id=body.formula_id, cost_breakdown=body.cost_breakdown or [],
         total_cost_per_kg=body.total_cost_per_kg, packaging_items=body.packaging_items or [],
         status="Draft", notes=body.notes,
@@ -100,12 +96,12 @@ async def create_costing(body: CostingCreate, current_user: dict = Depends(get_c
     )
     db.add(rec)
     db.add(AuditLog(user_name=current_user.get("name",""), user_email=current_user.get("sub",""),
-        action="CREATE", action_label=f"created costing record {cost_id} for {project.name}",
-        entity=cost_id, involved_roles=project.teams_involved or "admin", time_ago="just now"))
-    teams = (project.teams_involved or "admin").split(",")
-    await notify_roles(db, roles=teams, title=f"Costing Record Created: {project.name}",
-        message=f"{current_user.get('name','User')} created costing record {cost_id} for {project.name}.",
-        action_type="info", entity_id=body.project_id, entity_name=project.name,
+        action="CREATE", action_label=f"created costing record {cost_id} for {ppd.project_name}",
+        entity=cost_id, involved_roles=ppd.teams_involved or ALL_ROLES, time_ago="just now"))
+    teams = (ppd.teams_involved or ALL_ROLES).split(",")
+    await notify_roles(db, roles=teams, title=f"Costing Record Created: {ppd.project_name}",
+        message=f"{current_user.get('name','User')} created costing record {cost_id} for {ppd.project_name}.",
+        action_type="info", entity_id=body.ppd_id, entity_name=ppd.project_name,
         created_by=current_user.get("name", ""))
     await db.commit()
     await db.refresh(rec)
@@ -129,12 +125,12 @@ async def update_costing(cost_id: str, body: CostingUpdate, current_user: dict =
         action="UPDATE", action_label=f"updated costing {cost_id} — {change}",
         entity=cost_id, involved_roles="admin", time_ago="just now"))
     if body.status and body.status != old_status:
-        proj_result = await db.execute(select(Project).where(Project.project_id == c.project_id))
-        project = proj_result.scalars().first()
-        teams = (project.teams_involved if project else "admin").split(",")
+        ppd_result = await db.execute(select(PPDSubmission).where(PPDSubmission.ppd_id == c.ppd_id))
+        ppd = ppd_result.scalars().first()
+        teams = (ppd.teams_involved if ppd else ALL_ROLES).split(",")
         await notify_roles(db, roles=teams, title=f"Costing Updated: {c.project_name}",
             message=f"{current_user.get('name','User')} updated {cost_id} — {change}.",
-            action_type="info", entity_id=c.project_id, entity_name=c.project_name,
+            action_type="info", entity_id=c.ppd_id, entity_name=c.project_name,
             created_by=current_user.get("name", ""))
     await db.commit()
     return {"ok": True}

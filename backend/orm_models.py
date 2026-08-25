@@ -22,17 +22,6 @@ class PPDStatus(str, enum.Enum):
     Archived        = "Archived"
 
 # ── Enums ─────────────────────────────────────────────────────────────────────
-class ProjectStatus(str, enum.Enum):
-    Draft           = "Draft"
-    PPD_Review      = "PPD Review"
-    Formulation     = "Formulation"
-    Plant_Trial     = "Plant Trial"
-    Regulatory_Review = "Regulatory Review"
-    CEO_Approval    = "CEO Approval"
-    Completed       = "Completed"
-    Archived        = "Archived"
-    Rework          = "Rework"
-
 class TaskStatus(str, enum.Enum):
     pending     = "pending"
     in_progress = "in_progress"
@@ -46,27 +35,6 @@ class UserStatus(str, enum.Enum):
     Active   = "Active"
     Inactive = "Inactive"
 
-# ── Projects ──────────────────────────────────────────────────────────────────
-class Project(Base):
-    __tablename__ = "projects"
-
-    id          = Column(Integer, primary_key=True, autoincrement=True)
-    project_id  = Column(String(20), unique=True, nullable=False, index=True)
-    name        = Column(String(255), nullable=False)
-    brand       = Column(String(100))
-    type        = Column(String(100))
-    status      = Column(String(50), default="Draft", index=True)
-    progress    = Column(Integer, default=5)
-    priority    = Column(String(20), default="Medium")
-    owner       = Column(String(150))
-    owner_email = Column(String(255))
-    objective   = Column(Text)
-    target_launch = Column(String(50))
-    # Comma-separated role keys — always the full team list from creation
-    teams_involved = Column(String(500), default="admin,source,pm,fd,rd_head,marketing,regulatory,packaging,adl,pmsa,sa,mgmt,ceo,production")
-    created_at  = Column(DateTime, server_default=func.now())
-    updated_at  = Column(DateTime, server_default=func.now(), onupdate=func.now())
-
 # ── Tasks ─────────────────────────────────────────────────────────────────────
 class Task(Base):
     __tablename__ = "tasks"
@@ -75,6 +43,7 @@ class Task(Base):
     title           = Column(String(255), nullable=False)
     project_name    = Column(String(255))
     project_id      = Column(String(20), index=True)
+    ppd_id          = Column(String(50), index=True)
     assigned_role   = Column(String(50), index=True)
     type            = Column(String(50))
     status          = Column(String(20), default="pending", index=True)
@@ -119,27 +88,37 @@ class Notification(Base):
     target_role  = Column(String(50), nullable=False, index=True)  # role key, or "all"
     title        = Column(String(255), nullable=False)
     message      = Column(String(500), nullable=False)
-    action_type  = Column(String(30), default="info")   # "project_created" | "project_updated" | "project_deleted" | "task_assigned" | "info"
-    entity_id    = Column(String(30), nullable=True)    # project_id if related to a project
+    action_type  = Column(String(30), default="info")
+    entity_id    = Column(String(30), nullable=True)
     entity_name  = Column(String(255), nullable=True)
-    created_by   = Column(String(150))                  # admin name
+    created_by   = Column(String(150))
     is_read      = Column(Boolean, default=False, index=True)
     created_at   = Column(DateTime, server_default=func.now(), index=True)
 
 # ── OTP Tokens ────────────────────────────────────────────────────────────────
+class OtpToken(Base):
+    __tablename__ = "otp_tokens"
+
+    id         = Column(Integer, primary_key=True, autoincrement=True)
+    email      = Column(String(255), nullable=False, index=True)
+    otp        = Column(String(6), nullable=False)
+    purpose    = Column(String(30), nullable=False)   # "forgot_password" | "signup_verify"
+    used       = Column(Boolean, default=False)
+    expires_at = Column(DateTime, nullable=False)
+    created_at = Column(DateTime, server_default=func.now())
+
 # ── PPD Submissions ───────────────────────────────────────────────────────────
 class PPDSubmission(Base):
     """
-    One PPD document per project.  Multiple versions tracked via ppd_version.
-    teams_involved mirrors the parent Project so role-filtered queries are fast.
+    One PPD document per product initiative.  PPD is the top-level entity.
+    project_name and brand are stored directly on PPD (no FK to a projects table).
     """
     __tablename__ = "ppd_submissions"
 
     id                  = Column(Integer, primary_key=True, autoincrement=True)
-    ppd_id              = Column(String(50), unique=True, nullable=False, index=True)   # e.g. PPD-ZW-2026-001-1
-    project_id          = Column(String(20), nullable=False, index=True)                # FK to projects.project_id
+    ppd_id              = Column(String(50), unique=True, nullable=False, index=True)   # e.g. PPD-ZW-2026-001
     project_name        = Column(String(255))
-    ppd_title           = Column(String(255))                                            # short descriptive title per PPD
+    ppd_title           = Column(String(255))
     brand               = Column(String(100))
     product_category    = Column(String(150))
     target_consumer     = Column(String(255))
@@ -151,7 +130,7 @@ class PPDSubmission(Base):
     status              = Column(String(50), default="Draft", index=True)
     ppd_version         = Column(String(10), default="v1.0")
 
-    # Comma-separated role keys — matches project's teams_involved
+    # Comma-separated role keys
     teams_involved      = Column(String(500), default="admin,source,pm,fd,rd_head,marketing,regulatory,packaging,adl,pmsa,sa,mgmt,ceo,production")
 
     # Owner / submitter info
@@ -160,11 +139,7 @@ class PPDSubmission(Base):
     created_by_role     = Column(String(50))
 
     # Review & approval state stored as JSON list of dicts
-    # Each item: { role, team_label, head_name, status, comment, updated_at }
     reviewers           = Column(JSON, default=list)
-
-    # Management Committee approval state — Step 5 of workflow
-    # Each item: { role, label, status, comment, approved_at }
     mgmt_approvals      = Column(JSON, default=list)
 
     created_at          = Column(DateTime, server_default=func.now())
@@ -172,7 +147,6 @@ class PPDSubmission(Base):
 
     __table_args__ = (
         Index("ix_ppd_status_teams", "status", "teams_involved"),
-        Index("ix_ppd_project_id", "project_id"),
     )
 
 
@@ -181,7 +155,7 @@ class PPDComment(Base):
     __tablename__ = "ppd_comments"
 
     id          = Column(Integer, primary_key=True, autoincrement=True)
-    ppd_id      = Column(String(30), nullable=False, index=True)
+    ppd_id      = Column(String(50), nullable=False, index=True)
     user_name   = Column(String(150))
     user_role   = Column(String(50))
     comment     = Column(Text, nullable=False)
@@ -195,11 +169,11 @@ class Formula(Base):
 
     id              = Column(Integer, primary_key=True, autoincrement=True)
     formula_id      = Column(String(30), unique=True, nullable=False, index=True)  # e.g. F-ZW-2026-001
-    project_id      = Column(String(20), nullable=False, index=True)
+    ppd_id          = Column(String(50), nullable=True, index=True)
     project_name    = Column(String(255))
-    version         = Column(String(10), default="v1.0")   # v1.0, v1.1 …
-    formula_type    = Column(String(50), default="Trial")  # Trial / Pilot / Final
-    status          = Column(String(50), default="Draft")  # Draft / In Testing / Sensory Pass / Recommended / Rejected
+    version         = Column(String(10), default="v1.0")
+    formula_type    = Column(String(50), default="Trial")
+    status          = Column(String(50), default="Draft")
     protein_source  = Column(String(255))
     sweetener       = Column(String(255))
     cocoa_pct       = Column(String(20))
@@ -209,7 +183,6 @@ class Formula(Base):
     stability_40c   = Column(String(50))
     sensory_score   = Column(String(20))
     notes           = Column(Text)
-    # Ingredients stored as JSON: [{name, qty, unit, supplier}]
     ingredients     = Column(JSON, default=list)
     created_by      = Column(String(150))
     created_by_role = Column(String(50))
@@ -217,7 +190,7 @@ class Formula(Base):
     updated_at      = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
     __table_args__ = (
-        Index("ix_formula_project", "project_id"),
+        Index("ix_formula_ppd", "ppd_id"),
     )
 
 
@@ -232,41 +205,29 @@ class FormulaComment(Base):
     created_at  = Column(DateTime, server_default=func.now(), index=True)
 
 
-class OtpToken(Base):
-    __tablename__ = "otp_tokens"
-
-    id         = Column(Integer, primary_key=True, autoincrement=True)
-    email      = Column(String(255), nullable=False, index=True)
-    otp        = Column(String(6), nullable=False)
-    purpose    = Column(String(30), nullable=False)   # "forgot_password" | "signup_verify"
-    used       = Column(Boolean, default=False)
-    expires_at = Column(DateTime, nullable=False)
-    created_at = Column(DateTime, server_default=func.now())
-
-
 # ── E-Lab Notebook ────────────────────────────────────────────────────────────
 class LabExperiment(Base):
     __tablename__ = "lab_experiments"
 
     id              = Column(Integer, primary_key=True, autoincrement=True)
-    exp_id          = Column(String(30), unique=True, nullable=False, index=True)  # EXP-NP-2026-001
-    project_id      = Column(String(20), nullable=False, index=True)
+    exp_id          = Column(String(30), unique=True, nullable=False, index=True)
+    ppd_id          = Column(String(50), nullable=True, index=True)
     project_name    = Column(String(255))
     title           = Column(String(255), nullable=False)
     batch_no        = Column(String(50))
     temperature     = Column(String(30))
     duration        = Column(String(50))
     observations    = Column(Text)
-    result          = Column(String(100))   # Pass / Fail / Inconclusive
-    status          = Column(String(30), default="Active")  # Active / Closed / Archived
-    formula_id      = Column(String(30), nullable=True)     # linked formula (optional)
-    version         = Column(String(10), nullable=True)     # formula version at time of experiment
+    result          = Column(String(100))
+    status          = Column(String(30), default="Active")
+    formula_id      = Column(String(30), nullable=True)
+    version         = Column(String(10), nullable=True)
     created_by      = Column(String(150))
     created_by_role = Column(String(50))
     created_at      = Column(DateTime, server_default=func.now())
     updated_at      = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
-    __table_args__ = (Index("ix_lab_project", "project_id"),)
+    __table_args__ = (Index("ix_lab_ppd", "ppd_id"),)
 
 
 # ── Plant Trials ──────────────────────────────────────────────────────────────
@@ -274,13 +235,13 @@ class PlantTrial(Base):
     __tablename__ = "plant_trials"
 
     id              = Column(Integer, primary_key=True, autoincrement=True)
-    trial_id        = Column(String(30), unique=True, nullable=False, index=True)  # PT-NP-2026-001
-    project_id      = Column(String(20), nullable=False, index=True)
+    trial_id        = Column(String(30), unique=True, nullable=False, index=True)
+    ppd_id          = Column(String(50), nullable=True, index=True)
     project_name    = Column(String(255))
     plant_location  = Column(String(150))
     batch_size      = Column(String(50))
-    stage           = Column(String(50))   # Pilot / Commercial Run / Stability
-    status          = Column(String(30), default="Scheduled")  # Scheduled / In Progress / Completed / Failed
+    stage           = Column(String(50))
+    status          = Column(String(30), default="Scheduled")
     bom_code        = Column(String(50))
     mfc_code        = Column(String(50))
     product_code    = Column(String(50))
@@ -293,7 +254,7 @@ class PlantTrial(Base):
     created_at      = Column(DateTime, server_default=func.now())
     updated_at      = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
-    __table_args__ = (Index("ix_trial_project", "project_id"),)
+    __table_args__ = (Index("ix_trial_ppd", "ppd_id"),)
 
 
 # ── Regulatory ────────────────────────────────────────────────────────────────
@@ -301,22 +262,22 @@ class RegulatoryCheck(Base):
     __tablename__ = "regulatory_checks"
 
     id              = Column(Integer, primary_key=True, autoincrement=True)
-    reg_id          = Column(String(30), unique=True, nullable=False, index=True)  # REG-NP-2026-001
-    project_id      = Column(String(20), nullable=False, index=True)
+    reg_id          = Column(String(30), unique=True, nullable=False, index=True)
+    ppd_id          = Column(String(50), nullable=True, index=True)
     project_name    = Column(String(255))
-    check_type      = Column(String(100))  # Ingredient Compliance / Claim Substantiation / FSSAI Filing / Label Compliance
+    check_type      = Column(String(100))
     ingredient_or_claim = Column(String(255))
     assigned_to     = Column(String(150))
     assigned_role   = Column(String(50))
     due_date        = Column(String(30))
-    status          = Column(String(30), default="Pending")  # Pending / Under Review / Approved / Rework Required
+    status          = Column(String(30), default="Pending")
     notes           = Column(Text)
     created_by      = Column(String(150))
     created_by_role = Column(String(50))
     created_at      = Column(DateTime, server_default=func.now())
     updated_at      = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
-    __table_args__ = (Index("ix_reg_project", "project_id"),)
+    __table_args__ = (Index("ix_reg_ppd", "ppd_id"),)
 
 
 # ── Sensory & Analytical ──────────────────────────────────────────────────────
@@ -324,8 +285,8 @@ class SensoryEvaluation(Base):
     __tablename__ = "sensory_evaluations"
 
     id              = Column(Integer, primary_key=True, autoincrement=True)
-    eval_id         = Column(String(30), unique=True, nullable=False, index=True)  # SE-NP-2026-001
-    project_id      = Column(String(20), nullable=False, index=True)
+    eval_id         = Column(String(30), unique=True, nullable=False, index=True)
+    ppd_id          = Column(String(50), nullable=True, index=True)
     project_name    = Column(String(255))
     formula_id      = Column(String(30))
     panel_size      = Column(Integer, default=0)
@@ -341,14 +302,14 @@ class SensoryEvaluation(Base):
     adl_ash         = Column(String(20))
     adl_apc         = Column(String(50))
     adl_ecoli       = Column(String(30))
-    status          = Column(String(30), default="Pending")   # Pending / Pass / Fail
+    status          = Column(String(30), default="Pending")
     notes           = Column(Text)
     created_by      = Column(String(150))
     created_by_role = Column(String(50))
     created_at      = Column(DateTime, server_default=func.now())
     updated_at      = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
-    __table_args__ = (Index("ix_sensory_project", "project_id"),)
+    __table_args__ = (Index("ix_sensory_ppd", "ppd_id"),)
 
 
 # ── Costing ───────────────────────────────────────────────────────────────────
@@ -356,23 +317,21 @@ class CostingRecord(Base):
     __tablename__ = "costing_records"
 
     id              = Column(Integer, primary_key=True, autoincrement=True)
-    cost_id         = Column(String(30), unique=True, nullable=False, index=True)  # CST-NP-2026-001
-    project_id      = Column(String(20), nullable=False, index=True)
+    cost_id         = Column(String(30), unique=True, nullable=False, index=True)
+    ppd_id          = Column(String(50), nullable=True, index=True)
     project_name    = Column(String(255))
     formula_id      = Column(String(30))
-    # Cost breakdown stored as JSON: [{component, pct, cost_inr}]
     cost_breakdown  = Column(JSON, default=list)
     total_cost_per_kg = Column(String(20))
-    # Packaging feasibility as JSON: [{item, cost_per_unit, feasibility}]
     packaging_items = Column(JSON, default=list)
-    status          = Column(String(30), default="Draft")   # Draft / Under Review / Approved
+    status          = Column(String(30), default="Draft")
     notes           = Column(Text)
     created_by      = Column(String(150))
     created_by_role = Column(String(50))
     created_at      = Column(DateTime, server_default=func.now())
     updated_at      = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
-    __table_args__ = (Index("ix_costing_project", "project_id"),)
+    __table_args__ = (Index("ix_costing_ppd", "ppd_id"),)
 
 
 # ── Claim Substantiation ──────────────────────────────────────────────────────
@@ -380,21 +339,21 @@ class ClaimRecord(Base):
     __tablename__ = "claim_records"
 
     id              = Column(Integer, primary_key=True, autoincrement=True)
-    claim_id        = Column(String(30), unique=True, nullable=False, index=True)  # CLM-NP-2026-001
-    project_id      = Column(String(20), nullable=False, index=True)
+    claim_id        = Column(String(30), unique=True, nullable=False, index=True)
+    ppd_id          = Column(String(50), nullable=True, index=True)
     project_name    = Column(String(255))
     claim_text      = Column(String(500), nullable=False)
     evidence        = Column(Text)
     assigned_to     = Column(String(150))
     assigned_role   = Column(String(50))
-    status          = Column(String(30), default="Pending")  # Pending / In Review / Verified / Rejected
+    status          = Column(String(30), default="Pending")
     notes           = Column(Text)
     created_by      = Column(String(150))
     created_by_role = Column(String(50))
     created_at      = Column(DateTime, server_default=func.now())
     updated_at      = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
-    __table_args__ = (Index("ix_claim_project", "project_id"),)
+    __table_args__ = (Index("ix_claim_ppd", "ppd_id"),)
 
 
 # ── Artwork Briefs ────────────────────────────────────────────────────────────
@@ -402,25 +361,24 @@ class ArtworkBrief(Base):
     __tablename__ = "artwork_briefs"
 
     id              = Column(Integer, primary_key=True, autoincrement=True)
-    artwork_id      = Column(String(30), unique=True, nullable=False, index=True)  # ART-NP-2026-001
-    project_id      = Column(String(20), nullable=False, index=True)
+    artwork_id      = Column(String(30), unique=True, nullable=False, index=True)
+    ppd_id          = Column(String(50), nullable=True, index=True)
     project_name    = Column(String(255))
     brand           = Column(String(100))
     version         = Column(String(10), default="v1.0")
-    artwork_type    = Column(String(50))   # Label / Carton / Pouch / Shipper / Digital
+    artwork_type    = Column(String(50))
     sku             = Column(String(100))
     brief_notes     = Column(Text)
-    design_link     = Column(String(500))   # URL / file path
-    comment         = Column(Text)          # latest review comment
+    design_link     = Column(String(500))
+    comment         = Column(Text)
     status          = Column(String(30), default="Brief Pending")
-    # Brief Pending / Design In Progress / Under Review / Approved / Rework / Rejected
     created_by      = Column(String(150))
     created_by_role = Column(String(50))
-    assigned_to     = Column(String(150))   # designer / vendor name
+    assigned_to     = Column(String(150))
     created_at      = Column(DateTime, server_default=func.now())
     updated_at      = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
-    __table_args__ = (Index("ix_artwork_project", "project_id"),)
+    __table_args__ = (Index("ix_artwork_ppd", "ppd_id"),)
 
 
 # ── Role Permissions ──────────────────────────────────────────────────────────
@@ -436,7 +394,7 @@ class RolePermission(Base):
     id          = Column(Integer, primary_key=True, autoincrement=True)
     role        = Column(String(50), nullable=False, index=True)
     module      = Column(String(100), nullable=False)
-    permissions = Column(JSON, default=dict)   # {"view":True,"create":False,...}
+    permissions = Column(JSON, default=dict)
     updated_at  = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
     __table_args__ = (
@@ -449,10 +407,10 @@ class MasterConfig(Base):
     __tablename__ = "master_config"
 
     id         = Column(Integer, primary_key=True, autoincrement=True)
-    config_type = Column(String(50), nullable=False, index=True)  # brand | project_type | raw_material | department
+    config_type = Column(String(50), nullable=False, index=True)
     key        = Column(String(100), nullable=False)
     label      = Column(String(255), nullable=False)
-    meta       = Column(JSON, default=dict)   # extra fields e.g. vendor, category
+    meta       = Column(JSON, default=dict)
     is_active  = Column(Boolean, default=True)
     sort_order = Column(Integer, default=0)
     created_at = Column(DateTime, server_default=func.now())

@@ -53,27 +53,6 @@ class DashboardResponse(BaseModel):
     pipeline: List[PipelineStage]
     role: str
 
-# ── Projects ──────────────────────────────────────────────────────────────────
-class ProjectCreate(BaseModel):
-    name: str
-    brand: str
-    type: str
-    priority: str = "Medium"
-    objective: Optional[str] = None
-    target_launch: Optional[str] = None
-    teams_involved: Optional[List[str]] = None   # admin can assign teams at creation
-
-class ProjectUpdate(BaseModel):
-    name: Optional[str] = None
-    brand: Optional[str] = None
-    type: Optional[str] = None
-    priority: Optional[str] = None
-    status: Optional[str] = None
-    progress: Optional[int] = None
-    objective: Optional[str] = None
-    target_launch: Optional[str] = None
-    teams_involved: Optional[str] = None         # comma-separated string
-
 # ── Users ─────────────────────────────────────────────────────────────────────
 class UserCreate(BaseModel):
     name: str
@@ -110,10 +89,9 @@ class ResetPasswordRequest(BaseModel):
 
 # ── PPD ───────────────────────────────────────────────────────────────────────
 class PPDCreate(BaseModel):
-    project_id: str
     project_name: str
     brand: str
-    ppd_title: Optional[str] = None        # short title to distinguish multiple PPDs on same project
+    ppd_title: Optional[str] = None        # short title to distinguish multiple PPDs
     product_category: Optional[str] = None
     target_consumer: Optional[str] = None
     market_segment: Optional[str] = None
@@ -143,7 +121,7 @@ class IngredientItem(BaseModel):
     supplier: Optional[str] = None
 
 class FormulaCreate(BaseModel):
-    project_id: str
+    ppd_id: str
     project_name: Optional[str] = None
     formula_type: Optional[str] = "Trial"
     protein_source: Optional[str] = None

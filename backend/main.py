@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from database import create_tables
 from config import get_settings
-from routers import auth, dashboard, projects, users, audit
+from routers import auth, dashboard, users, audit
 from routers.notifications import router as notifications_router
 from routers.permissions import router as permissions_router
 from routers.ppd import router as ppd_router
@@ -29,10 +29,10 @@ async def lifespan(app: FastAPI):
     try:
         await create_tables()   # CREATE TABLE IF NOT EXISTS on startup
         from database import AsyncSessionLocal
-        from orm_models import Project
+        from orm_models import PPDSubmission
         from sqlalchemy import select, func
         async with AsyncSessionLocal() as session:
-            res = await session.execute(select(func.count(Project.id)))
+            res = await session.execute(select(func.count(PPDSubmission.id)))
             count = res.scalar() or 0
             if count == 0:
                 print("Database is empty. Auto-seeding demo data...")
@@ -60,7 +60,6 @@ app.add_middleware(
 
 app.include_router(auth.router)
 app.include_router(dashboard.router)
-app.include_router(projects.router)
 app.include_router(users.router)
 app.include_router(audit.router)
 app.include_router(notifications_router)

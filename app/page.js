@@ -47,7 +47,6 @@ const ROLES = {
 // WBS-aligned menu — what each role needs access to per documented workflow
 const MENU = [
   { key: 'dashboard',    label: 'Dashboard',             icon: LayoutDashboard, roles: 'all' },
-  { key: 'projects',     label: 'Projects',              icon: FolderKanban,    roles: 'all' },
   // PPD: Source creates, PM assigns, Functional reviews, Mgmt/CEO approves
   { key: 'ppd',         label: 'PPD Management',        icon: FileText,        roles: ['admin','source','pm','fd','rd_head','marketing','regulatory','packaging','sa','adl','pmsa','mgmt','ceo'] },
   // Formulation: F&D team + R&D Head (after PPD CEO-approved)
@@ -1000,7 +999,7 @@ function ViewRouter({ view, setView, user, token, userPerms, can }) {
 
   // Map view key → module name so we can check permission for the active view
   const MENU_TO_MODULE_LOCAL = {
-    projects:'Projects', ppd:'PPD', formulation:'Formulation',
+    ppd:'PPD', formulation:'Formulation',
     labbook:'Lab Notebook', plant:'Plant Trials', regulatory:'Regulatory',
     sensory:'Sensory', costing:'Costing', claim:'Claim', artwork:'Artwork',
     master:'Master Data', reports:'Reports', archive:'Archive', audit:'Audit',
@@ -1032,7 +1031,6 @@ function ViewRouter({ view, setView, user, token, userPerms, can }) {
   }
   switch (view) {
     case 'dashboard':    return <div className={p}><Dashboard user={user} setView={setView} token={token} /></div>
-    case 'projects':     return guard('Projects',    <div className={p}><ProjectsView setView={setView} user={user} token={token} can={can} /></div>)
     case 'ppd':          return guard('PPD',         <div className={p}><PPDView user={user} token={token} can={can} /></div>)
     case 'formulation':  return guard('Formulation', <div className={p}><FormulationView user={user} token={token} can={can} /></div>)
     case 'labbook':      return guard('Lab Notebook',<div className={p}><LabBookView user={user} token={token} can={can} /></div>)
@@ -1244,9 +1242,9 @@ function Dashboard({ user, setView, token }) {
           <Button variant="outline" size="icon" onClick={() => fetchDashboard(true)} disabled={refreshing} title="Refresh dashboard">
             <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
           </Button>
-          {/* Only source, pm, and admin can create new projects per WBS */}
-          {['admin','source','pm'].includes(user.role) && (
-            <Button onClick={() => setView('projects')} className="gap-2"><Plus className="h-4 w-4"/>New Project</Button>
+          {/* Source and admin can create a new PPD */}
+          {['admin','source'].includes(user.role) && (
+            <Button onClick={() => setView('ppd')} className="gap-2"><Plus className="h-4 w-4"/>New PPD</Button>
           )}
         </div>
       </div>
@@ -1296,7 +1294,7 @@ function Dashboard({ user, setView, token }) {
                 Items assigned to <span className="font-semibold text-foreground">{ROLES[user.role]?.label || user.role}</span> — use the status dropdown to take action
               </CardDescription>
             </div>
-            <Button variant="outline" size="sm" onClick={() => setView('projects')}>View all</Button>
+            <Button variant="outline" size="sm" onClick={() => setView('ppd')}>View all</Button>
           </CardHeader>
           <CardContent className="p-0">
             {loading ? (
@@ -1322,19 +1320,19 @@ function Dashboard({ user, setView, token }) {
                       regulatory: 'regulatory', sensory: 'sensory', costing: 'costing',
                       claim: 'claim', plant: 'plant', production: 'plant',
                       artwork: 'artwork', master: 'master',
-                      approval: 'ppd', review: 'ppd', report: 'projects',
+                      approval: 'ppd', review: 'ppd', report: 'ppd',
                     }
                     const dest = (t.task_type && typeMap[t.task_type.toLowerCase()]) ||
                       (t.task?.toLowerCase().includes('formula') ? 'formulation' :
                        t.task?.toLowerCase().includes('regulat') ? 'regulatory' :
                        t.task?.toLowerCase().includes('sensory') ? 'sensory' :
                        t.task?.toLowerCase().includes('plant') ? 'plant' :
-                       t.task?.toLowerCase().includes('ppd') ? 'ppd' : 'projects')
+                       t.task?.toLowerCase().includes('ppd') ? 'ppd' : 'ppd')
                     // Role-specific status options — only show for the current user's role
                     const myStatusOptions = ROLE_TASK_STATUSES[user.role] || ROLE_TASK_STATUSES['fd']
                     const currentStatusKey = t.status || 'pending'
                     const statusBadgeCls = TASK_STATUS_BADGE[currentStatusKey] || TASK_STATUS_BADGE.pending
-                    const isActionable = t.task_id && t.project_id && token && !['completed','cancelled','rejected'].includes(currentStatusKey)
+                    const isActionable = t.task_id && (t.ppd_id || t.project_id) && token && !['completed','cancelled','rejected'].includes(currentStatusKey)
                     return (
                       <TableRow key={t.task_id || t.id || `${t.project}-${t.task}`}>
                         <TableCell className="font-medium max-w-[130px] truncate" title={t.project}>{t.project}</TableCell>
@@ -1375,7 +1373,7 @@ function Dashboard({ user, setView, token }) {
                                       className="text-xs cursor-pointer"
                                       onClick={async () => {
                                         try {
-                                          await apiCall(`/api/projects/${t.project_id}/tasks/${t.task_id}/status`, { method: 'PATCH', token, body: { status: opt.v } })
+                                          await apiCall(`/api/ppd/${t.ppd_id || t.project_id}/tasks/${t.task_id}/status`, { method: 'PATCH', token, body: { status: opt.v } })
                                           toast.success(`Task marked as "${opt.l}"`)
                                           fetchDashboard(true)
                                         } catch(err) { toast.error(err.message) }
@@ -1422,25 +1420,6 @@ function Dashboard({ user, setView, token }) {
         </Card>
       </div>
 
-      {/* ── Pipeline ── */}
-      <Card>
-        <CardHeader><CardTitle>Active Projects Pipeline</CardTitle><CardDescription>Live status across all lifecycle stages</CardDescription></CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-            {loading ? (
-              [1,2,3,4,5,6].map(i=><div key={i} className="h-20 bg-slate-100 rounded animate-pulse"/>)
-            ) : (
-              pipeline.map(s => (
-                <div key={s.stage} className="p-4 rounded-lg border bg-slate-50">
-                  <div className="text-xs text-muted-foreground">{s.stage}</div>
-                  <div className="text-2xl font-bold">{s.count}</div>
-                  <Progress value={s.progress} className="h-1 mt-2" />
-                </div>
-              ))
-            )}
-          </div>
-        </CardContent>
-      </Card>
     </div>
   )
 }
@@ -1589,15 +1568,11 @@ function FALLBACK_DASHBOARD(role) {
   }
 }
 
-/* -------------------- PROJECTS -------------------- */
 const BRANDS       = ['Complan','Sugar Free','Nycil','Glucon-D','Everyuth','Nutralite','Sugarlite']
-const PROJ_TYPES   = ['New Product','AVD','Innovation','Sustainability','Cost Reduction','Product Improvement']
 const PRIORITIES   = ['Low','Medium','High','Critical']
 const ALL_ROLE_KEYS = ['source','pm','fd','rd_head','marketing','regulatory','packaging','adl','pmsa','sa','mgmt','ceo','production']
 
-const TASK_TYPES = ['General','Formulation','Regulatory','Packaging','Marketing','Lab Testing','Review','Approval','Other']
-
-function ProjectsView({ setView, user, token, can }) {
+function _ProjectsViewRemoved({ setView, user, token, can }) {
   const [projects, setProjects] = useState([])
   const [loading, setLoading]   = useState(true)
   const [q, setQ]               = useState('')
@@ -2168,13 +2143,12 @@ function PPDView({ user, token, can }) {
   const [loading, setLoading]         = useState(true)
   const [q, setQ]                     = useState('')
   const [statusFilter, setStatus]     = useState('all')
-  const [projects, setProjects]       = useState([])
 
   // Create PPD dialog
   const [createOpen, setCreateOpen]   = useState(false)
   const [creating, setCreating]       = useState(false)
   const [createForm, setCreateForm]   = useState({
-    project_id:'', project_name:'', brand:'', ppd_title:'', product_category:'',
+    project_name:'', brand:'Complan', ppd_title:'', product_category:'',
     target_consumer:'', market_segment:'', expected_launch:'', objective:'', key_benefits:''
   })
 
@@ -2196,39 +2170,18 @@ function PPDView({ user, token, can }) {
     } finally { setLoading(false) }
   }, [q, statusFilter, token])
 
-  const fetchProjects = useCallback(async () => {
-    try {
-      const data = await apiCall('/api/projects', { token })
-      setProjects(data)
-    } catch { /* ignore */ }
-  }, [token])
-
   useEffect(() => { fetchPPDs() }, [fetchPPDs])
-  useEffect(() => { if (createOpen) fetchProjects() }, [createOpen, fetchProjects])
-
-  const openCreate = (proj = null) => {
-    if (proj) {
-      setCreateForm(f => ({
-        ...f,
-        project_id:   proj.project_id,
-        project_name: proj.name,
-        brand:        proj.brand,
-        objective:    proj.objective || '',
-        expected_launch: proj.target_launch || '',
-      }))
-    }
-    setCreateOpen(true)
-  }
 
   const handleCreate = async () => {
-    if (!createForm.project_id || !createForm.project_name) return toast.error('Project is required')
+    if (!createForm.project_name?.trim()) return toast.error('Product name is required')
+    if (!createForm.brand?.trim()) return toast.error('Brand is required')
     if (!createForm.ppd_title?.trim()) return toast.error('PPD Title is required')
     setCreating(true)
     try {
       const ppd = await apiCall('/api/ppd', { method: 'POST', token, body: createForm })
       toast.success(`PPD created: ${ppd.ppd_id}`)
       setCreateOpen(false)
-      setCreateForm({ project_id:'', project_name:'', brand:'', ppd_title:'', product_category:'', target_consumer:'', market_segment:'', expected_launch:'', objective:'', key_benefits:'' })
+      setCreateForm({ project_name:'', brand:'Complan', ppd_title:'', product_category:'', target_consumer:'', market_segment:'', expected_launch:'', objective:'', key_benefits:'' })
       fetchPPDs()
     } catch (err) { toast.error(err.message) }
     finally { setCreating(false) }
@@ -2305,7 +2258,7 @@ function PPDView({ user, token, can }) {
             <div className="text-center py-16 text-muted-foreground">
               <FileText className="h-12 w-12 mx-auto mb-3 opacity-30" />
               <p className="font-medium">No PPDs found</p>
-              <p className="text-sm">{isAdmin ? 'Create a PPD for a project using the button above' : 'No PPDs are assigned to your team yet'}</p>
+              <p className="text-sm">{isAdmin ? 'Create a PPD using the button above' : 'No PPDs are assigned to your team yet'}</p>
             </div>
           ) : (
             <Table>
@@ -2313,7 +2266,7 @@ function PPDView({ user, token, can }) {
                 <TableRow>
                   <TableHead className="w-36">PPD ID</TableHead>
                   <TableHead>Title</TableHead>
-                  <TableHead>Project</TableHead>
+                  <TableHead>Product Name</TableHead>
                   <TableHead>Brand</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Version</TableHead>
@@ -2332,7 +2285,6 @@ function PPDView({ user, token, can }) {
                     </TableCell>
                     <TableCell>
                       <div className="font-medium text-sm max-w-[200px] truncate">{p.project_name}</div>
-                      <div className="text-xs text-muted-foreground">{p.project_id}</div>
                     </TableCell>
                     <TableCell><Badge variant="outline" className="text-xs">{p.brand}</Badge></TableCell>
                     <TableCell>
@@ -2375,31 +2327,20 @@ function PPDView({ user, token, can }) {
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Create New PPD</DialogTitle>
-            <DialogDescription>Link this PPD to an existing project. All teams on that project will be notified.</DialogDescription>
+            <DialogDescription>Product Development Plan — enter product name and brand to start.</DialogDescription>
           </DialogHeader>
           <div className="grid grid-cols-2 gap-4 py-2">
             <div className="col-span-2 space-y-2">
-              <Label>Link to Project <span className="text-red-500">*</span></Label>
-              <Select value={createForm.project_id} onValueChange={v => {
-                const proj = projects.find(p => p.project_id === v)
-                if (proj) setCreateForm(f => ({ ...f, project_id: proj.project_id, project_name: proj.name, brand: proj.brand, objective: proj.objective || '', expected_launch: proj.target_launch || '' }))
-              }}>
-                <SelectTrigger><SelectValue placeholder="Select project..." /></SelectTrigger>
-                <SelectContent>
-                  {projects.map(p => (
-                    <SelectItem key={p.project_id} value={p.project_id}>
-                      {p.project_id} — {p.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
+              <Label>Product Name <span className="text-red-500">*</span></Label>
+              <Input value={createForm.project_name} onChange={e => setCreateForm(f => ({...f, project_name: e.target.value}))} placeholder="e.g. Complan Pro Chocolate Boost" />
+            </div>
+            <div className="space-y-2">
+              <Label>Brand <span className="text-red-500">*</span></Label>
+              <Select value={createForm.brand} onValueChange={v => setCreateForm(f => ({...f, brand: v}))}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>{BRANDS.map(b => <SelectItem key={b} value={b}>{b}</SelectItem>)}</SelectContent>
               </Select>
             </div>
-            {createForm.project_id && (
-              <div className="col-span-2 p-3 bg-slate-50 rounded-lg border text-sm">
-                <span className="font-medium">Brand:</span> {createForm.brand} &nbsp;|&nbsp;
-                <span className="font-medium">Project:</span> {createForm.project_name}
-              </div>
-            )}
             <div className="col-span-2 space-y-2">
               <Label>PPD Title <span className="text-red-500">*</span></Label>
               <Input value={createForm.ppd_title} onChange={e => setCreateForm(f => ({...f, ppd_title: e.target.value}))} placeholder="e.g. Initial Formulation Brief, Reformulation v2, Cost Optimisation..." />
@@ -3223,9 +3164,9 @@ const FORMULA_STATUS_COLORS = {
 
 function FormulationView({ user, token, can }) {
   const [formulas, setFormulas]           = useState([])
-  const [projects, setProjects]           = useState([])
+  const [ppds, setPpds]                   = useState([])
   const [loading, setLoading]             = useState(true)
-  const [projectFilter, setProjectFilter] = useState('all')
+  const [ppdFilter, setPpdFilter]         = useState('all')
   const [statusFilter, setStatusFilter]   = useState('all')
   const [q, setQ]                         = useState('')
 
@@ -3233,7 +3174,7 @@ function FormulationView({ user, token, can }) {
   const [createOpen, setCreateOpen]   = useState(false)
   const [creating, setCreating]       = useState(false)
   const [createForm, setCreateForm]   = useState({
-    project_id:'', formula_type:'Trial', protein_source:'', sweetener:'',
+    ppd_id:'', formula_type:'Trial', protein_source:'', sweetener:'',
     cocoa_pct:'', protein_pct:'', sugar_per_100g:'', cost_per_kg:'',
     stability_40c:'', sensory_score:'', notes:'',
   })
@@ -3265,23 +3206,23 @@ function FormulationView({ user, token, can }) {
     setLoading(true)
     try {
       const params = new URLSearchParams()
-      if (projectFilter !== 'all') params.set('project_id', projectFilter)
+      if (ppdFilter !== 'all') params.set('ppd_id', ppdFilter)
       if (statusFilter  !== 'all') params.set('status', statusFilter)
       if (q) params.set('q', q)
       const data = await apiCall(`/api/formulation?${params}`, { token })
       setFormulas(data)
     } catch (err) { toast.error('Failed to load formulas: ' + err.message) }
     finally { setLoading(false) }
-  }, [projectFilter, statusFilter, q, token])
+  }, [ppdFilter, statusFilter, q, token])
 
-  const fetchProjects = useCallback(async () => {
+  const fetchPpdList = useCallback(async () => {
     try {
-      const data = await apiCall('/api/projects', { token })
-      setProjects(data)
+      const data = await apiCall('/api/ppd', { token })
+      setPpds(Array.isArray(data) ? data : [])
     } catch {}
   }, [token])
 
-  useEffect(() => { fetchFormulas(); fetchProjects() }, [fetchFormulas, fetchProjects])
+  useEffect(() => { fetchFormulas(); fetchPpdList() }, [fetchFormulas, fetchPpdList])
 
   // ── fetch comments ──
   const fetchComments = useCallback(async (fid) => {
@@ -3312,7 +3253,7 @@ function FormulationView({ user, token, can }) {
 
   // ── create ──
   const handleCreate = async () => {
-    if (!createForm.project_id) return toast.error('Select a project')
+    if (!createForm.ppd_id) return toast.error('Select a PPD')
     setCreating(true)
     try {
       await apiCall('/api/formulation', {
@@ -3321,7 +3262,7 @@ function FormulationView({ user, token, can }) {
       })
       toast.success('Formula created')
       setCreateOpen(false)
-      setCreateForm({ project_id:'', formula_type:'Trial', protein_source:'', sweetener:'',
+      setCreateForm({ ppd_id:'', formula_type:'Trial', protein_source:'', sweetener:'',
         cocoa_pct:'', protein_pct:'', sugar_per_100g:'', cost_per_kg:'', stability_40c:'', sensory_score:'', notes:'' })
       setIngredients([{ name:'', qty:'', unit:'g', supplier:'' }])
       fetchFormulas()
@@ -3421,11 +3362,11 @@ function FormulationView({ user, token, can }) {
           {compareIds.length > 0 && (
             <Button variant="ghost" size="sm" onClick={() => setCompareIds([])}>Clear selection</Button>
           )}
-          {/* Download project dossier PDF — only when a project is selected */}
-          {projectFilter !== 'all' && (
+          {/* Download PPD dossier PDF — only when a PPD is selected */}
+          {ppdFilter !== 'all' && (
             <Button variant="outline" className="gap-2 border-blue-300 text-blue-700 hover:bg-blue-50"
-              onClick={() => window.open(`${API_BASE}/api/formulation/report/${projectFilter}?token=${encodeURIComponent(token)}`, '_blank')}>
-              <FileText className="h-4 w-4"/>Download Project Report
+              onClick={() => window.open(`${API_BASE}/api/formulation/report/${ppdFilter}?token=${encodeURIComponent(token)}`, '_blank')}>
+              <FileText className="h-4 w-4"/>Download PPD Report
             </Button>
           )}
           {canEdit && (
@@ -3458,11 +3399,11 @@ function FormulationView({ user, token, can }) {
               <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"/>
               <Input value={q} onChange={e => setQ(e.target.value)} placeholder="Search formulas..." className="pl-9"/>
             </div>
-            <Select value={projectFilter} onValueChange={setProjectFilter}>
-              <SelectTrigger className="w-52"><SelectValue placeholder="All Projects"/></SelectTrigger>
+            <Select value={ppdFilter} onValueChange={setPpdFilter}>
+              <SelectTrigger className="w-52"><SelectValue placeholder="All PPDs"/></SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All Projects</SelectItem>
-                {projects.map(p => <SelectItem key={p.project_id} value={p.project_id}>{p.name}</SelectItem>)}
+                <SelectItem value="all">All PPDs</SelectItem>
+                {ppds.map(p => <SelectItem key={p.ppd_id} value={p.ppd_id}>{p.project_name}</SelectItem>)}
               </SelectContent>
             </Select>
             <Select value={statusFilter} onValueChange={setStatusFilter}>
@@ -3555,10 +3496,10 @@ function FormulationView({ user, token, can }) {
             <TabsContent value="basic" className="space-y-4 pt-2">
               <div className="grid grid-cols-2 gap-4">
                 <div className="col-span-2 space-y-1.5">
-                  <Label>Project <span className="text-red-500">*</span></Label>
-                  <Select value={createForm.project_id} onValueChange={v => setCreateForm(f=>({...f,project_id:v}))}>
-                    <SelectTrigger><SelectValue placeholder="Select project"/></SelectTrigger>
-                    <SelectContent>{projects.map(p=><SelectItem key={p.project_id} value={p.project_id}>{p.name}</SelectItem>)}</SelectContent>
+                  <Label>PPD <span className="text-red-500">*</span></Label>
+                  <Select value={createForm.ppd_id} onValueChange={v => setCreateForm(f=>({...f,ppd_id:v}))}>
+                    <SelectTrigger><SelectValue placeholder="Select PPD"/></SelectTrigger>
+                    <SelectContent>{ppds.map(p=><SelectItem key={p.ppd_id} value={p.ppd_id}>{p.ppd_id} — {p.project_name}</SelectItem>)}</SelectContent>
                   </Select>
                 </div>
                 <div className="space-y-1.5">
@@ -3664,8 +3605,8 @@ function FormulationView({ user, token, can }) {
                 <div className="flex items-center gap-2 shrink-0">
                   <span className={`text-xs px-2 py-1 rounded-md font-medium whitespace-nowrap ${FORMULA_STATUS_COLORS[selected.status]||'bg-slate-100'}`}>{selected.status}</span>
                   <Button size="sm" variant="outline" className="gap-1.5 text-xs border-blue-300 text-blue-700 hover:bg-blue-50"
-                    onClick={() => window.open(`${API_BASE}/api/formulation/report/${selected.project_id}?token=${encodeURIComponent(token)}`, '_blank')}>
-                    <FileText className="h-3.5 w-3.5"/>Project Report
+                    onClick={() => window.open(`${API_BASE}/api/formulation/report/${selected.ppd_id || selected.project_id}?token=${encodeURIComponent(token)}`, '_blank')}>
+                    <FileText className="h-3.5 w-3.5"/>PPD Report
                   </Button>
                 </div>
               </div>
@@ -3955,8 +3896,8 @@ function LabBookView({ user, token }) {
 
   useEffect(() => { load() }, [load])
 
-  const openReport = (projectId) => {
-    window.open(`${API_BASE}/api/formulation/report/${projectId}?token=${encodeURIComponent(token)}`, '_blank')
+  const openReport = (ppdId) => {
+    window.open(`${API_BASE}/api/formulation/report/${ppdId}?token=${encodeURIComponent(token)}`, '_blank')
   }
 
   const STATUS_COLOR = {
@@ -4000,7 +3941,7 @@ function LabBookView({ user, token }) {
           {formulas.map(f => (
             <div
               key={f.formula_id}
-              onClick={() => openReport(f.project_id)}
+              onClick={() => openReport(f.ppd_id || f.project_id)}
               className="group relative flex flex-col gap-3 p-4 bg-white border border-slate-200 rounded-xl cursor-pointer
                          hover:border-primary/50 hover:shadow-md transition-all duration-150"
             >
@@ -4012,11 +3953,11 @@ function LabBookView({ user, token }) {
                 </span>
               </div>
 
-              {/* Middle: Project name */}
+              {/* Middle: PPD name */}
               <div>
-                <p className="text-[10px] text-muted-foreground uppercase tracking-wide mb-0.5">Project</p>
-                <p className="text-sm font-medium leading-snug line-clamp-2">{f.project_name || f.project_id}</p>
-                <p className="text-xs text-muted-foreground font-mono mt-0.5">{f.project_id}</p>
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wide mb-0.5">Product</p>
+                <p className="text-sm font-medium leading-snug line-clamp-2">{f.project_name}</p>
+                <p className="text-xs text-muted-foreground font-mono mt-0.5">{f.ppd_id || '—'}</p>
               </div>
 
               {/* Bottom row: Version + Type */}
@@ -4040,10 +3981,10 @@ function LabBookView({ user, token }) {
 function PlantTrialsView({ user, token, can }) {
   const [trials, setTrials] = useState([])
   const [loading, setLoading] = useState(true)
-  const [projects, setProjects] = useState([])
+  const [ppds, setPpds] = useState([])
   const [showAdd, setShowAdd] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [form, setForm] = useState({ project_id:'', plant_location:'', batch_size:'', stage:'Pilot', bom_code:'', mfc_code:'', product_code:'', sfg_code:'', notes:'', scheduled_date:'' })
+  const [form, setForm] = useState({ ppd_id:'', plant_location:'', batch_size:'', stage:'Pilot', bom_code:'', mfc_code:'', product_code:'', sfg_code:'', notes:'', scheduled_date:'' })
 
   const canCreate = ['admin','production','rd_head','packaging'].includes(user?.role) || (can && can('Plant Trials','create'))
   const STAGES = ['Pilot','Commercial Run','Stability','Scale-up']
@@ -4054,10 +3995,10 @@ function PlantTrialsView({ user, token, can }) {
     try {
       const [tData, pData] = await Promise.all([
         apiCall('/api/planttrials', { token }),
-        apiCall('/api/projects', { token }),
+        apiCall('/api/ppd', { token }),
       ])
       setTrials(Array.isArray(tData) ? tData : [])
-      setProjects(Array.isArray(pData) ? pData : [])
+      setPpds(Array.isArray(pData) ? pData : [])
     } catch(e) { toast.error('Failed to load trials') }
     finally { setLoading(false) }
   }, [token])
@@ -4065,13 +4006,13 @@ function PlantTrialsView({ user, token, can }) {
   useEffect(() => { load() }, [load])
 
   const handleCreate = async () => {
-    if (!form.project_id) return toast.error('Select a project')
+    if (!form.ppd_id) return toast.error('Select a PPD')
     setSaving(true)
     try {
       await apiCall('/api/planttrials', { method:'POST', body: form, token })
       toast.success('Trial scheduled')
       setShowAdd(false)
-      setForm({ project_id:'', plant_location:'', batch_size:'', stage:'Pilot', bom_code:'', mfc_code:'', product_code:'', sfg_code:'', notes:'', scheduled_date:'' })
+      setForm({ ppd_id:'', plant_location:'', batch_size:'', stage:'Pilot', bom_code:'', mfc_code:'', product_code:'', sfg_code:'', notes:'', scheduled_date:'' })
       load()
     } catch(e) { toast.error(e.message || 'Failed to schedule') }
     finally { setSaving(false) }
@@ -4101,10 +4042,10 @@ function PlantTrialsView({ user, token, can }) {
         <DialogContent className="max-w-lg">
           <DialogHeader><DialogTitle>Schedule Plant Trial</DialogTitle></DialogHeader>
           <div className="space-y-3">
-            <div><Label>Project</Label>
-              <Select value={form.project_id} onValueChange={v=>setForm(f=>({...f,project_id:v}))}>
-                <SelectTrigger><SelectValue placeholder="Select project"/></SelectTrigger>
-                <SelectContent>{projects.map(p=><SelectItem key={p.project_id} value={p.project_id}>{p.project_id} — {p.name}</SelectItem>)}</SelectContent>
+            <div><Label>PPD</Label>
+              <Select value={form.ppd_id} onValueChange={v=>setForm(f=>({...f,ppd_id:v}))}>
+                <SelectTrigger><SelectValue placeholder="Select PPD"/></SelectTrigger>
+                <SelectContent>{ppds.map(p=><SelectItem key={p.ppd_id} value={p.ppd_id}>{p.ppd_id} — {p.project_name}</SelectItem>)}</SelectContent>
               </Select>
             </div>
             <div className="grid grid-cols-2 gap-2">
@@ -4168,10 +4109,10 @@ function PlantTrialsView({ user, token, can }) {
 function RegulatoryView({ user, token, can }) {
   const [checks, setChecks] = useState([])
   const [loading, setLoading] = useState(true)
-  const [projects, setProjects] = useState([])
+  const [ppds, setPpds] = useState([])
   const [showAdd, setShowAdd] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [form, setForm] = useState({ project_id:'', check_type:'Ingredient Compliance', ingredient_or_claim:'', assigned_to:'', assigned_role:'regulatory', due_date:'', notes:'' })
+  const [form, setForm] = useState({ ppd_id:'', check_type:'Ingredient Compliance', ingredient_or_claim:'', assigned_to:'', assigned_role:'regulatory', due_date:'', notes:'' })
 
   const canCreate = ['admin','regulatory','rd_head'].includes(user?.role) || (can && can('Regulatory','create'))
   const CHECK_TYPES = ['Ingredient Compliance','Claim Substantiation','FSSAI Filing','Label Compliance','Clinical Study','Import License']
@@ -4183,10 +4124,10 @@ function RegulatoryView({ user, token, can }) {
     try {
       const [cData, pData] = await Promise.all([
         apiCall('/api/regulatory', { token }),
-        apiCall('/api/projects', { token }),
+        apiCall('/api/ppd', { token }),
       ])
       setChecks(Array.isArray(cData) ? cData : [])
-      setProjects(Array.isArray(pData) ? pData : [])
+      setPpds(Array.isArray(pData) ? pData : [])
     } catch(e) { toast.error('Failed to load') }
     finally { setLoading(false) }
   }, [token])
@@ -4194,13 +4135,13 @@ function RegulatoryView({ user, token, can }) {
   useEffect(() => { load() }, [load])
 
   const handleCreate = async () => {
-    if (!form.project_id || !form.check_type) return toast.error('Project and check type required')
+    if (!form.ppd_id || !form.check_type) return toast.error('PPD and check type required')
     setSaving(true)
     try {
       await apiCall('/api/regulatory', { method:'POST', body: form, token })
       toast.success('Regulatory check created & assigned')
       setShowAdd(false)
-      setForm({ project_id:'', check_type:'Ingredient Compliance', ingredient_or_claim:'', assigned_to:'', assigned_role:'regulatory', due_date:'', notes:'' })
+      setForm({ ppd_id:'', check_type:'Ingredient Compliance', ingredient_or_claim:'', assigned_to:'', assigned_role:'regulatory', due_date:'', notes:'' })
       load()
     } catch(e) { toast.error(e.message || 'Failed') }
     finally { setSaving(false) }
@@ -4239,10 +4180,10 @@ function RegulatoryView({ user, token, can }) {
         <DialogContent className="max-w-lg">
           <DialogHeader><DialogTitle>New Regulatory Check</DialogTitle><DialogDescription>The assigned role will receive a notification immediately.</DialogDescription></DialogHeader>
           <div className="space-y-3">
-            <div><Label>Project</Label>
-              <Select value={form.project_id} onValueChange={v=>setForm(f=>({...f,project_id:v}))}>
-                <SelectTrigger><SelectValue placeholder="Select project"/></SelectTrigger>
-                <SelectContent>{projects.map(p=><SelectItem key={p.project_id} value={p.project_id}>{p.project_id} — {p.name}</SelectItem>)}</SelectContent>
+            <div><Label>PPD</Label>
+              <Select value={form.ppd_id} onValueChange={v=>setForm(f=>({...f,ppd_id:v}))}>
+                <SelectTrigger><SelectValue placeholder="Select PPD"/></SelectTrigger>
+                <SelectContent>{ppds.map(p=><SelectItem key={p.ppd_id} value={p.ppd_id}>{p.ppd_id} — {p.project_name}</SelectItem>)}</SelectContent>
               </Select>
             </div>
             <div><Label>Check Type</Label>
@@ -4301,10 +4242,10 @@ function SensoryView({ user, token, can }) {
   const [evals, setEvals] = useState([])
   const [selected, setSelected] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [projects, setProjects] = useState([])
+  const [ppds, setPpds] = useState([])
   const [showAdd, setShowAdd] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [form, setForm] = useState({ project_id:'', formula_id:'', panel_size:'', eval_date:'', overall_score:'', aroma:'', taste:'', mouthfeel:'', aftertaste:'', adl_protein_pct:'', adl_fat_pct:'', adl_moisture:'', adl_ash:'', adl_apc:'', adl_ecoli:'Absent', notes:'' })
+  const [form, setForm] = useState({ ppd_id:'', formula_id:'', panel_size:'', eval_date:'', overall_score:'', aroma:'', taste:'', mouthfeel:'', aftertaste:'', adl_protein_pct:'', adl_fat_pct:'', adl_moisture:'', adl_ash:'', adl_apc:'', adl_ecoli:'Absent', notes:'' })
 
   const canCreate = ['admin','pmsa','adl','rd_head'].includes(user?.role) || (can && can('Sensory','create'))
   const STATUSES = ['Pending','Pass','Fail']
@@ -4313,9 +4254,9 @@ function SensoryView({ user, token, can }) {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const [eData, pData] = await Promise.all([apiCall('/api/sensory', { token }), apiCall('/api/projects', { token })])
+      const [eData, pData] = await Promise.all([apiCall('/api/sensory', { token }), apiCall('/api/ppd', { token })])
       setEvals(Array.isArray(eData) ? eData : [])
-      setProjects(Array.isArray(pData) ? pData : [])
+      setPpds(Array.isArray(pData) ? pData : [])
       if (eData?.length && !selected) setSelected(eData[0])
     } catch(e) { toast.error('Failed to load') }
     finally { setLoading(false) }
@@ -4324,13 +4265,13 @@ function SensoryView({ user, token, can }) {
   useEffect(() => { load() }, [load])
 
   const handleCreate = async () => {
-    if (!form.project_id) return toast.error('Select a project')
+    if (!form.ppd_id) return toast.error('Select a PPD')
     setSaving(true)
     try {
       const res = await apiCall('/api/sensory', { method:'POST', body:{ ...form, panel_size: parseInt(form.panel_size)||0 }, token })
       toast.success(`Evaluation ${res.eval_id} submitted`)
       setShowAdd(false)
-      setForm({ project_id:'', formula_id:'', panel_size:'', eval_date:'', overall_score:'', aroma:'', taste:'', mouthfeel:'', aftertaste:'', adl_protein_pct:'', adl_fat_pct:'', adl_moisture:'', adl_ash:'', adl_apc:'', adl_ecoli:'Absent', notes:'' })
+      setForm({ ppd_id:'', formula_id:'', panel_size:'', eval_date:'', overall_score:'', aroma:'', taste:'', mouthfeel:'', aftertaste:'', adl_protein_pct:'', adl_fat_pct:'', adl_moisture:'', adl_ash:'', adl_apc:'', adl_ecoli:'Absent', notes:'' })
       await load(); setSelected(res)
     } catch(e) { toast.error(e.message || 'Failed') }
     finally { setSaving(false) }
@@ -4360,10 +4301,10 @@ function SensoryView({ user, token, can }) {
         <DialogContent className="max-w-2xl">
           <DialogHeader><DialogTitle>New Sensory & Analytical Evaluation</DialogTitle></DialogHeader>
           <div className="grid grid-cols-2 gap-3 max-h-[70vh] overflow-y-auto pr-1">
-            <div className="col-span-2"><Label>Project</Label>
-              <Select value={form.project_id} onValueChange={v=>setForm(f=>({...f,project_id:v}))}>
-                <SelectTrigger><SelectValue placeholder="Select project"/></SelectTrigger>
-                <SelectContent>{projects.map(p=><SelectItem key={p.project_id} value={p.project_id}>{p.project_id} — {p.name}</SelectItem>)}</SelectContent>
+            <div className="col-span-2"><Label>PPD</Label>
+              <Select value={form.ppd_id} onValueChange={v=>setForm(f=>({...f,ppd_id:v}))}>
+                <SelectTrigger><SelectValue placeholder="Select PPD"/></SelectTrigger>
+                <SelectContent>{ppds.map(p=><SelectItem key={p.ppd_id} value={p.ppd_id}>{p.ppd_id} — {p.project_name}</SelectItem>)}</SelectContent>
               </Select>
             </div>
             <div><Label>Formula ID</Label><Input value={form.formula_id} onChange={e=>setForm(f=>({...f,formula_id:e.target.value}))} placeholder="F-NP-…"/></div>
@@ -4453,12 +4394,12 @@ function CostingView({ user, token, can }) {
   const [records, setRecords] = useState([])
   const [selected, setSelected] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [projects, setProjects] = useState([])
+  const [ppds, setPpds] = useState([])
   const [showAdd, setShowAdd] = useState(false)
   const [saving, setSaving] = useState(false)
   const [costRows, setCostRows] = useState([{ component:'', pct:'', cost_inr:'' }])
   const [pkgRows, setPkgRows] = useState([{ item:'', cost_per_unit:'', feasibility:'Feasible' }])
-  const [form, setForm] = useState({ project_id:'', formula_id:'', total_cost_per_kg:'', notes:'' })
+  const [form, setForm] = useState({ ppd_id:'', formula_id:'', total_cost_per_kg:'', notes:'' })
 
   const canCreate = ['admin','packaging','rd_head','mgmt'].includes(user?.role) || (can && can('Costing','create'))
   const STATUSES = ['Draft','Under Review','Approved']
@@ -4467,9 +4408,9 @@ function CostingView({ user, token, can }) {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const [rData, pData] = await Promise.all([apiCall('/api/costing', { token }), apiCall('/api/projects', { token })])
+      const [rData, pData] = await Promise.all([apiCall('/api/costing', { token }), apiCall('/api/ppd', { token })])
       setRecords(Array.isArray(rData) ? rData : [])
-      setProjects(Array.isArray(pData) ? pData : [])
+      setPpds(Array.isArray(pData) ? pData : [])
       if (rData?.length && !selected) setSelected(rData[0])
     } catch(e) { toast.error('Failed to load') }
     finally { setLoading(false) }
@@ -4478,13 +4419,13 @@ function CostingView({ user, token, can }) {
   useEffect(() => { load() }, [load])
 
   const handleCreate = async () => {
-    if (!form.project_id) return toast.error('Select a project')
+    if (!form.ppd_id) return toast.error('Select a PPD')
     setSaving(true)
     try {
       const res = await apiCall('/api/costing', { method:'POST', body:{ ...form, cost_breakdown: costRows.filter(r=>r.component), packaging_items: pkgRows.filter(r=>r.item) }, token })
       toast.success(`Costing record ${res.cost_id} created`)
       setShowAdd(false)
-      setForm({ project_id:'', formula_id:'', total_cost_per_kg:'', notes:'' })
+      setForm({ ppd_id:'', formula_id:'', total_cost_per_kg:'', notes:'' })
       setCostRows([{ component:'', pct:'', cost_inr:'' }])
       setPkgRows([{ item:'', cost_per_unit:'', feasibility:'Feasible' }])
       await load(); setSelected(res)
@@ -4514,10 +4455,10 @@ function CostingView({ user, token, can }) {
         <DialogContent className="max-w-2xl">
           <DialogHeader><DialogTitle>New Costing Record</DialogTitle></DialogHeader>
           <div className="space-y-3 max-h-[70vh] overflow-y-auto pr-1">
-            <div><Label>Project</Label>
-              <Select value={form.project_id} onValueChange={v=>setForm(f=>({...f,project_id:v}))}>
-                <SelectTrigger><SelectValue placeholder="Select project"/></SelectTrigger>
-                <SelectContent>{projects.map(p=><SelectItem key={p.project_id} value={p.project_id}>{p.project_id} — {p.name}</SelectItem>)}</SelectContent>
+            <div><Label>PPD</Label>
+              <Select value={form.ppd_id} onValueChange={v=>setForm(f=>({...f,ppd_id:v}))}>
+                <SelectTrigger><SelectValue placeholder="Select PPD"/></SelectTrigger>
+                <SelectContent>{ppds.map(p=><SelectItem key={p.ppd_id} value={p.ppd_id}>{p.ppd_id} — {p.project_name}</SelectItem>)}</SelectContent>
               </Select>
             </div>
             <div className="grid grid-cols-2 gap-2">
@@ -4624,10 +4565,10 @@ function CostingView({ user, token, can }) {
 function ClaimView({ user, token, can }) {
   const [claims, setClaims] = useState([])
   const [loading, setLoading] = useState(true)
-  const [projects, setProjects] = useState([])
+  const [ppds, setPpds] = useState([])
   const [showAdd, setShowAdd] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [form, setForm] = useState({ project_id:'', claim_text:'', evidence:'', assigned_to:'', assigned_role:'sa', notes:'' })
+  const [form, setForm] = useState({ ppd_id:'', claim_text:'', evidence:'', assigned_to:'', assigned_role:'sa', notes:'' })
 
   const canCreate = ['admin','sa','rd_head','regulatory'].includes(user?.role) || (can && can('Claim','create'))
   const STATUSES = ['Pending','In Review','Verified','Rejected']
@@ -4636,9 +4577,9 @@ function ClaimView({ user, token, can }) {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const [cData, pData] = await Promise.all([apiCall('/api/claims', { token }), apiCall('/api/projects', { token })])
+      const [cData, pData] = await Promise.all([apiCall('/api/claims', { token }), apiCall('/api/ppd', { token })])
       setClaims(Array.isArray(cData) ? cData : [])
-      setProjects(Array.isArray(pData) ? pData : [])
+      setPpds(Array.isArray(pData) ? pData : [])
     } catch(e) { toast.error('Failed to load') }
     finally { setLoading(false) }
   }, [token])
@@ -4646,13 +4587,13 @@ function ClaimView({ user, token, can }) {
   useEffect(() => { load() }, [load])
 
   const handleCreate = async () => {
-    if (!form.project_id || !form.claim_text) return toast.error('Project and claim text required')
+    if (!form.ppd_id || !form.claim_text) return toast.error('PPD and claim text required')
     setSaving(true)
     try {
       await apiCall('/api/claims', { method:'POST', body: form, token })
       toast.success('Claim created & assigned for substantiation')
       setShowAdd(false)
-      setForm({ project_id:'', claim_text:'', evidence:'', assigned_to:'', assigned_role:'sa', notes:'' })
+      setForm({ ppd_id:'', claim_text:'', evidence:'', assigned_to:'', assigned_role:'sa', notes:'' })
       load()
     } catch(e) { toast.error(e.message || 'Failed') }
     finally { setSaving(false) }
@@ -4690,10 +4631,10 @@ function ClaimView({ user, token, can }) {
         <DialogContent className="max-w-lg">
           <DialogHeader><DialogTitle>New Claim Substantiation</DialogTitle><DialogDescription>The SA team will be notified to provide evidence.</DialogDescription></DialogHeader>
           <div className="space-y-3">
-            <div><Label>Project</Label>
-              <Select value={form.project_id} onValueChange={v=>setForm(f=>({...f,project_id:v}))}>
-                <SelectTrigger><SelectValue placeholder="Select project"/></SelectTrigger>
-                <SelectContent>{projects.map(p=><SelectItem key={p.project_id} value={p.project_id}>{p.project_id} — {p.name}</SelectItem>)}</SelectContent>
+            <div><Label>PPD</Label>
+              <Select value={form.ppd_id} onValueChange={v=>setForm(f=>({...f,ppd_id:v}))}>
+                <SelectTrigger><SelectValue placeholder="Select PPD"/></SelectTrigger>
+                <SelectContent>{ppds.map(p=><SelectItem key={p.ppd_id} value={p.ppd_id}>{p.ppd_id} — {p.project_name}</SelectItem>)}</SelectContent>
               </Select>
             </div>
             <div><Label>Claim Text</Label><Textarea rows={2} value={form.claim_text} onChange={e=>setForm(f=>({...f,claim_text:e.target.value}))} placeholder="e.g. Supports memory & concentration in children aged 6–15"/></div>
@@ -4760,7 +4701,7 @@ const ART_TYPES    = ['Label','Carton','Pouch','Shipper','Digital Banner','POS M
 
 function ArtworkView({ user, token, can }) {
   const [artworks, setArtworks] = useState([])
-  const [projects, setProjects] = useState([])
+  const [ppds, setPpds]         = useState([])
   const [loading, setLoading]   = useState(true)
   const [showAdd, setShowAdd]   = useState(false)
   const [saving, setSaving]     = useState(false)
@@ -4768,7 +4709,7 @@ function ArtworkView({ user, token, can }) {
   const [editOpen, setEditOpen] = useState(false)
   const [editForm, setEditForm] = useState({})
   const [statusFilter, setStatusFilter] = useState('all')
-  const [form, setForm] = useState({ project_id:'', artwork_type:'Label', sku:'', brief_notes:'', design_link:'', assigned_to:'' })
+  const [form, setForm] = useState({ ppd_id:'', artwork_type:'Label', sku:'', brief_notes:'', design_link:'', assigned_to:'' })
 
   // marketing + packaging can create; packaging can update status/design; admin full
   const canCreate = ['admin','marketing','packaging','rd_head'].includes(user?.role) || (can && can('Artwork','create'))
@@ -4780,10 +4721,10 @@ function ArtworkView({ user, token, can }) {
       const params = statusFilter !== 'all' ? `?status=${statusFilter}` : ''
       const [aData, pData] = await Promise.all([
         apiCall(`/api/artwork${params}`, { token }),
-        apiCall('/api/projects', { token }),
+        apiCall('/api/ppd', { token }),
       ])
       setArtworks(Array.isArray(aData) ? aData : [])
-      setProjects(Array.isArray(pData) ? pData : [])
+      setPpds(Array.isArray(pData) ? pData : [])
     } catch(e) { toast.error('Failed to load artwork') }
     finally { setLoading(false) }
   }, [token, statusFilter])
@@ -4791,13 +4732,13 @@ function ArtworkView({ user, token, can }) {
   useEffect(() => { load() }, [load])
 
   const handleCreate = async () => {
-    if (!form.project_id) return toast.error('Select a project')
+    if (!form.ppd_id) return toast.error('Select a PPD')
     setSaving(true)
     try {
       const res = await apiCall('/api/artwork', { method:'POST', body: form, token })
       toast.success(`Artwork brief ${res.artwork_id} created — Packaging team notified`)
       setShowAdd(false)
-      setForm({ project_id:'', artwork_type:'Label', sku:'', brief_notes:'', design_link:'', assigned_to:'' })
+      setForm({ ppd_id:'', artwork_type:'Label', sku:'', brief_notes:'', design_link:'', assigned_to:'' })
       load()
     } catch(e) { toast.error(e.message || 'Failed') }
     finally { setSaving(false) }
@@ -4881,10 +4822,10 @@ function ArtworkView({ user, token, can }) {
             <DialogDescription>Marketing submits brief → Packaging picks up for design</DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
-            <div><Label>Project <span className="text-red-500">*</span></Label>
-              <Select value={form.project_id} onValueChange={v=>setForm(f=>({...f,project_id:v}))}>
-                <SelectTrigger><SelectValue placeholder="Select project"/></SelectTrigger>
-                <SelectContent>{projects.map(p=><SelectItem key={p.project_id} value={p.project_id}>{p.project_id} — {p.name}</SelectItem>)}</SelectContent>
+            <div><Label>PPD <span className="text-red-500">*</span></Label>
+              <Select value={form.ppd_id} onValueChange={v=>setForm(f=>({...f,ppd_id:v}))}>
+                <SelectTrigger><SelectValue placeholder="Select PPD"/></SelectTrigger>
+                <SelectContent>{ppds.map(p=><SelectItem key={p.ppd_id} value={p.ppd_id}>{p.ppd_id} — {p.project_name}</SelectItem>)}</SelectContent>
               </Select>
             </div>
             <div className="grid grid-cols-2 gap-2">
