@@ -706,3 +706,62 @@ async def delete_ppd(
 
     await db.commit()
     return {"ok": True}
+
+
+# ── TASKS ─────────────────────────────────────────────────────────────────────
+
+@router.get("/tasks/mine")
+async def get_my_tasks(
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return all pending/in-progress tasks assigned to the current user's role."""
+    role = current_user.get("role", "fd")
+    stmt = select(Task).where(Task.status.in_(["pending", "in_progress"]))
+    if role not in ("admin", "mgmt", "ceo"):
+        stmt = stmt.where(Task.assigned_role == role)
+    stmt = stmt.order_by(Task.id.desc()).limit(50)
+    result = await db.execute(stmt)
+    tasks = result.scalars().all()
+    return [
+        {
+            "id":            t.id,
+            "title":         t.title,
+            "project_name":  t.project_name,
+            "project_id":    t.project_id,
+            "task_id":       t.id,
+            "task_type":     t.type,
+            "assigned_role": t.assigned_role,
+            "type":          t.type,
+            "status":        t.status,
+            "priority":      t.priority,
+            "due_label":     t.due_label,
+        }
+        for t in tasks
+    ]
+
+
+@router.patch("/tasks/{task_id}/status")
+async def update_task_status(
+    task_id: int,
+    body: dict,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update status of a task by ID."""
+    new_status = (body.get("status") or "").strip()
+    if not new_status:
+        raise HTTPException(400, "status is required")
+
+    result = await db.execute(select(Task).where(Task.id == task_id))
+    task = result.scalars().first()
+    if not task:
+        raise HTTPException(404, "Task not found")
+
+    role = current_user.get("role", "fd")
+    if role not in ("admin", "mgmt", "ceo") and task.assigned_role != role:
+        raise HTTPException(403, "You are not assigned to this task")
+
+    task.status = new_status
+    await db.commit()
+    return {"ok": True}

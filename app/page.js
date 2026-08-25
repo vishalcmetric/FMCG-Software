@@ -1104,7 +1104,7 @@ function MyTasksPanel({ user, token, taskTypes, onStatusChange }) {
     if (!token || user?.role === 'admin') { setLoading(false); return }
     setLoading(true)
     try {
-      const all = await apiCall('/api/projects/tasks/mine', { token })
+      const all = await apiCall('/api/ppd/tasks/mine', { token })
       const typesArr = Array.isArray(taskTypes) ? taskTypes : [taskTypes]
       const filtered = all.filter(t =>
         t.task_type && typesArr.some(tt => t.task_type.toLowerCase() === tt.toLowerCase())
@@ -1118,7 +1118,7 @@ function MyTasksPanel({ user, token, taskTypes, onStatusChange }) {
 
   const doStatus = async (t, newStatus) => {
     try {
-      await apiCall(`/api/projects/${t.project_id}/tasks/${t.task_id}/status`, {
+      await apiCall(`/api/ppd/tasks/${t.task_id}/status`, {
         method: 'PATCH', token, body: { status: newStatus }
       })
       toast.success(`Task marked as "${newStatus.replace('_', ' ')}"`)
@@ -2186,6 +2186,8 @@ function PPDView({ user, token, can }) {
     } catch (err) { toast.error(err.message) }
     finally { setCreating(false) }
   }
+
+  const openCreate = () => setCreateOpen(true)
 
   const relTime = (iso) => {
     if (!iso) return '—'

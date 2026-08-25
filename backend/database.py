@@ -116,6 +116,24 @@ async def _migrate_columns() -> None:
             except Exception as e:
                 print(f"Warning: column migration {table}.{column} failed ({e})")
 
+        # Make project_id nullable on ppd_submissions — column still exists in DB
+        # from before the project module was removed, but ORM no longer sets it.
+        try:
+            await cur.execute(
+                "SELECT IS_NULLABLE FROM information_schema.COLUMNS "
+                "WHERE TABLE_SCHEMA = %s AND TABLE_NAME = 'ppd_submissions' AND COLUMN_NAME = 'project_id'",
+                (settings.mysql_db,),
+            )
+            row = await cur.fetchone()
+            if row and row[0] == 'NO':
+                await cur.execute(
+                    "ALTER TABLE `ppd_submissions` MODIFY COLUMN `project_id` VARCHAR(20) NULL DEFAULT NULL"
+                )
+                await conn.commit()
+                print("Migration: made ppd_submissions.project_id nullable")
+        except Exception as e:
+            print(f"Warning: ppd_submissions project_id nullable migration failed ({e})")
+
         # Backfill PPD submissions with empty reviewers/mgmt_approvals
         _default_reviewers = (
             '[{"role":"fd","team_label":"R&D / F&D Team","head_name":"",'
