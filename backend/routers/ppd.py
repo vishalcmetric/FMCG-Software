@@ -3,16 +3,16 @@ PPD (Product Development Plan) router.
 
 Workflow:
   Step 1 — Source Team creates PPD → status "Draft"
-           Auto-tasks created for R&D/F&D (fd) and PM to review.
-  Step 2 — PM reviews & assigns teams, sets "Under Review"
-  Step 3 — R&D/F&D + PM review; functional teams submit their review via reviewers patch
-  Step 4 — Source Team clicks Submit → status "Submitted"
-           Auto-tasks created for all 6 Mgmt Committee members.
-  Step 5 — Management Committee: Marketing Head, Sales Head, R&D Head, GDSO Head,
-           Regulatory Head, CFO — each approves independently via mgmt_approvals.
+           Auto-tasks created for BOTH R&D/F&D (fd) AND PM simultaneously.
+  Step 2 — R&D/F&D and PM review the PPD IN PARALLEL — no dependency between them.
+           Both can approve/review at the same time independently.
+  Step 3 — Source Team sees both reviews done → clicks "Submit for Approval" → "Submitted"
+           Auto-tasks created for ALL 6 Mgmt Committee members simultaneously.
+  Step 4 — Management Committee: Marketing Head, Sales Head, R&D Head, GDSO Head,
+           Regulatory Head, CFO — ALL approve IN PARALLEL, no dependency on each other.
            When ALL 6 have approved → auto-advance to "Approved".
-  Step 6 — CEO Final Approval → status "CEO Approved"
-  Step 7 — Project moves to Formulation phase (PPD locked).
+  Step 5 — CEO Final Approval → status "CEO Approved"
+  Step 6 — Project moves to Formulation phase (PPD locked).
 """
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
@@ -28,14 +28,10 @@ from datetime import datetime, timezone
 
 router = APIRouter(prefix="/api/ppd", tags=["ppd"])
 
-# Default set of reviewer teams for every new PPD (functional review, Step 3)
+# Step 2 reviewers — ONLY fd and pm, both active in parallel (no sequential dependency)
 DEFAULT_REVIEWERS = [
-    {"role": "fd",          "team_label": "R&D / F&D Team",         "head_name": "", "status": "Pending", "comment": "", "updated_at": ""},
-    {"role": "pm",          "team_label": "Project Management",      "head_name": "", "status": "Pending", "comment": "", "updated_at": ""},
-    {"role": "marketing",   "team_label": "Marketing Team",         "head_name": "", "status": "Pending", "comment": "", "updated_at": ""},
-    {"role": "regulatory",  "team_label": "Regulatory Team",        "head_name": "", "status": "Pending", "comment": "", "updated_at": ""},
-    {"role": "packaging",   "team_label": "Packaging Team",         "head_name": "", "status": "Pending", "comment": "", "updated_at": ""},
-    {"role": "sa",          "team_label": "Sales / GDSO Team",      "head_name": "", "status": "Pending", "comment": "", "updated_at": ""},
+    {"role": "fd", "team_label": "R&D / F&D Team",    "head_name": "", "status": "Pending", "comment": "", "updated_at": ""},
+    {"role": "pm", "team_label": "Project Management", "head_name": "", "status": "Pending", "comment": "", "updated_at": ""},
 ]
 
 # Management Committee members — each must approve independently (Step 5)
@@ -424,13 +420,12 @@ async def update_reviewers(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Step 3 — Sequential functional team review.
+    Step 2 — Parallel functional review by R&D/F&D and PM.
     Rules:
-      - Admin can set any reviewer entry freely.
-      - Non-admin can only update their own entry.
-      - Sequential gate: a role may only update their entry when all entries
-        BEFORE theirs in the list are already Reviewed or Approved.
-        (The first entry is always open; subsequent entries are gated.)
+      - fd and pm can each update their own entry independently — NO sequential gate.
+      - Both can approve at the same time without waiting for the other.
+      - Admin can update any entry freely.
+      - When BOTH fd and pm have approved/reviewed → notify Source Team to submit.
     body: { reviewers: [{role, team_label, head_name, status, comment}] }
     """
     result = await db.execute(select(PPDSubmission).where(PPDSubmission.ppd_id == ppd_id))
@@ -440,33 +435,20 @@ async def update_reviewers(
 
     role = current_user.get("role", "fd")
     new_reviewers = body.get("reviewers", [])
-
     DONE_STATUSES = {"Reviewed", "Approved"}
 
     if role == "admin":
-        # Deep-copy so SQLAlchemy detects the change
         p.reviewers = copy.deepcopy(new_reviewers)
         flag_modified(p, "reviewers")
     else:
-        # Deep-copy the stored list so every dict is a new object — prevents
-        # SQLAlchemy from silently ignoring in-place dict mutations on JSON columns
         current_reviewers = copy.deepcopy(p.reviewers or [])
 
-        # Find this role's position in the sequence
+        # Find this role's entry — no sequential gate, anyone can act on their own slot
         my_index = next((i for i, r in enumerate(current_reviewers) if r.get("role") == role), None)
         if my_index is None:
             raise HTTPException(403, "Your role is not in the reviewer list for this PPD")
 
-        # Sequential gate: all entries before my_index must be Reviewed or Approved
-        for i, r in enumerate(current_reviewers[:my_index]):
-            if r.get("status") not in DONE_STATUSES:
-                prev_label = r.get("team_label", r.get("role", f"step {i+1}"))
-                raise HTTPException(
-                    403,
-                    f"Cannot update your review yet — waiting for '{prev_label}' to complete their review first."
-                )
-
-        # Apply the update to this role's own entry
+        # Apply update to this role's own entry only
         new_status = None
         for r in current_reviewers:
             if r.get("role") == role:
@@ -478,28 +460,43 @@ async def update_reviewers(
                         new_status = r["status"]
                         break
 
-        # Reassign the whole list and mark column dirty
         p.reviewers = current_reviewers
         flag_modified(p, "reviewers")
 
-        # Notify the NEXT reviewer when this role just completed
-        if new_status in DONE_STATUSES and my_index + 1 < len(current_reviewers):
-            next_role = current_reviewers[my_index + 1].get("role")
-            next_label = current_reviewers[my_index + 1].get("team_label", next_role)
-            if next_role:
+        # After this update check if ALL reviewers are now done → notify Source Team
+        if new_status in DONE_STATUSES:
+            all_done = all(r.get("status") in DONE_STATUSES for r in current_reviewers)
+            if all_done:
                 await notify_roles(
                     db,
-                    roles=[next_role],
-                    title=f"PPD Review — Your Turn: {p.project_name}",
+                    roles=["source"],
+                    title=f"PPD Review Complete — Please Submit: {p.project_name}",
                     message=(
-                        f"{current_user.get('name','User')} ({role}) completed their review on PPD {ppd_id}. "
-                        f"It is now {next_label}'s turn to review."
+                        f"Both R&D/F&D and PM have reviewed PPD {ppd_id}. "
+                        f"Please review the feedback and click 'Submit for Approval' to send to the Management Committee."
                     ),
-                    action_type="ppd_review_turn",
+                    action_type="ppd_review_complete",
                     entity_id=ppd_id,
                     entity_name=p.project_name,
                     created_by=current_user.get("name", ""),
                 )
+            else:
+                # Notify the other reviewer(s) that haven't acted yet — just a reminder
+                pending_roles = [r.get("role") for r in current_reviewers if r.get("status") not in DONE_STATUSES]
+                if pending_roles:
+                    await notify_roles(
+                        db,
+                        roles=pending_roles,
+                        title=f"PPD Review Reminder: {p.project_name}",
+                        message=(
+                            f"{current_user.get('name','User')} has completed their review on PPD {ppd_id}. "
+                            f"Please complete your review."
+                        ),
+                        action_type="ppd_review_turn",
+                        entity_id=ppd_id,
+                        entity_name=p.project_name,
+                        created_by=current_user.get("name", ""),
+                    )
 
     db.add(AuditLog(
         user_name=current_user.get("name", ""),

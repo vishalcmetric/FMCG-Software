@@ -2561,7 +2561,8 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
   const isCEOApproved = ppd.status === 'CEO Approved'
   const isRework      = ppd.status === 'Rework'
 
-  // 7-step WBS approval workflow
+  // 6-step parallel approval workflow
+  const bothReviewersDone = reviewers.length > 0 && reviewers.every(r => ['Reviewed','Approved'].includes(r.status))
   const wfSteps = [
     {
       s: '1. Source Team Creates PPD',
@@ -2569,42 +2570,41 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
       st: 'done',
     },
     {
-      s: '2. R&D / F&D and PM Review Draft',
-      d: isDraft
-        ? 'R&D/F&D and PM have been assigned review tasks — awaiting their review'
-        : `Functional review initiated. Assigned: ${(ppd.teams_involved||'').split(',').filter(r => r && r !== 'admin').map(r => ROLES[r]?.label || r).join(', ')}`,
-      st: isDraft ? 'active' : 'done',
+      s: '2. R&D/F&D & PM Review — In Parallel',
+      d: bothReviewersDone
+        ? `✓ Both R&D/F&D and PM have completed their review (${reviewedCount}/${reviewers.length})`
+        : isDraft || isUnderReview || isRework
+        ? `${reviewedCount}/${reviewers.length} reviewers done — R&D/F&D and PM review simultaneously, no waiting`
+        : `${reviewedCount}/${reviewers.length} reviewers completed`,
+      st: bothReviewersDone || isSubmitted || isApproved || isCEOApproved ? 'done'
+        : (isDraft || isUnderReview) ? 'active'
+        : 'pending',
     },
     {
-      s: '3. Functional Teams Review',
-      d: `${reviewedCount}/${reviewers.length} dept teams have submitted their review`,
-      st: isUnderReview ? 'active' : (reviewedCount > 0 && !isDraft) ? 'done' : isDraft ? 'pending' : 'active',
-    },
-    {
-      s: '4. Source Team — Submit for Approval',
+      s: '3. Source Team — Submit for Approval',
       d: isSubmitted || isApproved || isCEOApproved
         ? 'Source team submitted PPD to Management Committee for approval'
         : isRework
         ? '⚠ PPD sent back for rework — Source team to revise and re-submit'
-        : 'Source team to review consolidated feedback and click Submit for Approval',
-      st: isSubmitted || isApproved || isCEOApproved ? 'done' : isRework ? 'active' : 'pending',
+        : 'Source team reviews feedback from R&D/F&D & PM, then clicks Submit for Approval',
+      st: isSubmitted || isApproved || isCEOApproved ? 'done' : isRework ? 'active' : bothReviewersDone ? 'active' : 'pending',
     },
     {
-      s: '5. Management Committee Approval',
+      s: '4. Management Committee Approval — In Parallel',
       d: isApproved || isCEOApproved
-        ? `All ${mgmtApprovals.length} committee members approved`
+        ? `✓ All ${mgmtApprovals.length} committee members approved`
         : isSubmitted
-        ? `${mgmtApprovedCount}/${mgmtApprovals.length} committee approvals received — Marketing Head, Sales Head, R&D Head, GDSO Head, Regulatory Head, CFO`
-        : 'Marketing Head, Sales Head, R&D Head, GDSO Head, Regulatory Head, CFO — each approves independently',
+        ? `${mgmtApprovedCount}/${mgmtApprovals.length} approvals received — Marketing Head, Sales Head, R&D Head, GDSO Head, Regulatory Head, CFO (all parallel)`
+        : 'Marketing Head, Sales Head, R&D Head, GDSO Head, Regulatory Head, CFO — all approve simultaneously',
       st: isApproved || isCEOApproved ? 'done' : isSubmitted ? 'active' : 'pending',
     },
     {
-      s: '6. CEO Final Approval',
-      d: isCEOApproved ? 'CEO approved — execution initiated' : 'CEO Office — final sign-off to initiate execution',
+      s: '5. CEO Final Approval',
+      d: isCEOApproved ? '✓ CEO approved — execution initiated' : 'CEO Office — final sign-off to initiate execution',
       st: isCEOApproved ? 'done' : isApproved ? 'active' : 'pending',
     },
     {
-      s: '7. Execution — Formulation Development',
+      s: '6. Execution — Formulation Development',
       d: 'PPD locked; R&D/F&D team starts formulation development',
       st: isCEOApproved ? 'active' : 'pending',
     },
@@ -2821,74 +2821,64 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
         <TabsContent value="reviewers">
           <Card>
             <CardHeader>
-              <CardTitle>Sequential Review</CardTitle>
+              <CardTitle>Parallel Review — R&amp;D/F&amp;D &amp; PM</CardTitle>
               <CardDescription>
-                {isAdmin || isSource
-                  ? `Full overview — ${reviewers.filter(r => ['Reviewed','Approved'].includes(r.status)).length}/${reviewers.length} teams have completed their review`
-                  : 'Your team reviews when the previous step is approved. Only your row is actionable.'}
+                {(() => {
+                  const doneCount = reviewers.filter(r => ['Reviewed','Approved'].includes(r.status)).length
+                  const allDone   = reviewers.length > 0 && doneCount === reviewers.length
+                  if (allDone) return '✓ Both reviewers have approved — Source Team can now submit for Management Committee approval.'
+                  if (isAdmin || isSource) return `${doneCount}/${reviewers.length} reviewers have completed their review. Both R&D/F&D and PM review independently in parallel.`
+                  return 'Review this PPD and update your status. R&D/F&D and PM both review simultaneously — no waiting required.'
+                })()}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-2">
               {reviewers.length === 0 ? (
                 <p className="text-sm text-muted-foreground text-center py-8">No reviewers assigned yet.</p>
-              ) : (() => {
-                // Determine the index of the current active reviewer (first non-approved)
-                const activeIdx = reviewers.findIndex(r => !['Reviewed','Approved'].includes(r.status))
-                // myIdx: which slot in the sequence this user occupies
-                const myIdx = reviewers.findIndex(r => r.role === myRole)
-
-                return reviewers.map((r, i) => {
-                  const isDone   = ['Reviewed','Approved'].includes(r.status)
-                  const isActive = i === activeIdx  // this slot is the current turn
-                  const isMyRow  = r.role === myRole
-
-                  // Visibility rules:
-                  // - Admin / source / pm see ALL rows (admin has controls; source/pm read-only overview)
-                  // - Other roles: see only rows up to and including their own row
-                  //   (i.e. completed rows before them + their own row)
-                  //   Rows AFTER their slot that haven't started yet are hidden
-                  const canSeeRow = isAdmin || isSource || isPM
-                    || isMyRow
-                    || isDone            // completed rows visible to everyone (context)
-                    || i < myIdx         // rows before my slot (already done, for context)
-
-                  if (!canSeeRow) return null
-
-                  // Can act = it's my row AND it's currently my turn (activeIdx === myIdx)
-                  const canAct = (isMyRow && isActive && !isDone) || isAdmin
+              ) : (
+                reviewers.map((r, i) => {
+                  const isDone  = ['Reviewed','Approved'].includes(r.status)
+                  const isMyRow = r.role === myRole
+                  // Anyone in the reviewer list can act on their own row immediately — no dependency
+                  const canAct  = (isMyRow && !isDone) || isAdmin
 
                   return (
                     <div key={i} className={`flex items-center justify-between p-3 border rounded-lg gap-4
-                      ${isDone ? 'border-emerald-200 bg-emerald-50' :
-                        isActive && isMyRow ? 'border-blue-300 bg-blue-50 ring-1 ring-blue-300' :
-                        isActive ? 'border-amber-200 bg-amber-50' :
-                        'opacity-50'}`}>
+                      ${isDone
+                        ? 'border-emerald-200 bg-emerald-50'
+                        : isMyRow
+                          ? 'border-blue-300 bg-blue-50 ring-1 ring-blue-300'
+                          : 'border-slate-200 bg-white'}`}>
                       <div className="flex-1">
                         <div className="flex items-center gap-2">
                           <span className="font-medium text-sm">{r.team_label}</span>
-                          {isActive && !isDone && (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500 text-white font-medium">
-                              {isMyRow ? 'Your Turn' : 'Awaiting'}
+                          {isMyRow && !isDone && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-600 text-white font-medium">
+                              Action Required
                             </span>
                           )}
-                          {isDone && <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-600 text-white font-medium">Done</span>}
+                          {isDone && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-600 text-white font-medium">
+                              Done
+                            </span>
+                          )}
+                          {!isDone && !isMyRow && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-400 text-white font-medium">
+                              Pending
+                            </span>
+                          )}
                         </div>
                         {r.head_name && <div className="text-xs text-muted-foreground">Head: {r.head_name}</div>}
                         {r.comment && <div className="text-xs text-muted-foreground mt-1 italic">"{r.comment}"</div>}
                         {r.updated_at && <div className="text-xs text-muted-foreground">{relTime(r.updated_at)}</div>}
-                        {/* Show "waiting for previous" message for locked rows */}
-                        {!isDone && !isActive && i > activeIdx && (isAdmin || isSource || isPM) && (
-                          <div className="text-xs text-muted-foreground mt-0.5">
-                            Waiting for {reviewers[activeIdx]?.team_label || 'previous team'} to complete
-                          </div>
-                        )}
                       </div>
                       <div className="flex items-center gap-2">
-                        <Badge variant={isDone ? 'default' : r.status==='Rework' ? 'destructive' : r.status==='In Progress' ? 'secondary' : 'outline'}
+                        <Badge
+                          variant={isDone ? 'default' : r.status === 'Rework' ? 'destructive' : r.status === 'In Progress' ? 'secondary' : 'outline'}
                           className={isDone ? 'bg-emerald-600' : ''}>
                           {r.status}
                         </Badge>
-                        {/* Active role can update their own review status */}
+                        {/* Each reviewer can update their own row independently */}
                         {canAct && (
                           <Select value={r.status} onValueChange={v => handleReviewerUpdate(r.role, v)}>
                             <SelectTrigger className="h-7 text-xs w-28"><SelectValue /></SelectTrigger>
@@ -2901,16 +2891,17 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
                     </div>
                   )
                 })
-              })()}
-              {isAdmin && (
-                <div className="pt-2 text-xs text-muted-foreground border-t">
-                  Admin view: all rows shown. Each team's row becomes active only after the previous team approves.
+              )}
+              {/* All done banner for source team */}
+              {isSource && reviewers.length > 0 && reviewers.every(r => ['Reviewed','Approved'].includes(r.status)) && (
+                <div className="mt-2 p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-sm text-emerald-800 flex items-center gap-2">
+                  <CheckCircle2 className="h-4 w-4 shrink-0" />
+                  Both reviewers have approved. Use the <strong>Submit for Approval</strong> button above to send to the Management Committee.
                 </div>
               )}
-              {/* Source: read-only progress summary */}
-              {isSource && reviewers.length > 0 && (
+              {isAdmin && (
                 <div className="pt-2 text-xs text-muted-foreground border-t">
-                  Source team view: read-only overview of functional review progress.
+                  Admin view — R&D/F&D and PM review in parallel with no dependency on each other.
                 </div>
               )}
             </CardContent>
