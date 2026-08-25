@@ -125,20 +125,26 @@ async function apiCall(path, { method = 'GET', body, token } = {}) {
 const SESSION_TIMEOUT_MS = 5 * 60 * 1000  // 5 minutes
 
 export default function App() {
-  const [user, setUser] = useState(null)
-  const [token, setToken] = useState(null)
+  const [user, setUser] = useState(() => {
+    try { const u = localStorage.getItem('fmcg_user'); return u ? JSON.parse(u) : null } catch { return null }
+  })
+  const [token, setToken] = useState(() => {
+    try { return localStorage.getItem('fmcg_token') || null } catch { return null }
+  })
   const [view, setView] = useState('dashboard')
   const [sidebarOpen, setSidebarOpen] = useState(true)
 
   const handleLogin = (userData, accessToken) => {
     setUser(userData)
     setToken(accessToken)
+    try { localStorage.setItem('fmcg_user', JSON.stringify(userData)); localStorage.setItem('fmcg_token', accessToken) } catch {}
   }
 
   const handleLogout = () => {
     setUser(null)
     setToken(null)
     setView('dashboard')
+    try { localStorage.removeItem('fmcg_user'); localStorage.removeItem('fmcg_token') } catch {}
   }
 
   // ── 5-minute inactivity auto-logout ──────────────────────────────────────
