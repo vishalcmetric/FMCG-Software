@@ -79,13 +79,8 @@ async def create_project(
 
     role = current_user.get("role", "fd")
 
-    # Ensure key workflow roles are in teams_involved
-    default_workflow_roles = ["admin", "source", "pm", "fd", "marketing", "regulatory", "packaging", "sa"]
-    if role == "admin" or not body.teams_involved:
-        teams = ",".join(default_workflow_roles)
-    else:
-        teams_list = list(dict.fromkeys(default_workflow_roles + body.teams_involved))
-        teams = ",".join(teams_list)
+    # Always include all roles so every team can see the project from creation
+    teams = ALL_ROLES
 
     project = Project(
         project_id=pid,
