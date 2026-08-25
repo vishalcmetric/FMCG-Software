@@ -23,7 +23,7 @@ import {
   Calculator, BadgeCheck, Palette, Database, BarChart3, Archive, Users, KeyRound, Settings, ScrollText,
   Bell, LogOut, Search, Plus, Upload, Eye, Edit, CheckCircle2, XCircle, Clock, ChevronRight, Filter,
   Download, GitCompare, History, Layers, Sparkles, TrendingUp, AlertCircle, Building2, Menu, ChevronDown,
-  UserCog, Package, Beaker, ClipboardList, FileCheck2, RefreshCw, Send, MessageSquare, Trash2, Home
+  UserCog, Package, Beaker, ClipboardList, FileCheck2, RefreshCw, Send, MessageSquare, Trash2, Home, Paperclip
 } from 'lucide-react'
 
 /* -------------------- ROLES & MENU CONFIG -------------------- */
@@ -2402,10 +2402,13 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
   })
   const [saving, setSaving]       = useState(false)
   const [deleting, setDeleting]   = useState(false)
-  const [comments, setComments]   = useState([])
-  const [newComment, setNewComment]   = useState('')
-  const [actionTag, setActionTag]     = useState('comment')
+  const [comments, setComments]         = useState([])
+  const [newComment, setNewComment]     = useState('')
+  const [actionTag, setActionTag]       = useState('comment')
   const [postingComment, setPostingComment] = useState(false)
+  const [attachFile, setAttachFile]     = useState(null)   // File object
+  const [uploading, setUploading]       = useState(false)
+  const [attachResult, setAttachResult] = useState(null)   // {url, filename} after upload
   const [reviewers, setReviewers]     = useState(initialPpd.reviewers || [])
   const [mgmtApprovals, setMgmtApprovals] = useState(initialPpd.mgmt_approvals || [])
   const [committeeActing, setCommitteeActing] = useState(false)
@@ -2470,12 +2473,39 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
     finally { setDeleting(false) }
   }
 
+  const handleUpload = async (file) => {
+    if (!file) return
+    setUploading(true)
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      const res = await fetch(`${API_BASE}/api/ppd/${ppd.ppd_id}/upload`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: fd,
+      })
+      if (!res.ok) { const e = await res.json(); throw new Error(e.detail || 'Upload failed') }
+      const data = await res.json()
+      setAttachResult({ url: data.url, filename: data.filename })
+      toast.success(`Uploaded: ${data.filename}`)
+    } catch (err) { toast.error(err.message) }
+    finally { setUploading(false) }
+  }
+
   const handlePostComment = async () => {
-    if (!newComment.trim()) return
+    if (!newComment.trim()) return toast.error('Comment text is required')
     setPostingComment(true)
     try {
-      await apiCall(`/api/ppd/${ppd.ppd_id}/comments`, { method: 'POST', token, body: { comment: newComment, action_tag: actionTag } })
-      setNewComment(''); setActionTag('comment')
+      await apiCall(`/api/ppd/${ppd.ppd_id}/comments`, {
+        method: 'POST', token,
+        body: {
+          comment: newComment,
+          action_tag: actionTag,
+          attachment_url: attachResult?.url || null,
+          attachment_name: attachResult?.filename || null,
+        }
+      })
+      setNewComment(''); setActionTag('comment'); setAttachFile(null); setAttachResult(null)
       fetchComments()
       await refreshPpd()
       toast.success('Comment posted')
@@ -2991,31 +3021,70 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
                         <span className="text-xs text-muted-foreground shrink-0">{relTime(c.created_at)}</span>
                       </div>
                       <p className="text-sm mt-1 whitespace-pre-line">{c.comment}</p>
+                      {c.attachment_url && (
+                        <a
+                          href={`${API_BASE}${c.attachment_url}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1 mt-1.5 text-xs text-blue-600 hover:underline border border-blue-200 bg-blue-50 rounded px-2 py-0.5"
+                        >
+                          <Paperclip className="h-3 w-3" />
+                          {c.attachment_name || 'Attachment'}
+                        </a>
+                      )}
                     </div>
                   </div>
                 ))
               )}
 
               {/* New comment box */}
-              <div className="border rounded-lg p-3 space-y-2">
+              <div className="border rounded-lg p-3 space-y-3">
                 <Textarea
-                  placeholder="Add your review comment..."
-                  rows={2}
+                  placeholder="Add your review comment, feedback, or rework instructions..."
+                  rows={3}
                   value={newComment}
                   onChange={e => setNewComment(e.target.value)}
                 />
+
+                {/* File attachment */}
+                <div className="flex items-center gap-2">
+                  <label className="flex items-center gap-1.5 cursor-pointer text-xs text-muted-foreground hover:text-foreground border rounded px-2 py-1.5 hover:bg-muted transition-colors">
+                    <Paperclip className="h-3.5 w-3.5" />
+                    {uploading ? 'Uploading...' : 'Attach file'}
+                    <input
+                      type="file"
+                      className="hidden"
+                      accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.zip"
+                      disabled={uploading}
+                      onChange={e => {
+                        const f = e.target.files?.[0]
+                        if (f) { setAttachFile(f); setAttachResult(null); handleUpload(f) }
+                      }}
+                    />
+                  </label>
+                  {attachResult && (
+                    <div className="flex items-center gap-1 text-xs bg-green-50 border border-green-200 text-green-700 rounded px-2 py-1">
+                      <Paperclip className="h-3 w-3" />
+                      <span className="max-w-[160px] truncate">{attachResult.filename}</span>
+                      <button onClick={() => { setAttachFile(null); setAttachResult(null) }} className="ml-1 text-green-500 hover:text-red-500">✕</button>
+                    </div>
+                  )}
+                  {uploading && <RefreshCw className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+                  <span className="text-xs text-muted-foreground ml-auto">PDF, Word, Excel, images, ZIP — max 10 MB</span>
+                </div>
+
                 <div className="flex items-center justify-between gap-2">
                   <Select value={actionTag} onValueChange={setActionTag}>
-                    <SelectTrigger className="w-36 h-8 text-xs"><SelectValue /></SelectTrigger>
+                    <SelectTrigger className="w-40 h-8 text-xs"><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="comment">Comment</SelectItem>
-                      <SelectItem value="rework">Request Rework</SelectItem>
-                      {(isAdmin || ['mgmt','ceo','rd_head'].includes(myRole)) && <SelectItem value="approve">Approve</SelectItem>}
+                      <SelectItem value="comment">💬 Comment</SelectItem>
+                      <SelectItem value="rework">🔁 Request Rework</SelectItem>
+                      {(isAdmin || ['mgmt','ceo','rd_head'].includes(myRole)) && <SelectItem value="approve">✅ Approve</SelectItem>}
                     </SelectContent>
                   </Select>
-                  <Button size="sm" onClick={handlePostComment} disabled={postingComment || !newComment.trim()}>
+                  <Button size="sm" onClick={handlePostComment} disabled={postingComment || uploading || !newComment.trim()}>
                     {postingComment ? <RefreshCw className="h-4 w-4 animate-spin mr-2" /> : <MessageSquare className="h-4 w-4 mr-2"/>}
-                    Post
+                    Post Comment
                   </Button>
                 </div>
               </div>

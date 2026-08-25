@@ -111,7 +111,9 @@ class PPDUpdate(BaseModel):
 
 class PPDCommentCreate(BaseModel):
     comment: str
-    action_tag: str = "comment"   # "comment" | "rework" | "approve"
+    action_tag: str = "comment"       # "comment" | "rework" | "approve"
+    attachment_url: Optional[str] = None
+    attachment_name: Optional[str] = None
 
 # ── Formulation ───────────────────────────────────────────────────────────────
 class IngredientItem(BaseModel):

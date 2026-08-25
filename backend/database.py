@@ -71,19 +71,21 @@ async def _migrate_columns() -> None:
     """Add any new columns to already-deployed tables."""
     column_migrations = [
         # (table, column, column_definition)
-        ("ppd_submissions", "mgmt_approvals", "JSON NULL"),
-        ("ppd_submissions", "ppd_title",      "VARCHAR(255) NULL"),
-        ("lab_experiments", "formula_id",     "VARCHAR(30) NULL"),
-        ("lab_experiments", "version",        "VARCHAR(10) NULL"),
-        ("lab_experiments", "ppd_id",         "VARCHAR(50) NULL"),
-        ("formulas",         "ppd_id",         "VARCHAR(50) NULL"),
-        ("plant_trials",    "ppd_id",          "VARCHAR(50) NULL"),
-        ("regulatory_checks","ppd_id",         "VARCHAR(50) NULL"),
-        ("sensory_evaluations","ppd_id",       "VARCHAR(50) NULL"),
-        ("costing_records", "ppd_id",          "VARCHAR(50) NULL"),
-        ("claim_records",   "ppd_id",          "VARCHAR(50) NULL"),
-        ("artwork_briefs",  "ppd_id",          "VARCHAR(50) NULL"),
-        ("tasks",           "ppd_id",          "VARCHAR(50) NULL"),
+        ("ppd_submissions",  "mgmt_approvals",  "JSON NULL"),
+        ("ppd_submissions",  "ppd_title",        "VARCHAR(255) NULL"),
+        ("lab_experiments",  "formula_id",       "VARCHAR(30) NULL"),
+        ("lab_experiments",  "version",          "VARCHAR(10) NULL"),
+        ("lab_experiments",  "ppd_id",           "VARCHAR(50) NULL"),
+        ("formulas",         "ppd_id",           "VARCHAR(50) NULL"),
+        ("plant_trials",     "ppd_id",           "VARCHAR(50) NULL"),
+        ("regulatory_checks","ppd_id",           "VARCHAR(50) NULL"),
+        ("sensory_evaluations","ppd_id",         "VARCHAR(50) NULL"),
+        ("costing_records",  "ppd_id",           "VARCHAR(50) NULL"),
+        ("claim_records",    "ppd_id",           "VARCHAR(50) NULL"),
+        ("artwork_briefs",   "ppd_id",           "VARCHAR(50) NULL"),
+        ("tasks",            "ppd_id",           "VARCHAR(50) NULL"),
+        ("ppd_comments",     "attachment_url",   "VARCHAR(500) NULL"),
+        ("ppd_comments",     "attachment_name",  "VARCHAR(255) NULL"),
     ]
 
     try:

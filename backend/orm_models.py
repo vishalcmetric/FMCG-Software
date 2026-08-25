@@ -154,13 +154,15 @@ class PPDSubmission(Base):
 class PPDComment(Base):
     __tablename__ = "ppd_comments"
 
-    id          = Column(Integer, primary_key=True, autoincrement=True)
-    ppd_id      = Column(String(50), nullable=False, index=True)
-    user_name   = Column(String(150))
-    user_role   = Column(String(50))
-    comment     = Column(Text, nullable=False)
-    action_tag  = Column(String(30), default="comment")   # "comment" | "rework" | "approve"
-    created_at  = Column(DateTime, server_default=func.now(), index=True)
+    id             = Column(Integer, primary_key=True, autoincrement=True)
+    ppd_id         = Column(String(50), nullable=False, index=True)
+    user_name      = Column(String(150))
+    user_role      = Column(String(50))
+    comment        = Column(Text, nullable=False)
+    action_tag     = Column(String(30), default="comment")   # "comment" | "rework" | "approve"
+    attachment_url = Column(String(500), nullable=True)      # uploaded file URL (optional)
+    attachment_name= Column(String(255), nullable=True)      # original filename for display
+    created_at     = Column(DateTime, server_default=func.now(), index=True)
 
 
 # ── Formulation ───────────────────────────────────────────────────────────────

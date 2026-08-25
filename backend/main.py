@@ -3,9 +3,11 @@ FastAPI main application — FMCG Software Platform (MySQL edition)
 """
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 from database import create_tables
 from config import get_settings
+import os
 from routers import auth, dashboard, users, audit
 from routers.notifications import router as notifications_router
 from routers.permissions import router as permissions_router
@@ -57,6 +59,11 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["*"],
 )
+
+# Serve uploaded files as static assets
+_uploads_dir = os.path.join(os.path.dirname(__file__), "uploads")
+os.makedirs(_uploads_dir, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=_uploads_dir), name="uploads")
 
 app.include_router(auth.router)
 app.include_router(dashboard.router)

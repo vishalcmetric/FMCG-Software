@@ -12,11 +12,11 @@ Workflow:
   Step 5 — CEO Final Approval → status "CEO Approved"
   Step 6 — Project moves to Formulation phase (PPD locked).
 """
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
-import copy
+import copy, os, uuid, aiofiles
 from database import get_db
 from auth import get_current_user, require_admin
 from models import PPDCreate, PPDUpdate, PPDCommentCreate
@@ -84,13 +84,15 @@ def _ppd_out(p: PPDSubmission) -> dict:
 
 def _comment_out(c: PPDComment) -> dict:
     return {
-        "id":         c.id,
-        "ppd_id":     c.ppd_id,
-        "user_name":  c.user_name,
-        "user_role":  c.user_role,
-        "comment":    c.comment,
-        "action_tag": c.action_tag,
-        "created_at": c.created_at.isoformat() if c.created_at else None,
+        "id":              c.id,
+        "ppd_id":          c.ppd_id,
+        "user_name":       c.user_name,
+        "user_role":       c.user_role,
+        "comment":         c.comment,
+        "action_tag":      c.action_tag,
+        "attachment_url":  c.attachment_url,
+        "attachment_name": c.attachment_name,
+        "created_at":      c.created_at.isoformat() if c.created_at else None,
     }
 
 
@@ -642,6 +644,8 @@ async def add_comment(
         user_role=role,
         comment=body.comment,
         action_tag=body.action_tag,
+        attachment_url=body.attachment_url or None,
+        attachment_name=body.attachment_name or None,
     )
     db.add(comment)
 
@@ -654,7 +658,8 @@ async def add_comment(
         db,
         roles=target_roles,
         title=f"New Comment on PPD: {p.project_name}",
-        message=f"{current_user.get('name','User')} ({role}) posted a {body.action_tag} on {ppd_id}.",
+        message=f"{current_user.get('name','User')} ({role}) posted a {body.action_tag} on {ppd_id}."
+               + (f" [Attachment: {body.attachment_name}]" if body.attachment_name else ""),
         action_type="ppd_comment",
         entity_id=ppd_id,
         entity_name=p.project_name,
@@ -664,6 +669,52 @@ async def add_comment(
     await db.commit()
     await db.refresh(comment)
     return _comment_out(comment)
+
+
+# ── FILE UPLOAD ────────────────────────────────────────────────────────────────
+
+UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "..", "uploads", "ppd")
+ALLOWED_EXTENSIONS = {".pdf", ".doc", ".docx", ".xls", ".xlsx", ".png", ".jpg", ".jpeg", ".zip"}
+MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
+
+@router.post("/{ppd_id}/upload", status_code=201)
+async def upload_attachment(
+    ppd_id: str,
+    file: UploadFile = File(...),
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Upload a file attachment for a PPD comment.
+    Returns the URL to include when posting the comment.
+    Accepts: PDF, Word, Excel, images, ZIP — max 10 MB.
+    """
+    result = await db.execute(select(PPDSubmission).where(PPDSubmission.ppd_id == ppd_id))
+    if not result.scalars().first():
+        raise HTTPException(404, "PPD not found")
+
+    # Validate extension
+    ext = os.path.splitext(file.filename or "")[1].lower()
+    if ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(400, f"File type '{ext}' not allowed. Allowed: {', '.join(ALLOWED_EXTENSIONS)}")
+
+    # Read and check size
+    contents = await file.read()
+    if len(contents) > MAX_FILE_SIZE:
+        raise HTTPException(400, "File exceeds 10 MB limit")
+
+    # Save to uploads/ppd/<ppd_id>/
+    save_dir = os.path.join(UPLOAD_DIR, ppd_id)
+    os.makedirs(save_dir, exist_ok=True)
+    unique_name = f"{uuid.uuid4().hex}{ext}"
+    save_path = os.path.join(save_dir, unique_name)
+
+    async with aiofiles.open(save_path, "wb") as f:
+        await f.write(contents)
+
+    # Return the relative URL that the frontend will store with the comment
+    url = f"/uploads/ppd/{ppd_id}/{unique_name}"
+    return {"ok": True, "url": url, "filename": file.filename, "size": len(contents)}
 
 
 # ── DELETE (admin only) ───────────────────────────────────────────────────────
