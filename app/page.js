@@ -3406,7 +3406,13 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
                           </div>
                           <span className="text-xs text-muted-foreground shrink-0">{relTime(c.created_at)}</span>
                         </div>
-                        <p className="text-sm mt-1 whitespace-pre-line">{c.comment}</p>
+                        <p className="text-sm mt-1 whitespace-pre-line">
+                          {c.comment.split(/(\bhttps?:\/\/\S+)/g).map((part, i) =>
+                            /^https?:\/\//.test(part)
+                              ? <a key={i} href={part} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline break-all">{part}</a>
+                              : part
+                          )}
+                        </p>
                         {c.attachment_url && (
                           <a
                             href={`${API_BASE}${c.attachment_url}`}
