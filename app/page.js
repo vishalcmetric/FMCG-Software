@@ -2453,8 +2453,6 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
   const [reworkOpen, setReworkOpen]     = useState(false)
   const [reworkComment, setReworkComment] = useState('')
   const [reworking, setReworking]       = useState(false)
-  const [reworkFiles, setReworkFiles]   = useState([])   // File[] — multiple attachments
-  const [uploadingRework, setUploadingRework] = useState(false)
   // Rework-done popup state
   const [reworkDoneOpen, setReworkDoneOpen]   = useState(false)
   const [reworkDoneComment, setReworkDoneComment] = useState('')
@@ -2510,44 +2508,17 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
     if (!reworkComment.trim()) return toast.error('Please explain what needs to be fixed')
     setReworking(true)
     try {
-      // 1. Upload any attached files first
-      let commentText = reworkComment.trim()
-      if (reworkFiles.length > 0) {
-        setUploadingRework(true)
-        const uploaded = []
-        for (const file of reworkFiles) {
-          const fd = new FormData()
-          fd.append('file', file)
-          const res = await fetch(`/api/ppd/${ppd.ppd_id}/upload`, {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${token}` },
-            body: fd,
-          })
-          if (res.ok) {
-            const data = await res.json()
-            uploaded.push({ url: data.url, filename: data.filename })
-          }
-        }
-        setUploadingRework(false)
-        if (uploaded.length > 0) {
-          const links = uploaded.map(f => `📎 ${f.filename}: ${window.location.origin}${f.url}`).join('\n')
-          commentText = `${commentText}\n\nAttachments:\n${links}`
-        }
-      }
-
-      // 2. Post rework request with comment (+ embedded file links)
       await apiCall(`/api/ppd/${ppd.ppd_id}/rework`, {
         method: 'POST', token,
-        body: { comment: commentText }
+        body: { comment: reworkComment.trim() }
       })
       setReworkOpen(false)
       setReworkComment('')
-      setReworkFiles([])
       await refreshPpd()
       fetchComments()
       toast.warning('Rework requested — involved team notified')
     } catch (err) { toast.error(err.message) }
-    finally { setReworking(false); setUploadingRework(false) }
+    finally { setReworking(false) }
   }
 
   const handleReworkDone = async () => {
@@ -2648,19 +2619,33 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
     if (!newComment.trim()) return toast.error('Comment text is required')
     setPostingComment(true)
     try {
-      await apiCall(`/api/ppd/${ppd.ppd_id}/comments`, {
-        method: 'POST', token,
-        body: {
-          comment: newComment,
-          action_tag: actionTag,
-          attachment_url: attachResult?.url || null,
-          attachment_name: attachResult?.filename || null,
+      if (actionTag === 'rework') {
+        // "Rework" tag → call the /rework endpoint which sets PPD status = Rework
+        // Append any uploaded attachment link into the comment text
+        let commentText = newComment.trim()
+        if (attachResult) {
+          commentText += `\n\nAttachment:\n📎 ${attachResult.filename}: ${window.location.origin}${attachResult.url}`
         }
-      })
+        await apiCall(`/api/ppd/${ppd.ppd_id}/rework`, {
+          method: 'POST', token,
+          body: { comment: commentText }
+        })
+        toast.warning('Rework requested — status set to Rework, team notified')
+      } else {
+        await apiCall(`/api/ppd/${ppd.ppd_id}/comments`, {
+          method: 'POST', token,
+          body: {
+            comment: newComment,
+            action_tag: actionTag,
+            attachment_url: attachResult?.url || null,
+            attachment_name: attachResult?.filename || null,
+          }
+        })
+        toast.success('Comment posted')
+      }
       setNewComment(''); setActionTag('comment'); setAttachFile(null); setAttachResult(null)
       fetchComments()
       await refreshPpd()
-      toast.success('Comment posted')
     } catch (err) { toast.error(err.message) }
     finally { setPostingComment(false) }
   }
@@ -2945,7 +2930,7 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
       </Card>
 
       {/* ── Rework Request Dialog ── */}
-      <Dialog open={reworkOpen} onOpenChange={v => { setReworkOpen(v); if (!v) { setReworkComment(''); setReworkFiles([]) } }}>
+      <Dialog open={reworkOpen} onOpenChange={v => { setReworkOpen(v); if (!v) setReworkComment('') }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-amber-700">
@@ -2963,56 +2948,16 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
               placeholder="Describe what needs to be corrected or improved…"
               className="border-amber-300 focus:border-amber-500"
             />
-
-            {/* ── Attach Files ── */}
-            <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <label className="cursor-pointer">
-                  <input
-                    type="file"
-                    multiple
-                    className="hidden"
-                    onChange={e => {
-                      const picked = Array.from(e.target.files || [])
-                      setReworkFiles(prev => [...prev, ...picked])
-                      e.target.value = ''   // allow re-selecting same file
-                    }}
-                  />
-                  <span className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-medium cursor-pointer">
-                    <Paperclip className="h-3.5 w-3.5" />
-                    Attach Files
-                  </span>
-                </label>
-                {reworkFiles.length > 0 && (
-                  <span className="text-xs text-muted-foreground">{reworkFiles.length} file{reworkFiles.length !== 1 ? 's' : ''} selected</span>
-                )}
-              </div>
-              {reworkFiles.length > 0 && (
-                <ul className="space-y-1">
-                  {reworkFiles.map((f, i) => (
-                    <li key={i} className="flex items-center justify-between text-xs bg-slate-50 border rounded px-2 py-1">
-                      <span className="truncate max-w-[260px] text-slate-700">{f.name}</span>
-                      <button
-                        type="button"
-                        onClick={() => setReworkFiles(prev => prev.filter((_, idx) => idx !== i))}
-                        className="ml-2 text-slate-400 hover:text-red-500 shrink-0"
-                      >✕</button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-
             <p className="text-xs text-muted-foreground">
               🔔 Notification will go only to the task owners involved in this PPD (e.g. Source Team, R&amp;D/F&amp;D).
             </p>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => { setReworkOpen(false); setReworkComment(''); setReworkFiles([]) }}>Cancel</Button>
-            <Button onClick={handleReworkRequest} disabled={reworking || uploadingRework || !reworkComment.trim()}
+            <Button variant="outline" onClick={() => { setReworkOpen(false); setReworkComment('') }}>Cancel</Button>
+            <Button onClick={handleReworkRequest} disabled={reworking || !reworkComment.trim()}
               className="bg-amber-600 hover:bg-amber-700 text-white">
-              {(reworking || uploadingRework) ? <RefreshCw className="h-4 w-4 animate-spin mr-2"/> : <AlertCircle className="h-4 w-4 mr-2"/>}
-              {uploadingRework ? 'Uploading…' : 'Send Rework Request'}
+              {reworking ? <RefreshCw className="h-4 w-4 animate-spin mr-2"/> : <AlertCircle className="h-4 w-4 mr-2"/>}
+              Send Rework Request
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -3468,11 +3413,12 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
 
                 <div className="flex items-center justify-between gap-2">
                   <Select value={actionTag} onValueChange={setActionTag}>
-                    <SelectTrigger className="w-40 h-8 text-xs"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="comment">💬 Comment</SelectItem>
-                    </SelectContent>
-                  </Select>
+                      <SelectTrigger className={`w-40 h-8 text-xs ${actionTag === 'rework' ? 'border-amber-400 text-amber-700' : ''}`}><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="comment">💬 Comment</SelectItem>
+                        <SelectItem value="rework">🔁 Rework</SelectItem>
+                      </SelectContent>
+                    </Select>
                   <Button size="sm" onClick={handlePostComment} disabled={postingComment || uploading || !newComment.trim()}>
                     {postingComment ? <RefreshCw className="h-4 w-4 animate-spin mr-2" /> : <MessageSquare className="h-4 w-4 mr-2"/>}
                     Post Comment
