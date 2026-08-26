@@ -17,12 +17,18 @@ export async function OPTIONS() {
 
 async function proxy(request, context) {
   // Next.js 15: params is a Promise — must be awaited
-  const { path: segments = [] } = await context.params
-  const path = Array.isArray(segments) ? segments.join('/') : segments
+  let segments = []
+  try {
+    const p = await context.params
+    segments = p?.path || []
+  } catch {
+    segments = []
+  }
+  const path = Array.isArray(segments) ? segments.join('/') : String(segments)
 
   // Reconstruct query string from the incoming request URL
   const incoming = new URL(request.url)
-  const search = incoming.search   // e.g. "?ppd_id=PPD-01&status=all"
+  const search = incoming.search
 
   const targetUrl = `${BACKEND}/api/${path}${search}`
 
@@ -31,7 +37,6 @@ async function proxy(request, context) {
   const forwardHeaders = {}
   const auth = request.headers.get('authorization')
   if (auth) forwardHeaders['Authorization'] = auth
-  // Forward Content-Type as-is — for multipart/form-data this includes the boundary string
   if (contentType) forwardHeaders['Content-Type'] = contentType
 
   const method = request.method.toUpperCase()
@@ -39,8 +44,12 @@ async function proxy(request, context) {
   // For body-carrying methods, read raw bytes to avoid re-encoding
   let body = undefined
   if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
-    const bytes = await request.arrayBuffer()
-    if (bytes.byteLength > 0) body = bytes
+    try {
+      const bytes = await request.arrayBuffer()
+      if (bytes.byteLength > 0) body = bytes
+    } catch {
+      // body already consumed or empty — leave undefined
+    }
   }
 
   let backendRes
@@ -52,14 +61,25 @@ async function proxy(request, context) {
       redirect: 'manual',
     })
   } catch (err) {
+    console.error(`[proxy] Backend unreachable at ${targetUrl}:`, err.message)
     return NextResponse.json(
-      { detail: `Backend unreachable: ${err.message}. Make sure FastAPI is running on ${BACKEND}` },
+      { detail: `Backend unreachable: ${err.message}. Is FastAPI running on ${BACKEND}?` },
       { status: 503, headers: corsHeaders() }
     )
   }
 
-  // Stream the response back — preserve status code, content-type, etc.
-  const responseBody = await backendRes.arrayBuffer()
+  // Read response body
+  let responseBody
+  try {
+    responseBody = await backendRes.arrayBuffer()
+  } catch (err) {
+    console.error(`[proxy] Failed to read backend response body:`, err.message)
+    return NextResponse.json(
+      { detail: `Failed to read backend response: ${err.message}` },
+      { status: 502, headers: corsHeaders() }
+    )
+  }
+
   const responseHeaders = new Headers(corsHeaders())
 
   const ct = backendRes.headers.get('content-type')
@@ -67,6 +87,12 @@ async function proxy(request, context) {
 
   const cd = backendRes.headers.get('content-disposition')
   if (cd) responseHeaders.set('content-disposition', cd)
+
+  // Log errors for debugging
+  if (backendRes.status >= 400) {
+    const preview = new TextDecoder().decode(responseBody.slice(0, 500))
+    console.error(`[proxy] Backend returned ${backendRes.status} for ${method} ${targetUrl}: ${preview}`)
+  }
 
   return new NextResponse(responseBody, {
     status: backendRes.status,
