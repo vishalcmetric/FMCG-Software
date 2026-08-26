@@ -283,18 +283,6 @@ function Login({ onLogin }) {
                 </div>
                 <Input id="password" type="password" value={password} onChange={e => setPassword(e.target.value)} autoComplete="current-password" />
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="role">Login as</Label>
-                <Select value={role} onValueChange={setRole}>
-                  <SelectTrigger id="role"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {Object.entries(ROLES).map(([k, v]) => (
-                      <SelectItem key={k} value={k}>{v.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground">In production, role is derived from your AD/SSO profile.</p>
-              </div>
             </CardContent>
             <CardFooter className="flex-col gap-3">
               <ApiStatusBadge status={apiStatus} />
@@ -361,22 +349,9 @@ function Signup({ onBack, onLogin, apiStatus }) {
                 <Label>Email</Label>
                 <Input type="email" value={form.email} onChange={set('email')} placeholder="name@fmcgsoftware.com" autoComplete="email" />
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-2">
-                  <Label>Department</Label>
-                  <Input value={form.department} onChange={set('department')} placeholder="R&D" />
-                </div>
-                <div className="space-y-2">
-                  <Label>Role</Label>
-                  <Select value={form.role} onValueChange={v => setForm(f => ({ ...f, role: v }))}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {Object.entries(ROLES).map(([k, v]) => (
-                        <SelectItem key={k} value={k}>{v.label}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+              <div className="space-y-2">
+                <Label>Department</Label>
+                <Input value={form.department} onChange={set('department')} placeholder="R&D" />
               </div>
               <div className="space-y-2">
                 <Label>Password <span className="text-muted-foreground text-xs">(min 8 chars)</span></Label>
