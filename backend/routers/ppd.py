@@ -1,16 +1,20 @@
 """
-PPD (Product Development Plan) router — simplified workflow.
+PPD (Product Development Plan) router — multi-stage approval workflow.
 
-Status workflow (all roles):
-  Pending  →  Rework (reviewer sends back with comment)
-           →  Approved (reviewer approves)
+Status workflow:
+  Pending
+    → Rework           (reviewer sends back with comment)
+    → ReviewerApproved (ALL initial reviewers — fd/pm — approved)
 
-Rework flow:
-  Reviewer marks Rework + provides comment
-  → Notification sent ONLY to the task owner(s) involved in this PPD
-  → Task owner replies / confirms rework done
-  → Task goes back to reviewer
-  → Reviewer can then Approve
+  ReviewerApproved
+    → SubmittedForApproval  (Source Team explicitly clicks Submit for Approval)
+
+  SubmittedForApproval
+    → Approved              (Management / final approver signs off)
+    → Rework                (management sends back)
+
+Key rule: When initial reviewers (R&D/FD) approve, the PPD does NOT go to Management.
+It stays with the Source Team, who must explicitly submit it.
 """
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
 from sqlalchemy import select, func
@@ -29,20 +33,20 @@ router = APIRouter(prefix="/api/ppd", tags=["ppd"])
 # Full team list — used for post-approval visibility
 ALL_ROLES = "admin,source,pm,fd,rd_head,marketing,regulatory,packaging,adl,pmsa,sa,mgmt,ceo,production"
 
-# Initial visibility: creator role + reviewer roles only (before approval)
-# Management/other teams cannot see the PPD until it is Approved
-INITIAL_REVIEWER_ROLES = ["fd", "pm"]   # the two roles assigned review tasks
-INITIAL_VISIBLE_ROLES  = {"admin", "source", "fd", "pm"}  # always visible from day 1
+# Initial visibility: creator role + reviewer roles only (before Source submits to mgmt)
+INITIAL_VISIBLE_ROLES = {"admin", "source", "fd", "pm"}  # always visible from day 1
 
-# Roles that count as "reviewers" who can Approve/Rework
-REVIEWER_ROLES = {"admin", "fd", "pm", "rd_head", "mgmt", "ceo", "regulatory", "marketing", "sa"}
+# Initial reviewer roles — R&D/F&D (fd) and PM are assigned review tasks on creation
+INITIAL_REVIEWER_ROLES = ["fd", "pm"]
+
+# Roles that count as "initial reviewers" (fd+pm stage) — can Approve/Rework before submission
+REVIEWER_ROLES = {"admin", "fd", "pm"}
+
+# Management roles — assigned ONLY after Source submits for approval
+MGMT_REVIEWER_ROLES = {"rd_head", "mgmt", "ceo", "regulatory", "marketing", "sa"}
 
 # Roles that are "task owners" (responsible for doing the work, not reviewing)
 TASK_OWNER_ROLES = {"source", "packaging", "adl", "pmsa", "production"}
-
-# Roles that gain access ONLY after a PPD is Approved
-MGMT_ROLES = {"mgmt", "ceo", "rd_head", "regulatory", "marketing", "sa",
-              "packaging", "adl", "pmsa", "production"}
 
 # Default reviewers list (R&D/F&D and PM)
 DEFAULT_REVIEWERS = [
@@ -396,20 +400,21 @@ async def update_reviewers(
         if new_status == "Approved":
             all_approved = all(r.get("status") == "Approved" for r in current_reviewers)
             if all_approved:
-                p.status = "Approved"
-                # Expand visibility to all teams now that PPD is Approved
-                full_teams = p.full_teams_involved or ALL_ROLES
-                p.teams_involved = full_teams
-                flag_modified(p, "teams_involved")
+                # ALL initial reviewers (fd+pm) approved.
+                # Move to ReviewerApproved — NOT to Approved and NOT to mgmt yet.
+                # Source Team must explicitly "Submit for Approval" to involve management.
+                p.status = "ReviewerApproved"
+                # teams_involved stays narrow (admin,source,fd,pm) — mgmt cannot see it
+                notify_list = list(INITIAL_VISIBLE_ROLES)
                 await notify_roles(
                     db,
-                    roles=full_teams.split(","),
-                    title=f"PPD Approved: {p.project_name}",
+                    roles=notify_list,
+                    title=f"Initial Review Complete: {p.project_name}",
                     message=(
                         f"All reviewers approved PPD {ppd_id}. "
-                        f"The PPD is now marked Approved and visible to all teams."
+                        f"The Source Team can now click 'Submit for Approval' to send it to management."
                     ),
-                    action_type="ppd_approved",
+                    action_type="ppd_reviewed",
                     entity_id=ppd_id,
                     entity_name=p.project_name,
                     created_by=current_user.get("name", ""),
@@ -445,6 +450,185 @@ async def update_reviewers(
     return {"ok": True, "reviewers": p.reviewers}
 
 
+# ── SUBMIT FOR APPROVAL: Source Team sends to Management ──────────────────────
+
+@router.post("/{ppd_id}/submit-for-approval")
+async def submit_for_approval(
+    ppd_id: str,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Source Team (or admin) explicitly submits a ReviewerApproved PPD to Management.
+
+    This is a SEPARATE action from reviewer approval — it is the Source Team's
+    conscious decision to escalate.
+
+    Only allowed when:
+      - PPD status is "ReviewerApproved"
+      - Current user is Source Team or admin
+
+    On submission:
+      - PPD status → "SubmittedForApproval"
+      - teams_involved expanded to include management roles
+      - Management roles get review tasks + notifications
+    """
+    result = await db.execute(select(PPDSubmission).where(PPDSubmission.ppd_id == ppd_id))
+    p = result.scalars().first()
+    if not p:
+        raise HTTPException(404, "PPD not found")
+
+    role = current_user.get("role", "fd")
+
+    # Only source team (or admin) can submit
+    if role not in ("source", "admin"):
+        raise HTTPException(403, "Only the Source Team or admin can submit a PPD for management approval")
+
+    # PPD must be in ReviewerApproved state
+    if p.status != "ReviewerApproved":
+        raise HTTPException(
+            400,
+            f"PPD must be in 'ReviewerApproved' status to submit for approval (current: {p.status}). "
+            f"Ensure all initial reviewers (R&D/F&D and PM) have approved first."
+        )
+
+    # Management roles to assign
+    mgmt_roles_list = sorted(MGMT_REVIEWER_ROLES)  # rd_head, mgmt, ceo, regulatory, marketing, sa
+
+    # Expand teams_involved to include management
+    current_teams = set((p.teams_involved or "admin,source,fd,pm").split(","))
+    expanded_teams = current_teams | set(mgmt_roles_list)
+    p.teams_involved = ",".join(sorted(expanded_teams))
+    p.status = "SubmittedForApproval"
+
+    # Create management review tasks
+    for mgmt_role in mgmt_roles_list:
+        db.add(Task(
+            title=f"Management Approval: PPD {ppd_id} — {p.project_name}",
+            project_name=p.project_name,
+            ppd_id=ppd_id,
+            assigned_role=mgmt_role,
+            type="ppd_mgmt_approval",
+            status="pending",
+            priority="High",
+            due_label="Today",
+        ))
+
+    db.add(AuditLog(
+        user_name=current_user.get("name", ""),
+        user_email=current_user.get("sub", ""),
+        action="SUBMIT",
+        action_label=f"submitted PPD {ppd_id} for management approval",
+        entity=ppd_id,
+        involved_roles=p.teams_involved,
+        time_ago="just now",
+    ))
+
+    # Notify management roles
+    await notify_roles(
+        db,
+        roles=mgmt_roles_list,
+        title=f"PPD Submitted for Approval: {p.project_name}",
+        message=(
+            f"{current_user.get('name','User')} (Source Team) has submitted PPD {ppd_id} "
+            f"({p.project_name}) for your review and approval."
+        ),
+        action_type="ppd_submitted",
+        entity_id=ppd_id,
+        entity_name=p.project_name,
+        created_by=current_user.get("name", ""),
+    )
+
+    # Also notify the initial team that submission happened
+    await notify_roles(
+        db,
+        roles=list(INITIAL_VISIBLE_ROLES),
+        title=f"PPD Submitted to Management: {p.project_name}",
+        message=(
+            f"PPD {ppd_id} has been submitted to the Management Committee for final approval."
+        ),
+        action_type="ppd_submitted",
+        entity_id=ppd_id,
+        entity_name=p.project_name,
+        created_by=current_user.get("name", ""),
+    )
+
+    await db.commit()
+    return {
+        "ok": True,
+        "status": p.status,
+        "notified_roles": mgmt_roles_list,
+        "teams_involved": p.teams_involved,
+    }
+
+
+# ── FINAL APPROVE: Management approves the submitted PPD ─────────────────────
+
+@router.post("/{ppd_id}/approve")
+async def approve_ppd(
+    ppd_id: str,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Management (or admin) gives final approval to a SubmittedForApproval PPD.
+    - PPD status → "Approved"
+    - teams_involved expands to ALL_ROLES
+    - All teams notified
+    """
+    result = await db.execute(select(PPDSubmission).where(PPDSubmission.ppd_id == ppd_id))
+    p = result.scalars().first()
+    if not p:
+        raise HTTPException(404, "PPD not found")
+
+    role = current_user.get("role", "fd")
+
+    # Admin or management roles can give final approval
+    allowed_final_approvers = {"admin"} | MGMT_REVIEWER_ROLES
+    if role not in allowed_final_approvers:
+        raise HTTPException(403, "Only Management or admin can give final approval")
+
+    if p.status not in ("SubmittedForApproval", "ReviewerApproved"):
+        raise HTTPException(
+            400,
+            f"PPD must be submitted for approval first (current status: {p.status})"
+        )
+
+    # Final approval — expand visibility to all teams
+    full_teams = p.full_teams_involved or ALL_ROLES
+    p.status = "Approved"
+    p.teams_involved = full_teams
+
+    db.add(AuditLog(
+        user_name=current_user.get("name", ""),
+        user_email=current_user.get("sub", ""),
+        action="APPROVE",
+        action_label=f"gave final approval to PPD {ppd_id}",
+        entity=ppd_id,
+        involved_roles=full_teams,
+        time_ago="just now",
+    ))
+
+    await notify_roles(
+        db,
+        roles=full_teams.split(","),
+        title=f"PPD Approved: {p.project_name}",
+        message=(
+            f"{current_user.get('name','User')} has given final approval to PPD {ppd_id}. "
+            f"The PPD is now fully Approved and visible to all teams."
+        ),
+        action_type="ppd_approved",
+        entity_id=ppd_id,
+        entity_name=p.project_name,
+        created_by=current_user.get("name", ""),
+    )
+
+    await db.commit()
+    return {"ok": True, "status": p.status}
+
+
+
+
 # ── REWORK: Reviewer sends rework request ─────────────────────────────────────
 
 @router.post("/{ppd_id}/rework")
@@ -467,7 +651,9 @@ async def request_rework(
         raise HTTPException(404, "PPD not found")
 
     role = current_user.get("role", "fd")
-    if role not in REVIEWER_ROLES and role != "admin":
+    # Both initial reviewers (fd/pm) and management reviewers can request rework
+    all_reviewer_roles = REVIEWER_ROLES | MGMT_REVIEWER_ROLES
+    if role not in all_reviewer_roles and role != "admin":
         raise HTTPException(403, "Only reviewers or admin can request rework on a PPD")
 
     rework_comment = (body.get("comment") or "").strip()

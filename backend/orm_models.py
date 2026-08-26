@@ -12,11 +12,17 @@ from database import Base
 import enum
 
 # ── PPD Status enum ───────────────────────────────────────────────────────────
-# Simplified workflow: Pending → Rework → Approved
+# Full workflow:
+#   Pending  → Rework (reviewer sends back)
+#   Pending  → ReviewerApproved (all initial reviewers approved; Source must still submit)
+#   ReviewerApproved → SubmittedForApproval (Source clicks "Submit for Approval")
+#   SubmittedForApproval → Approved (Management / final approver signs off)
 class PPDStatus(str, enum.Enum):
-    Pending         = "Pending"
-    Approved        = "Approved"
-    Rework          = "Rework"
+    Pending               = "Pending"
+    Rework                = "Rework"
+    ReviewerApproved      = "ReviewerApproved"   # R&D+FD approved; awaiting Source submission
+    SubmittedForApproval  = "SubmittedForApproval"  # Source submitted to Management
+    Approved              = "Approved"
 
 # ── Enums ─────────────────────────────────────────────────────────────────────
 class TaskStatus(str, enum.Enum):

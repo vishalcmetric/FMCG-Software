@@ -1222,10 +1222,10 @@ function Dashboard({ user, setView, token }) {
 
   useEffect(() => { fetchDashboard() }, [fetchDashboard])
 
-  const stats   = data?.stats           || FALLBACK_DASHBOARD(user.role).stats
-  const tasks   = data?.pending_tasks   || FALLBACK_DASHBOARD(user.role).pending_tasks
-  const activity= data?.recent_activity || FALLBACK_DASHBOARD(user.role).recent_activity
-  const pipeline= data?.pipeline        || FALLBACK_DASHBOARD(user.role).pipeline
+  const stats      = data?.stats           || FALLBACK_DASHBOARD(user.role).stats
+  const tasks      = data?.pending_tasks   || FALLBACK_DASHBOARD(user.role).pending_tasks
+  const activity   = data?.recent_activity || FALLBACK_DASHBOARD(user.role).recent_activity
+  const recentPpds = data?.recent_ppds     || []
 
   return (
     <div className="space-y-6">
@@ -1307,7 +1307,6 @@ function Dashboard({ user, setView, token }) {
                     <TableHead>Project</TableHead>
                     <TableHead>Task</TableHead>
                     <TableHead>Priority</TableHead>
-                    <TableHead>Status</TableHead>
                     <TableHead>Due</TableHead>
                     <TableHead>Actions</TableHead>
                   </TableRow>
@@ -1320,6 +1319,7 @@ function Dashboard({ user, setView, token }) {
                       claim: 'claim', plant: 'plant', production: 'plant',
                       artwork: 'artwork', master: 'master',
                       approval: 'ppd', review: 'ppd', report: 'ppd',
+                      ppd_review: 'ppd', ppd_mgmt_approval: 'ppd',
                     }
                     const dest = (t.task_type && typeMap[t.task_type.toLowerCase()]) ||
                       (t.task?.toLowerCase().includes('formula') ? 'formulation' :
@@ -1327,64 +1327,21 @@ function Dashboard({ user, setView, token }) {
                        t.task?.toLowerCase().includes('sensory') ? 'sensory' :
                        t.task?.toLowerCase().includes('plant') ? 'plant' :
                        t.task?.toLowerCase().includes('ppd') ? 'ppd' : 'ppd')
-                    // Role-specific status options — only show for the current user's role
-                    const myStatusOptions = ROLE_TASK_STATUSES[user.role] || ROLE_TASK_STATUSES['fd']
-                    const currentStatusKey = t.status || 'pending'
-                    const statusBadgeCls = TASK_STATUS_BADGE[currentStatusKey] || TASK_STATUS_BADGE.pending
-                    const isActionable = t.task_id && (t.ppd_id || t.project_id) && token && !['completed','cancelled','rejected'].includes(currentStatusKey)
+                    const isActionable = t.task_id && token
                     return (
                       <TableRow key={t.task_id || t.id || `${t.project}-${t.task}`}>
                         <TableCell className="font-medium max-w-[130px] truncate" title={t.project}>{t.project}</TableCell>
-                        <TableCell className="max-w-[180px]">
+                        <TableCell className="max-w-[200px]">
                           <span className="text-sm">{t.task}</span>
                         </TableCell>
                         <TableCell>
                           <Badge variant={t.priority==='Critical'?'destructive':t.priority==='High'?'default':'secondary'} className="text-xs">{t.priority}</Badge>
                         </TableCell>
-                        <TableCell>
-                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusBadgeCls}`}>
-                            {currentStatusKey.replace('_', ' ')}
-                          </span>
-                        </TableCell>
                         <TableCell className="text-muted-foreground text-sm whitespace-nowrap">{t.due}</TableCell>
                         <TableCell>
-                          <div className="flex items-center gap-1 flex-wrap">
-                            {/* Open module button */}
-                            <Button size="sm" variant="ghost" className="h-7 text-xs px-2" onClick={() => { setView(dest); toast.info(`Opening ${t.project}`) }}>
-                              <Eye className="h-3 w-3 mr-1"/>Open
-                            </Button>
-                            {/* Role-specific status update — only shown when task is actionable */}
-                            {isActionable && (
-                              <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                  <Button size="sm" variant="outline" className="h-7 text-xs px-2 gap-1">
-                                    Update Status <ChevronDown className="h-3 w-3"/>
-                                  </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end" className="w-48">
-                                  <DropdownMenuLabel className="text-xs text-muted-foreground">
-                                    {ROLES[user.role]?.label || user.role} actions
-                                  </DropdownMenuLabel>
-                                  <DropdownMenuSeparator />
-                                  {myStatusOptions.map(opt => (
-                                    <DropdownMenuItem
-                                      key={opt.v}
-                                      className="text-xs cursor-pointer"
-                                      onClick={async () => {
-                                        try {
-                                          await apiCall(`/api/ppd/${t.ppd_id || t.project_id}/tasks/${t.task_id}/status`, { method: 'PATCH', token, body: { status: opt.v } })
-                                          toast.success(`Task marked as "${opt.l}"`)
-                                          fetchDashboard(true)
-                                        } catch(err) { toast.error(err.message) }
-                                      }}
-                                    >
-                                      {opt.l}
-                                    </DropdownMenuItem>
-                                  ))}
-                                </DropdownMenuContent>
-                              </DropdownMenu>
-                            )}
-                          </div>
+                          <Button size="sm" variant="ghost" className="h-7 text-xs px-2" onClick={() => { setView(dest); toast.info(`Opening ${t.project}`) }}>
+                            <Eye className="h-3 w-3 mr-1"/>Open
+                          </Button>
                         </TableCell>
                       </TableRow>
                     )
@@ -1418,6 +1375,71 @@ function Dashboard({ user, setView, token }) {
           </CardContent>
         </Card>
       </div>
+
+      {/* ── Recent PPDs Section ── */}
+      {recentPpds.length > 0 && (
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-3">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <FileText className="h-4 w-4 text-primary" />
+                Recent PPDs
+              </CardTitle>
+              <CardDescription>Latest Product Development Plans visible to you</CardDescription>
+            </div>
+            <Button variant="outline" size="sm" onClick={() => setView('ppd')}>View all</Button>
+          </CardHeader>
+          <CardContent className="p-0">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>PPD ID</TableHead>
+                  <TableHead>Title / Product</TableHead>
+                  <TableHead>Brand</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Version</TableHead>
+                  <TableHead>Created By</TableHead>
+                  <TableHead>Updated</TableHead>
+                  <TableHead className="w-10"></TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {recentPpds.map(p => {
+                  const relT = (iso) => {
+                    if (!iso) return '—'
+                    const diff = Date.now() - new Date(iso).getTime()
+                    const m = Math.floor(diff/60000)
+                    if (m < 1) return 'just now'
+                    if (m < 60) return `${m}m ago`
+                    const h = Math.floor(m/60)
+                    if (h < 24) return `${h}h ago`
+                    return `${Math.floor(h/24)}d ago`
+                  }
+                  return (
+                    <TableRow key={p.ppd_id} className="cursor-pointer hover:bg-muted/50" onClick={() => setView('ppd')}>
+                      <TableCell className="font-mono text-xs text-muted-foreground">{p.ppd_id}</TableCell>
+                      <TableCell>
+                        <div className="font-medium text-sm max-w-[200px] truncate">{p.ppd_title || p.project_name}</div>
+                        <div className="text-xs text-muted-foreground">{p.project_name}</div>
+                      </TableCell>
+                      <TableCell><Badge variant="outline" className="text-xs">{p.brand}</Badge></TableCell>
+                      <TableCell>
+                        <span className={`text-xs px-2 py-0.5 rounded-md font-medium whitespace-nowrap ${PPD_STATUS_COLORS[p.status] || 'bg-slate-100'}`}>
+                          {PPD_STATUS_LABELS[p.status] || p.status}
+                        </span>
+                      </TableCell>
+                      <TableCell><Badge variant="secondary" className="text-xs font-mono">{p.ppd_version}</Badge></TableCell>
+                      <TableCell className="text-sm">{p.created_by}</TableCell>
+                      <TableCell className="text-xs text-muted-foreground whitespace-nowrap">{relT(p.updated_at)}</TableCell>
+                      <TableCell><ChevronRight className="h-4 w-4 text-muted-foreground" /></TableCell>
+                    </TableRow>
+                  )
+                })}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
 
     </div>
   )
@@ -2125,12 +2147,21 @@ function _ProjectsViewRemoved({ setView, user, token, can }) {
 
 /* -------------------- PPD -------------------- */
 const PPD_STATUS_COLORS = {
-  'Pending':  'bg-slate-200 text-slate-800',
-  'Rework':   'bg-amber-100 text-amber-800',
-  'Approved': 'bg-emerald-100 text-emerald-800',
+  'Pending':               'bg-slate-200 text-slate-800',
+  'Rework':                'bg-amber-100 text-amber-800',
+  'ReviewerApproved':      'bg-blue-100 text-blue-800',
+  'SubmittedForApproval':  'bg-purple-100 text-purple-800',
+  'Approved':              'bg-emerald-100 text-emerald-800',
+}
+const PPD_STATUS_LABELS = {
+  'Pending':               'Pending',
+  'Rework':                'Rework',
+  'ReviewerApproved':      'Reviewer Approved',
+  'SubmittedForApproval':  'Submitted for Approval',
+  'Approved':              'Approved',
 }
 const PPD_STATUSES = Object.keys(PPD_STATUS_COLORS)
-// Simplified reviewer statuses
+// Reviewer statuses for the initial review stage
 const REVIEWER_STATUSES = ['Pending','Rework','Approved']
 
 /** Top-level PPD list (role-filtered from API) */
@@ -2287,7 +2318,7 @@ function PPDView({ user, token, can }) {
                     <TableCell><Badge variant="outline" className="text-xs">{p.brand}</Badge></TableCell>
                     <TableCell>
                       <span className={`text-xs px-2 py-0.5 rounded-md font-medium whitespace-nowrap ${PPD_STATUS_COLORS[p.status] || 'bg-slate-100'}`}>
-                        {p.status}
+                        {PPD_STATUS_LABELS[p.status] || p.status}
                       </span>
                     </TableCell>
                     <TableCell><Badge variant="secondary" className="text-xs font-mono">{p.ppd_version}</Badge></TableCell>
@@ -2415,22 +2446,31 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
   const [reworkDoneOpen, setReworkDoneOpen]   = useState(false)
   const [reworkDoneComment, setReworkDoneComment] = useState('')
   const [reworkDoneSaving, setReworkDoneSaving] = useState(false)
+  // Submit for approval popup state
+  const [submitApprovalOpen, setSubmitApprovalOpen] = useState(false)
+  const [submittingApproval, setSubmittingApproval] = useState(false)
+  // Final approve loading state (management)
+  const [finalApproving, setFinalApproving] = useState(false)
 
   const isAdmin    = user?.role === 'admin'
   const isSource   = user?.role === 'source'
   const isPM       = user?.role === 'pm'
   const myRole     = user?.role || 'fd'
 
-  // Reviewer roles — can Approve or send Rework
-  const REVIEWER_ROLES_FE = new Set(['admin','fd','pm','rd_head','mgmt','ceo','regulatory','marketing','sa'])
-  const isReviewer = REVIEWER_ROLES_FE.has(myRole)
+  // Initial reviewer roles — fd and pm only (before Source submission)
+  const INITIAL_REVIEWER_ROLES_FE = new Set(['fd','pm'])
+  // Management reviewer roles — see PPD only after SubmittedForApproval
+  const MGMT_REVIEWER_ROLES_FE = new Set(['rd_head','mgmt','ceo','regulatory','marketing','sa'])
+  // Admin can act as any role
+  const isInitialReviewer = isAdmin || INITIAL_REVIEWER_ROLES_FE.has(myRole)
+  const isMgmtReviewer    = isAdmin || MGMT_REVIEWER_ROLES_FE.has(myRole)
 
   // Task owner roles — do the work, confirm rework
   const TASK_OWNER_ROLES_FE = new Set(['source','packaging','adl','pmsa','production'])
   const isTaskOwner = TASK_OWNER_ROLES_FE.has(myRole)
 
-  // Can edit PPD content in Pending/Rework
-  const canEditPPD = isAdmin || (isSource && ['Pending','Rework'].includes(ppd.status)) || isPM
+  // Can edit PPD content in Pending/Rework/ReviewerApproved
+  const canEditPPD = isAdmin || (isSource && ['Pending','Rework','ReviewerApproved'].includes(ppd.status)) || isPM
 
   const fetchComments = useCallback(async () => {
     try {
@@ -2481,6 +2521,27 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
       toast.success('Submitted for review — reviewer notified')
     } catch (err) { toast.error(err.message) }
     finally { setReworkDoneSaving(false) }
+  }
+
+  const handleSubmitForApproval = async () => {
+    setSubmittingApproval(true)
+    try {
+      await apiCall(`/api/ppd/${ppd.ppd_id}/submit-for-approval`, { method: 'POST', token })
+      setSubmitApprovalOpen(false)
+      await refreshPpd()
+      toast.success('PPD submitted to Management Committee for approval')
+    } catch (err) { toast.error(err.message) }
+    finally { setSubmittingApproval(false) }
+  }
+
+  const handleFinalApprove = async () => {
+    setFinalApproving(true)
+    try {
+      await apiCall(`/api/ppd/${ppd.ppd_id}/approve`, { method: 'POST', token })
+      await refreshPpd()
+      toast.success('PPD fully Approved!')
+    } catch (err) { toast.error(err.message) }
+    finally { setFinalApproving(false) }
   }
 
   const handleSave = async () => {
@@ -2567,12 +2628,15 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
     return `${Math.floor(h / 24)}d ago`
   }
 
-  // Simplified 3-status workflow tracking
-  const approvedCount  = reviewers.filter(r => r.status === 'Approved').length
-  const reworkCount    = reviewers.filter(r => r.status === 'Rework').length
-  const isPending      = ppd.status === 'Pending'
-  const isApproved     = ppd.status === 'Approved'
-  const isRework       = ppd.status === 'Rework'
+  // Multi-stage workflow tracking
+  const approvedCount    = reviewers.filter(r => r.status === 'Approved').length
+  const reworkCount      = reviewers.filter(r => r.status === 'Rework').length
+  const isPending        = ppd.status === 'Pending'
+  const isApproved       = ppd.status === 'Approved'
+  const isRework         = ppd.status === 'Rework'
+  const isReviewerApproved    = ppd.status === 'ReviewerApproved'
+  const isSubmittedForApproval = ppd.status === 'SubmittedForApproval'
+  const isFullyDone      = isApproved
 
   const wfSteps = [
     {
@@ -2581,24 +2645,35 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
       st: 'done',
     },
     {
-      s: '2. Under Review',
-      d: isApproved
-        ? `✓ All ${reviewers.length} reviewers approved`
-        : isRework
-        ? `⚠ ${reworkCount} reviewer(s) requested rework — task owner to fix and resubmit`
-        : `${approvedCount}/${reviewers.length} reviewers approved — reviewers can Approve or send for Rework`,
-      st: isApproved ? 'done' : (isPending || isRework) ? 'active' : 'pending',
-    },
-    {
-      s: '3. Rework (if needed)',
+      s: '2. Initial Review (R&D / F&D + PM)',
       d: isRework
-        ? 'Task owner addresses feedback and submits — reviewer then approves'
-        : 'If a reviewer finds issues, they send it for Rework with a comment explaining what to fix',
-      st: isRework ? 'active' : isApproved ? 'done' : 'pending',
+        ? `⚠ ${reworkCount} reviewer(s) requested rework — task owner to fix and resubmit`
+        : isReviewerApproved || isSubmittedForApproval || isApproved
+        ? `✓ All ${reviewers.length} initial reviewers approved`
+        : `${approvedCount}/${reviewers.length} reviewers approved — R&D/F&D and PM review`,
+      st: (isReviewerApproved || isSubmittedForApproval || isApproved) ? 'done' : (isPending || isRework) ? 'active' : 'pending',
     },
     {
-      s: '4. Approved',
-      d: isApproved ? '✓ PPD approved — moving to execution phase' : 'Once all reviewers approve, PPD is marked Approved',
+      s: '3. Source Team Submits for Approval',
+      d: isSubmittedForApproval || isApproved
+        ? '✓ Source Team submitted PPD to Management Committee'
+        : isReviewerApproved
+        ? '👆 Source Team must now click "Submit for Approval" to escalate to Management'
+        : 'After initial review is complete, Source Team submits to Management',
+      st: (isSubmittedForApproval || isApproved) ? 'done' : isReviewerApproved ? 'active' : 'pending',
+    },
+    {
+      s: '4. Management Review',
+      d: isApproved
+        ? '✓ Management approved the PPD'
+        : isSubmittedForApproval
+        ? 'Management Committee is reviewing — they can Approve or send Rework'
+        : 'Management Committee will be notified only after Source Team submission',
+      st: isApproved ? 'done' : isSubmittedForApproval ? 'active' : 'pending',
+    },
+    {
+      s: '5. Fully Approved',
+      d: isApproved ? '✓ PPD fully Approved — moving to execution phase' : 'Final approval by Management',
       st: isApproved ? 'done' : 'pending',
     },
   ]
@@ -2617,7 +2692,7 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-xl font-bold">{ppd.ppd_title || ppd.project_name}</h1>
-              <span className={`text-xs px-2 py-0.5 rounded-md font-medium ${PPD_STATUS_COLORS[ppd.status] || 'bg-slate-100'}`}>{ppd.status}</span>
+              <span className={`text-xs px-2 py-0.5 rounded-md font-medium ${PPD_STATUS_COLORS[ppd.status] || 'bg-slate-100'}`}>{PPD_STATUS_LABELS[ppd.status] || ppd.status}</span>
               <Badge variant="secondary" className="font-mono text-xs">{ppd.ppd_version}</Badge>
             </div>
             <p className="text-xs text-muted-foreground mt-0.5">
@@ -2633,8 +2708,28 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
               <CheckCircle2 className="h-4 w-4" /> Approved
             </Badge>
           )}
-          {/* Reviewer: Approve button — only in Pending/Rework status */}
-          {isReviewer && !isApproved && (
+          {/* ReviewerApproved banner + Source Team Submit button */}
+          {isReviewerApproved && (
+            <Badge className="bg-blue-600 text-white px-3 py-1 text-xs gap-1.5 shadow-sm">
+              <CheckCircle2 className="h-4 w-4" /> Reviewer Approved
+            </Badge>
+          )}
+          {/* SubmittedForApproval banner */}
+          {isSubmittedForApproval && (
+            <Badge className="bg-purple-600 text-white px-3 py-1 text-xs gap-1.5 shadow-sm">
+              <Send className="h-4 w-4" /> Submitted for Approval
+            </Badge>
+          )}
+          {/* Source Team: Submit for Approval — only when ReviewerApproved */}
+          {(isAdmin || isSource) && isReviewerApproved && (
+            <Button size="sm" className="gap-1 bg-purple-600 hover:bg-purple-700 text-white"
+              onClick={() => setSubmitApprovalOpen(true)} disabled={submittingApproval}>
+              {submittingApproval ? <RefreshCw className="h-4 w-4 animate-spin mr-1"/> : <Send className="h-4 w-4 mr-1"/>}
+              Submit for Approval
+            </Button>
+          )}
+          {/* Initial Reviewer (fd/pm): Approve — only in Pending/Rework */}
+          {isInitialReviewer && (isPending || isRework) && (
             <Button size="sm" className="gap-1 bg-emerald-600 hover:bg-emerald-700 text-white" onClick={async () => {
               setSaving(true)
               try {
@@ -2643,7 +2738,7 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
                   body: { reviewers: reviewers.map(r => r.role === myRole ? { ...r, status: 'Approved' } : r) }
                 })
                 await refreshPpd()
-                toast.success('Approved!')
+                toast.success('Approved! Waiting for other reviewers or Source Team submission.')
               } catch (err) { toast.error(err.message) }
               finally { setSaving(false) }
             }} disabled={saving}>
@@ -2651,14 +2746,29 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
               Approve
             </Button>
           )}
-          {/* Reviewer: Request Rework button — only in Pending status */}
-          {isReviewer && !isApproved && (
+          {/* Initial Reviewer (fd/pm): Request Rework — only in Pending/Rework */}
+          {isInitialReviewer && (isPending || isRework) && (
             <Button size="sm" variant="outline" className="gap-1 border-amber-400 text-amber-700 hover:bg-amber-50"
               onClick={() => setReworkOpen(true)} disabled={saving}>
               <AlertCircle className="h-4 w-4 mr-1"/>Request Rework
             </Button>
           )}
-          {/* Task owner: Mark Rework Done (submit back) — only when status is Rework */}
+          {/* Management: Final Approve — only in SubmittedForApproval */}
+          {isMgmtReviewer && isSubmittedForApproval && (
+            <Button size="sm" className="gap-1 bg-emerald-700 hover:bg-emerald-800 text-white"
+              onClick={handleFinalApprove} disabled={finalApproving}>
+              {finalApproving ? <RefreshCw className="h-4 w-4 animate-spin mr-1"/> : <CheckCircle2 className="h-4 w-4 mr-1"/>}
+              Final Approve
+            </Button>
+          )}
+          {/* Management: Rework — only in SubmittedForApproval */}
+          {isMgmtReviewer && isSubmittedForApproval && (
+            <Button size="sm" variant="outline" className="gap-1 border-amber-400 text-amber-700 hover:bg-amber-50"
+              onClick={() => setReworkOpen(true)} disabled={finalApproving}>
+              <AlertCircle className="h-4 w-4 mr-1"/>Request Rework
+            </Button>
+          )}
+          {/* Task owner: Mark Rework Done — only when status is Rework */}
           {isTaskOwner && isRework && (
             <Button size="sm" className="gap-1 bg-blue-600 hover:bg-blue-700 text-white"
               onClick={() => setReworkDoneOpen(true)}>
@@ -2759,6 +2869,36 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
               className="bg-blue-600 hover:bg-blue-700 text-white">
               {reworkDoneSaving ? <RefreshCw className="h-4 w-4 animate-spin mr-2"/> : <Send className="h-4 w-4 mr-2"/>}
               Submit for Review
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Submit for Approval Confirmation Dialog ── */}
+      <Dialog open={submitApprovalOpen} onOpenChange={setSubmitApprovalOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-purple-700">
+              <Send className="h-5 w-5" /> Submit for Management Approval
+            </DialogTitle>
+            <DialogDescription>
+              This will notify the Management Committee and make the PPD visible to them for final review.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-2 space-y-2">
+            <p className="text-sm"><strong>PPD:</strong> {ppd.ppd_id} — {ppd.project_name}</p>
+            <p className="text-sm text-emerald-700 font-medium">✓ Initial reviewers (R&amp;D/F&amp;D + PM) have all approved</p>
+            <p className="text-xs text-muted-foreground bg-purple-50 border border-purple-200 rounded p-2 mt-2">
+              🔔 The following teams will be assigned review tasks and notified:
+              R&amp;D Head, Marketing, Regulatory, Management Committee, CEO, Scientific Affairs.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSubmitApprovalOpen(false)}>Cancel</Button>
+            <Button onClick={handleSubmitForApproval} disabled={submittingApproval}
+              className="bg-purple-600 hover:bg-purple-700 text-white">
+              {submittingApproval ? <RefreshCw className="h-4 w-4 animate-spin mr-2"/> : <Send className="h-4 w-4 mr-2"/>}
+              Submit to Management
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -2919,10 +3059,26 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
                   {isTaskOwner && <strong className="ml-1">Use the "Submit Rework Done" button above when ready.</strong>}
                 </div>
               )}
+              {isReviewerApproved && (
+                <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800 flex items-center gap-2">
+                  <CheckCircle2 className="h-4 w-4 shrink-0" />
+                  All initial reviewers (R&amp;D/F&amp;D + PM) approved. &nbsp;
+                  {(isAdmin || isSource)
+                    ? <strong>Click "Submit for Approval" to send to Management Committee.</strong>
+                    : <span>Waiting for Source Team to submit for management approval.</span>}
+                </div>
+              )}
+              {isSubmittedForApproval && (
+                <div className="mt-2 p-3 bg-purple-50 border border-purple-200 rounded-lg text-sm text-purple-800 flex items-center gap-2">
+                  <Send className="h-4 w-4 shrink-0" />
+                  Submitted to Management Committee for final approval.
+                  {isMgmtReviewer && <strong className="ml-1">Use "Final Approve" to approve or "Request Rework" to send back.</strong>}
+                </div>
+              )}
               {isApproved && (
                 <div className="mt-2 p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-sm text-emerald-800 flex items-center gap-2">
                   <CheckCircle2 className="h-4 w-4 shrink-0" />
-                  All reviewers approved. PPD is marked <strong>Approved</strong>.
+                  PPD fully <strong>Approved</strong> by Management Committee.
                 </div>
               )}
             </CardContent>

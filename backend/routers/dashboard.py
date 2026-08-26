@@ -1,11 +1,10 @@
 """
-Dashboard router — role-aware stats, tasks, activity.
-PPD is now the top-level entity; pipeline section removed.
+Dashboard router — role-aware stats, tasks, activity, and PPD section.
 """
 from fastapi import APIRouter, Depends
 from sqlalchemy import select, func, and_
 from sqlalchemy.ext.asyncio import AsyncSession
-from database import get_db
+from database import get_db, fmt_ist
 from auth import get_current_user
 from models import DashboardResponse, StatCard, PendingTask, ActivityItem, PipelineStage
 from orm_models import PPDSubmission, Task, AuditLog
@@ -14,39 +13,45 @@ from database import IST
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
-_FULL_ROLES = ("admin", "mgmt", "ceo")
+# Roles that see all PPDs (not filtered by teams_involved)
+_FULL_ROLES = ("admin",)
+
+# Management roles — see PPDs only after SubmittedForApproval
+_MGMT_ROLES = ("mgmt", "ceo", "rd_head", "regulatory", "marketing", "sa")
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
-async def _build_stats(db: AsyncSession, role: str, user_email: str) -> list[StatCard]:
-    def _role_ppd(q):
-        if role not in _FULL_ROLES:
-            return q.where(PPDSubmission.teams_involved.contains(role))
-        return q
+def _ppd_filter(q, role: str):
+    """Apply visibility filter based on role — only show PPDs in teams_involved."""
+    if role in _FULL_ROLES:
+        return q  # admin sees all
+    return q.where(PPDSubmission.teams_involved.contains(role))
 
+
+async def _build_stats(db: AsyncSession, role: str, user_email: str) -> list[StatCard]:
     def _role_task(q):
-        if role not in _FULL_ROLES:
+        if role not in (*_FULL_ROLES, *_MGMT_ROLES):
             return q.where(Task.assigned_role == role)
         return q
 
     active_ppds = (await db.execute(
-        _role_ppd(select(func.count()).select_from(PPDSubmission))
-        .where(PPDSubmission.status.in_(["Pending", "Rework"]))
+        _ppd_filter(select(func.count()).select_from(PPDSubmission), role)
+        .where(PPDSubmission.status.in_(["Pending", "Rework", "ReviewerApproved", "SubmittedForApproval"]))
     )).scalar() or 0
 
     pending_approvals = (await db.execute(
         _role_task(select(func.count()).select_from(Task))
-        .where(and_(Task.type == "approval", Task.status == "pending"))
+        .where(Task.status == "pending")
     )).scalar() or 0
 
     under_review = (await db.execute(
-        _role_ppd(select(func.count()).select_from(PPDSubmission))
-        .where(PPDSubmission.status == "Pending")
+        _ppd_filter(select(func.count()).select_from(PPDSubmission), role)
+        .where(PPDSubmission.status.in_(["Pending", "Rework"]))
     )).scalar() or 0
 
     approved = (await db.execute(
-        _role_ppd(select(func.count()).select_from(PPDSubmission))
+        _ppd_filter(select(func.count()).select_from(PPDSubmission), role)
         .where(PPDSubmission.status == "Approved")
     )).scalar() or 0
 
@@ -55,6 +60,30 @@ async def _build_stats(db: AsyncSession, role: str, user_email: str) -> list[Sta
         StatCard(label="Pending Approvals", value=pending_approvals, change="+2", icon="FileCheck2",  color="from-orange-500 to-orange-700"),
         StatCard(label="Under Review",      value=under_review,      change="-1", icon="FlaskConical", color="from-blue-500 to-blue-700"),
         StatCard(label="Approved PPDs",     value=approved,          change="+5", icon="CheckCircle2", color="from-purple-500 to-purple-700"),
+    ]
+
+
+async def _build_ppds(db: AsyncSession, role: str) -> list[dict]:
+    """Return the most recent PPDs visible to this role, for the dashboard PPD section."""
+    stmt = (
+        _ppd_filter(select(PPDSubmission), role)
+        .order_by(PPDSubmission.updated_at.desc())
+        .limit(5)
+    )
+    result = await db.execute(stmt)
+    ppds = result.scalars().all()
+    return [
+        {
+            "ppd_id":       p.ppd_id,
+            "ppd_title":    p.ppd_title or p.project_name,
+            "project_name": p.project_name,
+            "brand":        p.brand,
+            "status":       p.status,
+            "ppd_version":  p.ppd_version,
+            "created_by":   p.created_by,
+            "updated_at":   fmt_ist(p.updated_at),
+        }
+        for p in ppds
     ]
 
 
@@ -174,12 +203,16 @@ async def get_dashboard(
 
     activity = await _build_activity(db, role) if has_logs else SEED_ACTIVITY
 
+    # Build PPD section — always from live data (empty list if none exist)
+    recent_ppds = await _build_ppds(db, role) if has_ppds else []
+
     return DashboardResponse(
         stats=stats,
         pending_tasks=tasks,
         recent_activity=activity,
         pipeline=SEED_PIPELINE,
         role=role,
+        recent_ppds=recent_ppds,
     )
 
 

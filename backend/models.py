@@ -52,6 +52,7 @@ class DashboardResponse(BaseModel):
     recent_activity: List[ActivityItem]
     pipeline: List[PipelineStage]
     role: str
+    recent_ppds: List[dict] = []
 
 # ── Users ─────────────────────────────────────────────────────────────────────
 class UserCreate(BaseModel):
