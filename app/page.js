@@ -38,10 +38,7 @@ const ROLES = {
   gdso_head:      { label: 'GDSO Head',               color: 'bg-violet-700',  desc: 'Global Demand & Supply Operations — Stage 3 reviewer' },
   regulatory:     { label: 'Regulatory Head',         color: 'bg-red-600',     desc: 'Regulatory compliance, FSSAI, ingredient checks — Stage 3 reviewer' },
   cfo:            { label: 'CFO',                     color: 'bg-slate-700',   desc: 'Financial feasibility review — Stage 3 reviewer' },
-  marketing:      { label: 'Marketing Team',          color: 'bg-pink-500',    desc: 'PPD review, artwork briefs, brand approvals' },
   packaging:      { label: 'Packaging Team',          color: 'bg-amber-600',   desc: 'Costing feasibility, artwork, SFG/PKG BOM' },
-  adl:            { label: 'ADL Lab Team',            color: 'bg-indigo-600',  desc: 'Analytical & Development Lab — stability, testing' },
-  pmsa:           { label: 'PM & SA Team',            color: 'bg-teal-600',    desc: 'Product Management & Scientific Affairs sensory eval' },
   sa:             { label: 'Scientific Affairs',      color: 'bg-sky-600',     desc: 'Claim substantiation, clinical evidence, regulatory docs' },
   ceo:            { label: 'CEO',                     color: 'bg-black',       desc: 'Final approval authority — Stage 4 (terminal)' },
   production:     { label: 'Production / Plant Trial',color: 'bg-orange-600',  desc: 'Pilot trials, BOM, MFC, stability batch reports' },
@@ -283,6 +280,18 @@ function Login({ onLogin }) {
                 </div>
                 <Input id="password" type="password" value={password} onChange={e => setPassword(e.target.value)} autoComplete="current-password" />
               </div>
+              <div className="space-y-2">
+                <Label htmlFor="role">Login as</Label>
+                <Select value={role} onValueChange={setRole}>
+                  <SelectTrigger id="role"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {Object.entries(ROLES).map(([k, v]) => (
+                      <SelectItem key={k} value={k}>{v.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">In production, role is derived from your AD/SSO profile.</p>
+              </div>
             </CardContent>
             <CardFooter className="flex-col gap-3">
               <ApiStatusBadge status={apiStatus} />
@@ -349,9 +358,22 @@ function Signup({ onBack, onLogin, apiStatus }) {
                 <Label>Email</Label>
                 <Input type="email" value={form.email} onChange={set('email')} placeholder="name@fmcgsoftware.com" autoComplete="email" />
               </div>
-              <div className="space-y-2">
-                <Label>Department</Label>
-                <Input value={form.department} onChange={set('department')} placeholder="R&D" />
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  <Label>Department</Label>
+                  <Input value={form.department} onChange={set('department')} placeholder="R&D" />
+                </div>
+                <div className="space-y-2">
+                  <Label>Role</Label>
+                  <Select value={form.role} onValueChange={v => setForm(f => ({ ...f, role: v }))}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {Object.entries(ROLES).map(([k, v]) => (
+                        <SelectItem key={k} value={k}>{v.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
               <div className="space-y-2">
                 <Label>Password <span className="text-muted-foreground text-xs">(min 8 chars)</span></Label>
