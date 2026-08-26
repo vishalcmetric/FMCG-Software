@@ -27,27 +27,27 @@ ALL_ROLES = "admin,source,pm,fd,rd_head,marketing,regulatory,packaging,adl,pmsa,
 
 def _formula_out(f: Formula) -> dict:
     return {
-        "id":             f.id,
-        "formula_id":     f.formula_id,
-        "ppd_id":         f.ppd_id,
-        "project_name":   f.project_name,
-        "version":        f.version,
-        "formula_type":   f.formula_type,
-        "status":         f.status,
-        "protein_source": f.protein_source,
-        "sweetener":      f.sweetener,
-        "cocoa_pct":      f.cocoa_pct,
-        "protein_pct":    f.protein_pct,
-        "sugar_per_100g": f.sugar_per_100g,
-        "cost_per_kg":    f.cost_per_kg,
-        "stability_40c":  f.stability_40c,
-        "sensory_score":  f.sensory_score,
-        "notes":          f.notes,
-        "ingredients":    f.ingredients or [],
-        "created_by":     f.created_by,
-        "created_by_role":f.created_by_role,
-        "created_at":     fmt_ist(f.created_at),
-        "updated_at":     fmt_ist(f.updated_at),
+        "id":                    f.id,
+        "formula_id":            f.formula_id,
+        "ppd_id":                f.ppd_id,
+        "project_name":          f.project_name,
+        "version":               f.version,
+        "status":                f.status,
+        "trial_no":              f.trial_no,
+        "batch_no":              f.batch_no,
+        "batch_size":            f.batch_size,
+        "unit_qty":              f.unit_qty,
+        "mfg_date":              f.mfg_date,
+        "trial_taken_by":        f.trial_taken_by,
+        "evaluated_by":          f.evaluated_by,
+        "method_of_preparation": f.method_of_preparation,
+        "observation":           f.observation,
+        "conclusion":            f.conclusion,
+        "ingredients":           f.ingredients or [],
+        "created_by":            f.created_by,
+        "created_by_role":       f.created_by_role,
+        "created_at":            fmt_ist(f.created_at),
+        "updated_at":            fmt_ist(f.updated_at),
     }
 
 
@@ -134,17 +134,17 @@ async def create_formula(
         ppd_id=body.ppd_id,
         project_name=body.project_name or ppd.project_name,
         version="v1.0",
-        formula_type=body.formula_type or "Trial",
         status="Draft",
-        protein_source=body.protein_source,
-        sweetener=body.sweetener,
-        cocoa_pct=body.cocoa_pct,
-        protein_pct=body.protein_pct,
-        sugar_per_100g=body.sugar_per_100g,
-        cost_per_kg=body.cost_per_kg,
-        stability_40c=body.stability_40c,
-        sensory_score=body.sensory_score,
-        notes=body.notes,
+        trial_no=body.trial_no,
+        batch_no=body.batch_no,
+        batch_size=body.batch_size,
+        unit_qty=body.unit_qty,
+        mfg_date=body.mfg_date,
+        trial_taken_by=body.trial_taken_by,
+        evaluated_by=body.evaluated_by,
+        method_of_preparation=body.method_of_preparation,
+        observation=body.observation,
+        conclusion=body.conclusion,
         ingredients=body.ingredients or [],
         created_by=current_user.get("name", ""),
         created_by_role=role,
@@ -165,7 +165,7 @@ async def create_formula(
         db,
         roles=target_roles,
         title=f"New Formula: {fid}",
-        message=f"{current_user.get('name','User')} created formula {fid} ({body.formula_type or 'Trial'}) for {ppd.project_name}.",
+        message=f"{current_user.get('name','User')} created formula {fid} (Trial No: {body.trial_no or '—'}) for {ppd.project_name}.",
         action_type="info",
         entity_id=body.ppd_id,
         entity_name=ppd.project_name,
@@ -203,8 +203,9 @@ async def update_formula(
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
 
     # Bump version on content edits
-    content_fields = {"protein_source", "sweetener", "cocoa_pct", "protein_pct",
-                      "sugar_per_100g", "cost_per_kg", "stability_40c", "ingredients"}
+    content_fields = {"trial_no", "batch_no", "batch_size", "unit_qty", "mfg_date",
+                      "trial_taken_by", "evaluated_by", "method_of_preparation",
+                      "observation", "conclusion", "ingredients"}
     if any(field in updates for field in content_fields):
         try:
             major, minor = f.version.lstrip("v").split(".")
@@ -216,8 +217,8 @@ async def update_formula(
         setattr(f, field, value)
 
     change_parts = []
-    if "status" in updates:      change_parts.append(f"status → {updates['status']}")
-    if "formula_type" in updates: change_parts.append(f"type → {updates['formula_type']}")
+    if "status" in updates:   change_parts.append(f"status → {updates['status']}")
+    if "trial_no" in updates: change_parts.append(f"trial → {updates['trial_no']}")
     change_summary = ", ".join(change_parts) if change_parts else "details updated"
 
     # Get PPD teams for notifications

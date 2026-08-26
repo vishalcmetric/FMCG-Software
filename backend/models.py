@@ -124,39 +124,33 @@ class PPDReworkDoneRequest(BaseModel):
     reply_comment: str                # required — confirmation of what was done
 
 # ── Formulation ───────────────────────────────────────────────────────────────
-class IngredientItem(BaseModel):
-    name: str
-    qty: Optional[str] = None
-    unit: Optional[str] = None
-    supplier: Optional[str] = None
-
 class FormulaCreate(BaseModel):
     ppd_id: str
     project_name: Optional[str] = None
-    formula_type: Optional[str] = "Trial"
-    protein_source: Optional[str] = None
-    sweetener: Optional[str] = None
-    cocoa_pct: Optional[str] = None
-    protein_pct: Optional[str] = None
-    sugar_per_100g: Optional[str] = None
-    cost_per_kg: Optional[str] = None
-    stability_40c: Optional[str] = None
-    sensory_score: Optional[str] = None
-    notes: Optional[str] = None
+    trial_no: Optional[str] = None
+    batch_no: Optional[str] = None
+    batch_size: Optional[str] = None
+    unit_qty: Optional[str] = None
+    mfg_date: Optional[str] = None
+    trial_taken_by: Optional[str] = None
+    evaluated_by: Optional[str] = None
+    method_of_preparation: Optional[str] = None
+    observation: Optional[str] = None
+    conclusion: Optional[str] = None
     ingredients: Optional[List[dict]] = None
 
 class FormulaUpdate(BaseModel):
-    formula_type: Optional[str] = None
     status: Optional[str] = None
-    protein_source: Optional[str] = None
-    sweetener: Optional[str] = None
-    cocoa_pct: Optional[str] = None
-    protein_pct: Optional[str] = None
-    sugar_per_100g: Optional[str] = None
-    cost_per_kg: Optional[str] = None
-    stability_40c: Optional[str] = None
-    sensory_score: Optional[str] = None
-    notes: Optional[str] = None
+    trial_no: Optional[str] = None
+    batch_no: Optional[str] = None
+    batch_size: Optional[str] = None
+    unit_qty: Optional[str] = None
+    mfg_date: Optional[str] = None
+    trial_taken_by: Optional[str] = None
+    evaluated_by: Optional[str] = None
+    method_of_preparation: Optional[str] = None
+    observation: Optional[str] = None
+    conclusion: Optional[str] = None
     ingredients: Optional[List[dict]] = None
 
 class FormulaCommentCreate(BaseModel):

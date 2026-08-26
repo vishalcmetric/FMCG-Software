@@ -119,8 +119,19 @@ async def _migrate_columns() -> None:
         # Post-approval full visibility list
         ("ppd_submissions",  "full_teams_involved", "VARCHAR(500) NULL"),
         # Multi-stage approval columns
-        ("ppd_submissions",  "final_approvals",   "JSON NULL"),
-        ("ppd_submissions",  "rework_from_stage", "VARCHAR(30) NULL"),
+        ("ppd_submissions",  "final_approvals",         "JSON NULL"),
+        ("ppd_submissions",  "rework_from_stage",        "VARCHAR(30) NULL"),
+        # New formula fields
+        ("formulas",         "trial_no",                "VARCHAR(50) NULL"),
+        ("formulas",         "batch_no",                "VARCHAR(50) NULL"),
+        ("formulas",         "batch_size",              "VARCHAR(50) NULL"),
+        ("formulas",         "unit_qty",                "VARCHAR(50) NULL"),
+        ("formulas",         "mfg_date",                "VARCHAR(30) NULL"),
+        ("formulas",         "trial_taken_by",          "VARCHAR(255) NULL"),
+        ("formulas",         "evaluated_by",            "VARCHAR(255) NULL"),
+        ("formulas",         "method_of_preparation",   "TEXT NULL"),
+        ("formulas",         "observation",             "TEXT NULL"),
+        ("formulas",         "conclusion",              "TEXT NULL"),
     ]
 
     try:

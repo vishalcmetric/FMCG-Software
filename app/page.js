@@ -3710,16 +3710,17 @@ function FormulationView({ user, token, can }) {
   // ── compare helpers ──
   const compareList = formulas.filter(f => compareIds.includes(f.formula_id))
   const COMPARE_FIELDS = [
-    { key:'formula_type',   label:'Type' },
-    { key:'protein_source', label:'Protein Source' },
-    { key:'sweetener',      label:'Sweetener' },
-    { key:'protein_pct',    label:'Protein %' },
-    { key:'cocoa_pct',      label:'Cocoa %' },
-    { key:'sugar_per_100g', label:'Sugar (g/100g)' },
-    { key:'cost_per_kg',    label:'Cost/kg (₹)' },
-    { key:'stability_40c',  label:'Stability (40°C)' },
-    { key:'sensory_score',  label:'Sensory Score' },
-    { key:'status',         label:'Status' },
+    { key:'trial_no',              label:'Trial No.' },
+    { key:'batch_no',              label:'Batch No.' },
+    { key:'batch_size',            label:'Batch Size (gm)' },
+    { key:'unit_qty',              label:'Unit Qty. (gm)' },
+    { key:'mfg_date',              label:'Mfg Date' },
+    { key:'trial_taken_by',        label:'Trial Taken By' },
+    { key:'evaluated_by',          label:'Evaluated By' },
+    { key:'method_of_preparation', label:'Method of Preparation' },
+    { key:'observation',           label:'Observation' },
+    { key:'conclusion',            label:'Conclusion' },
+    { key:'status',                label:'Status' },
   ]
 
   const relTime = (iso) => {
@@ -3831,11 +3832,10 @@ function FormulationView({ user, token, can }) {
                   <TableHead className="w-36">Formula ID</TableHead>
                   <TableHead>Project</TableHead>
                   <TableHead>Version</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Protein Source</TableHead>
-                  <TableHead>Sweetener</TableHead>
+                  <TableHead>Trial No.</TableHead>
+                  <TableHead>Batch No.</TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead>Sensory</TableHead>
+                  <TableHead>Trial Taken By</TableHead>
                   <TableHead>Updated</TableHead>
                   <TableHead className="w-10"></TableHead>
                 </TableRow>
@@ -3854,13 +3854,12 @@ function FormulationView({ user, token, can }) {
                     <TableCell className="font-mono text-xs font-semibold" onClick={() => openDetail(f)}>{f.formula_id}</TableCell>
                     <TableCell className="text-sm max-w-[150px] truncate" onClick={() => openDetail(f)}>{f.project_name}</TableCell>
                     <TableCell onClick={() => openDetail(f)}><Badge variant="outline" className="font-mono text-xs">{f.version}</Badge></TableCell>
-                    <TableCell className="text-xs" onClick={() => openDetail(f)}>{f.formula_type}</TableCell>
-                    <TableCell className="text-xs text-muted-foreground max-w-[120px] truncate" onClick={() => openDetail(f)}>{f.protein_source||'—'}</TableCell>
-                    <TableCell className="text-xs text-muted-foreground max-w-[100px] truncate" onClick={() => openDetail(f)}>{f.sweetener||'—'}</TableCell>
+                    <TableCell className="text-xs" onClick={() => openDetail(f)}>{f.trial_no||'—'}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground" onClick={() => openDetail(f)}>{f.batch_no||'—'}</TableCell>
                     <TableCell onClick={() => openDetail(f)}>
                       <span className={`text-xs px-2 py-0.5 rounded-md font-medium ${FORMULA_STATUS_COLORS[f.status]||'bg-slate-100'}`}>{f.status}</span>
                     </TableCell>
-                    <TableCell className="text-xs" onClick={() => openDetail(f)}>{f.sensory_score||'—'}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground max-w-[120px] truncate" onClick={() => openDetail(f)}>{f.trial_taken_by||'—'}</TableCell>
                     <TableCell className="text-xs text-muted-foreground whitespace-nowrap" onClick={() => openDetail(f)}>{relTime(f.updated_at)}</TableCell>
                     <TableCell><ChevronRight className="h-4 w-4 text-muted-foreground"/></TableCell>
                   </TableRow>
@@ -4189,12 +4188,12 @@ function FormulationView({ user, token, can }) {
                 </div>
                 <div className="grid grid-cols-2 gap-4 pt-2">
                   {[
-                    { label:'Protein %',       value: selected.protein_pct   },
-                    { label:'Cocoa %',          value: selected.cocoa_pct     },
-                    { label:'Sugar (g/100g)',   value: selected.sugar_per_100g},
-                    { label:'Cost/kg (₹)',      value: selected.cost_per_kg   },
-                    { label:'Stability (40°C)', value: selected.stability_40c },
-                    { label:'Sensory Score',    value: selected.sensory_score },
+                    { label:'Trial No.',    value: selected.trial_no       },
+                    { label:'Batch No.',    value: selected.batch_no       },
+                    { label:'Batch Size',   value: selected.batch_size ? `${selected.batch_size} gm` : null },
+                    { label:'Unit Qty.',    value: selected.unit_qty   ? `${selected.unit_qty} gm`   : null },
+                    { label:'Mfg Date',     value: selected.mfg_date       },
+                    { label:'Evaluated By', value: selected.evaluated_by   },
                   ].map(({label,value}) => (
                     <div key={label} className="bg-slate-50 rounded-lg p-3 border">
                       <p className="text-xs text-muted-foreground">{label}</p>
