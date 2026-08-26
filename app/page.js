@@ -4360,8 +4360,8 @@ function FormulationView({ user, token, can }) {
                   {saving && <RefreshCw className="h-4 w-4 animate-spin mr-2"/>}Save Changes
                 </Button>
               )}
-              {/* Send for Approval — fd / admin only, only when not already sent/approved/rejected */}
-              {(user?.role === 'fd' || user?.role === 'admin')
+              {/* Send for Approval — fd only (rd_head reviews, not sends) */}
+              {user?.role === 'fd'
                 && !['Recommended', 'Rejected'].includes(selected?.status)
                 && selected?.approval_status !== 'pending_approval' && (
                 <Button

@@ -360,8 +360,8 @@ async def send_for_approval(
     - Notifies rd_head
     """
     role = current_user.get("role", "fd")
-    if role not in ("admin", "fd"):
-        raise HTTPException(403, "Only fd or admin can send a formula for approval")
+    if role != "fd":
+        raise HTTPException(403, "Only fd team can send a formula for approval")
 
     result = await db.execute(select(Formula).where(Formula.formula_id == formula_id))
     f = result.scalars().first()
