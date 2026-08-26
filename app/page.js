@@ -3866,16 +3866,10 @@ function FormulationView({ user, token, can }) {
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-8"></TableHead>
-                  <TableHead className="w-36">Formula ID</TableHead>
                   <TableHead className="w-32">PPD ID</TableHead>
                   <TableHead>Project</TableHead>
-                  <TableHead>Version</TableHead>
                   <TableHead>Trial No.</TableHead>
-                  <TableHead>Batch No.</TableHead>
-                  <TableHead>Status</TableHead>
                   <TableHead>Approval</TableHead>
-                  <TableHead>Trial Taken By</TableHead>
-                  <TableHead>Updated</TableHead>
                   <TableHead className="w-10"></TableHead>
                 </TableRow>
               </TableHeader>
@@ -3890,15 +3884,9 @@ function FormulationView({ user, token, can }) {
                         )}
                       />
                     </TableCell>
-                    <TableCell className="font-mono text-xs font-semibold" onClick={() => openDetail(f)}>{f.formula_id}</TableCell>
                     <TableCell className="font-mono text-xs text-muted-foreground" onClick={() => openDetail(f)}>{f.ppd_id||'—'}</TableCell>
-                    <TableCell className="text-sm max-w-[150px] truncate" onClick={() => openDetail(f)}>{f.project_name}</TableCell>
-                    <TableCell onClick={() => openDetail(f)}><Badge variant="outline" className="font-mono text-xs">{f.version}</Badge></TableCell>
+                    <TableCell className="text-sm font-medium truncate max-w-[200px]" onClick={() => openDetail(f)}>{f.project_name||'—'}</TableCell>
                     <TableCell className="text-xs font-medium" onClick={() => openDetail(f)}>{f.trial_no||'—'}</TableCell>
-                    <TableCell className="text-xs text-muted-foreground" onClick={() => openDetail(f)}>{f.batch_no||'—'}</TableCell>
-                    <TableCell onClick={() => openDetail(f)}>
-                      <span className={`text-xs px-2 py-0.5 rounded-md font-medium ${FORMULA_STATUS_COLORS[f.status]||'bg-slate-100'}`}>{f.status}</span>
-                    </TableCell>
                     <TableCell onClick={() => openDetail(f)}>
                       {f.approval_status === 'pending_approval' && (
                         <span className="text-xs px-2 py-0.5 rounded-md font-medium bg-amber-100 text-amber-700">Pending Review</span>
@@ -3911,8 +3899,6 @@ function FormulationView({ user, token, can }) {
                       )}
                       {!f.approval_status && <span className="text-xs text-muted-foreground">—</span>}
                     </TableCell>
-                    <TableCell className="text-xs text-muted-foreground max-w-[120px] truncate" onClick={() => openDetail(f)}>{f.trial_taken_by||'—'}</TableCell>
-                    <TableCell className="text-xs text-muted-foreground whitespace-nowrap" onClick={() => openDetail(f)}>{relTime(f.updated_at)}</TableCell>
                     <TableCell><ChevronRight className="h-4 w-4 text-muted-foreground"/></TableCell>
                   </TableRow>
                 ))}
