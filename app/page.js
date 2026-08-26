@@ -3555,11 +3555,11 @@ function FormulationView({ user, token, can }) {
   const [createOpen, setCreateOpen]   = useState(false)
   const [creating, setCreating]       = useState(false)
   const [createForm, setCreateForm]   = useState({
-    ppd_id:'', formula_type:'Trial', protein_source:'', sweetener:'',
-    cocoa_pct:'', protein_pct:'', sugar_per_100g:'', cost_per_kg:'',
-    stability_40c:'', sensory_score:'', notes:'',
+    ppd_id:'', trial_no:'', batch_no:'', batch_size:'', unit_qty:'',
+    mfg_date:'', trial_taken_by:'', evaluated_by:'',
+    method_of_preparation:'', observation:'', conclusion:'',
   })
-  const [ingredients, setIngredients] = useState([{ name:'', qty:'', unit:'g', supplier:'' }])
+  const [ingredients, setIngredients] = useState([{ sr_no:'1', name:'', ins_cas_inci:'', vendor:'', use_function:'', cost_per_kg:'', qty_pct:'', qty_per_unit:'', cost_per_unit:'' }])
 
   // Detail dialog
   const [selected, setSelected]       = useState(null)
@@ -3617,12 +3617,13 @@ function FormulationView({ user, token, can }) {
   const openDetail = (f) => {
     setSelected(f)
     setEditForm({
-      formula_type: f.formula_type, status: f.status,
-      protein_source: f.protein_source||'', sweetener: f.sweetener||'',
-      cocoa_pct: f.cocoa_pct||'', protein_pct: f.protein_pct||'',
-      sugar_per_100g: f.sugar_per_100g||'', cost_per_kg: f.cost_per_kg||'',
-      stability_40c: f.stability_40c||'', sensory_score: f.sensory_score||'',
-      notes: f.notes||'',
+      status: f.status,
+      trial_no: f.trial_no||'', batch_no: f.batch_no||'',
+      batch_size: f.batch_size||'', unit_qty: f.unit_qty||'',
+      mfg_date: f.mfg_date||'', trial_taken_by: f.trial_taken_by||'',
+      evaluated_by: f.evaluated_by||'',
+      method_of_preparation: f.method_of_preparation||'',
+      observation: f.observation||'', conclusion: f.conclusion||'',
       ingredients: f.ingredients||[],
     })
     setComments([])
@@ -3643,12 +3644,26 @@ function FormulationView({ user, token, can }) {
       })
       toast.success('Formula created')
       setCreateOpen(false)
-      setCreateForm({ ppd_id:'', formula_type:'Trial', protein_source:'', sweetener:'',
-        cocoa_pct:'', protein_pct:'', sugar_per_100g:'', cost_per_kg:'', stability_40c:'', sensory_score:'', notes:'' })
-      setIngredients([{ name:'', qty:'', unit:'g', supplier:'' }])
+      setCreateForm({ ppd_id:'', trial_no:'', batch_no:'', batch_size:'', unit_qty:'',
+        mfg_date:'', trial_taken_by:'', evaluated_by:'', method_of_preparation:'', observation:'', conclusion:'' })
+      setIngredients([{ sr_no:'1', name:'', ins_cas_inci:'', vendor:'', use_function:'', cost_per_kg:'', qty_pct:'', qty_per_unit:'', cost_per_unit:'' }])
       fetchFormulas()
     } catch (err) { toast.error(err.message) }
     finally { setCreating(false) }
+  }
+
+  // ── send for approval (fd → rd_head) ──
+  const [sendingApproval, setSendingApproval] = useState(false)
+  const handleSendApproval = async () => {
+    setSendingApproval(true)
+    try {
+      await apiCall(`/api/formulation/${selected.formula_id}/send-for-approval`, {
+        method: 'POST', token
+      })
+      toast.success('Sent to R&D Head for approval — they have been notified')
+      fetchFormulas()
+    } catch (err) { toast.error(err.message) }
+    finally { setSendingApproval(false) }
   }
 
   // ── save edit ──
@@ -3719,7 +3734,7 @@ function FormulationView({ user, token, can }) {
   }
 
   // ── ingredient row helpers ──
-  const addIngredient  = () => setIngredients(prev => [...prev, { name:'', qty:'', unit:'g', supplier:'' }])
+  const addIngredient  = () => setIngredients(prev => [...prev, { sr_no: String(prev.length+1), name:'', ins_cas_inci:'', vendor:'', use_function:'', cost_per_kg:'', qty_pct:'', qty_per_unit:'', cost_per_unit:'' }])
   const removeIngredient = (i) => setIngredients(prev => prev.filter((_,idx) => idx !== i))
   const updateIngredient = (i, field, val) => setIngredients(prev => prev.map((row,idx) => idx===i ? {...row,[field]:val} : row))
 
@@ -3884,83 +3899,87 @@ function FormulationView({ user, token, can }) {
                   </Select>
                 </div>
                 <div className="space-y-1.5">
-                  <Label>Formula Type</Label>
-                  <Select value={createForm.formula_type} onValueChange={v => setCreateForm(f=>({...f,formula_type:v}))}>
-                    <SelectTrigger><SelectValue/></SelectTrigger>
-                    <SelectContent>{FORMULA_TYPES.map(t=><SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
-                  </Select>
+                  <Label>Trial No.</Label>
+                  <Input value={createForm.trial_no} onChange={e=>setCreateForm(f=>({...f,trial_no:e.target.value}))} placeholder="e.g. T-001"/>
                 </div>
                 <div className="space-y-1.5">
-                  <Label>Protein Source</Label>
-                  <Input value={createForm.protein_source} onChange={e=>setCreateForm(f=>({...f,protein_source:e.target.value}))} placeholder="e.g. Whey Isolate 25%"/>
+                  <Label>Batch No.</Label>
+                  <Input value={createForm.batch_no} onChange={e=>setCreateForm(f=>({...f,batch_no:e.target.value}))} placeholder="e.g. B-2026-01"/>
                 </div>
                 <div className="space-y-1.5">
-                  <Label>Sweetener</Label>
-                  <Input value={createForm.sweetener} onChange={e=>setCreateForm(f=>({...f,sweetener:e.target.value}))} placeholder="e.g. Sucrose + Stevia"/>
+                  <Label>Batch Size (gm)</Label>
+                  <Input value={createForm.batch_size} onChange={e=>setCreateForm(f=>({...f,batch_size:e.target.value}))} placeholder="e.g. 5000"/>
                 </div>
                 <div className="space-y-1.5">
-                  <Label>Protein %</Label>
-                  <Input value={createForm.protein_pct} onChange={e=>setCreateForm(f=>({...f,protein_pct:e.target.value}))} placeholder="e.g. 26%"/>
+                  <Label>Unit Qty. (gm)</Label>
+                  <Input value={createForm.unit_qty} onChange={e=>setCreateForm(f=>({...f,unit_qty:e.target.value}))} placeholder="e.g. 500"/>
                 </div>
                 <div className="space-y-1.5">
-                  <Label>Cocoa %</Label>
-                  <Input value={createForm.cocoa_pct} onChange={e=>setCreateForm(f=>({...f,cocoa_pct:e.target.value}))} placeholder="e.g. 15%"/>
+                  <Label>Mfg Date</Label>
+                  <Input type="date" value={createForm.mfg_date} onChange={e=>setCreateForm(f=>({...f,mfg_date:e.target.value}))}/>
                 </div>
                 <div className="space-y-1.5">
-                  <Label>Sugar (g/100g)</Label>
-                  <Input value={createForm.sugar_per_100g} onChange={e=>setCreateForm(f=>({...f,sugar_per_100g:e.target.value}))} placeholder="e.g. 10"/>
+                  <Label>Trial Taken By</Label>
+                  <Input value={createForm.trial_taken_by} onChange={e=>setCreateForm(f=>({...f,trial_taken_by:e.target.value}))} placeholder="Name(s)"/>
                 </div>
                 <div className="space-y-1.5">
-                  <Label>Cost/kg (₹)</Label>
-                  <Input value={createForm.cost_per_kg} onChange={e=>setCreateForm(f=>({...f,cost_per_kg:e.target.value}))} placeholder="e.g. 425"/>
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Stability at 40°C</Label>
-                  <Input value={createForm.stability_40c} onChange={e=>setCreateForm(f=>({...f,stability_40c:e.target.value}))} placeholder="e.g. 92 days"/>
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Sensory Score</Label>
-                  <Input value={createForm.sensory_score} onChange={e=>setCreateForm(f=>({...f,sensory_score:e.target.value}))} placeholder="e.g. 8.6/10"/>
+                  <Label>Evaluated By</Label>
+                  <Input value={createForm.evaluated_by} onChange={e=>setCreateForm(f=>({...f,evaluated_by:e.target.value}))} placeholder="Name(s)"/>
                 </div>
                 <div className="col-span-2 space-y-1.5">
-                  <Label>Notes</Label>
-                  <Textarea rows={3} value={createForm.notes} onChange={e=>setCreateForm(f=>({...f,notes:e.target.value}))} placeholder="Observations, rationale, special instructions..."/>
+                  <Label>Method of Preparation</Label>
+                  <Textarea rows={2} value={createForm.method_of_preparation} onChange={e=>setCreateForm(f=>({...f,method_of_preparation:e.target.value}))} placeholder="Describe preparation method..."/>
+                </div>
+                <div className="col-span-2 space-y-1.5">
+                  <Label>Observation / Reason of Modification</Label>
+                  <Textarea rows={2} value={createForm.observation} onChange={e=>setCreateForm(f=>({...f,observation:e.target.value}))} placeholder="Observations, reasons for modification..."/>
+                </div>
+                <div className="col-span-2 space-y-1.5">
+                  <Label>Conclusion</Label>
+                  <Textarea rows={2} value={createForm.conclusion} onChange={e=>setCreateForm(f=>({...f,conclusion:e.target.value}))} placeholder="Trial conclusion..."/>
                 </div>
               </div>
             </TabsContent>
             <TabsContent value="ingredients" className="pt-2">
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <Label>Ingredient List</Label>
+                  <Label>Product Parameters (Ingredients)</Label>
                   <Button size="sm" variant="outline" onClick={addIngredient}><Plus className="h-3 w-3 mr-1"/>Add Row</Button>
                 </div>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Ingredient Name</TableHead>
-                      <TableHead>Qty</TableHead>
-                      <TableHead>Unit</TableHead>
-                      <TableHead>Supplier</TableHead>
-                      <TableHead className="w-10"></TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {ingredients.map((ing, i) => (
-                      <TableRow key={i}>
-                        <TableCell><Input value={ing.name} onChange={e=>updateIngredient(i,'name',e.target.value)} placeholder="e.g. Whey Protein Isolate"/></TableCell>
-                        <TableCell><Input value={ing.qty} onChange={e=>updateIngredient(i,'qty',e.target.value)} placeholder="25" className="w-20"/></TableCell>
-                        <TableCell>
-                          <Select value={ing.unit} onValueChange={v=>updateIngredient(i,'unit',v)}>
-                            <SelectTrigger className="w-20"><SelectValue/></SelectTrigger>
-                            <SelectContent>{['g','kg','ml','L','%','ppm'].map(u=><SelectItem key={u} value={u}>{u}</SelectItem>)}</SelectContent>
-                          </Select>
-                        </TableCell>
-                        <TableCell><Input value={ing.supplier} onChange={e=>updateIngredient(i,'supplier',e.target.value)} placeholder="Supplier name"/></TableCell>
-                        <TableCell><Button size="sm" variant="ghost" onClick={()=>removeIngredient(i)}><Trash2 className="h-3 w-3 text-red-500"/></Button></TableCell>
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-10">Sr. No.</TableHead>
+                        <TableHead>Name of Ingredients</TableHead>
+                        <TableHead>INS / CAS / INCI No.</TableHead>
+                        <TableHead>Vendor / Supplier Name</TableHead>
+                        <TableHead>Use / Function</TableHead>
+                        <TableHead>Cost Per Kg</TableHead>
+                        <TableHead>Qty (%)</TableHead>
+                        <TableHead>Qty per Unit / BOM</TableHead>
+                        <TableHead>Cost per Unit (₹)</TableHead>
+                        <TableHead className="w-10"></TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                    </TableHeader>
+                    <TableBody>
+                      {ingredients.map((ing, i) => (
+                        <TableRow key={i}>
+                          <TableCell className="text-center text-sm font-medium text-muted-foreground">{i+1}</TableCell>
+                          <TableCell><Input value={ing.name} onChange={e=>updateIngredient(i,'name',e.target.value)} placeholder="Ingredient name" className="min-w-[130px]"/></TableCell>
+                          <TableCell><Input value={ing.ins_cas_inci} onChange={e=>updateIngredient(i,'ins_cas_inci',e.target.value)} placeholder="e.g. INS 471" className="min-w-[110px]"/></TableCell>
+                          <TableCell><Input value={ing.vendor} onChange={e=>updateIngredient(i,'vendor',e.target.value)} placeholder="Vendor name" className="min-w-[120px]"/></TableCell>
+                          <TableCell><Input value={ing.use_function} onChange={e=>updateIngredient(i,'use_function',e.target.value)} placeholder="e.g. Emulsifier" className="min-w-[110px]"/></TableCell>
+                          <TableCell><Input value={ing.cost_per_kg} onChange={e=>updateIngredient(i,'cost_per_kg',e.target.value)} placeholder="₹" className="w-20"/></TableCell>
+                          <TableCell><Input value={ing.qty_pct} onChange={e=>updateIngredient(i,'qty_pct',e.target.value)} placeholder="%" className="w-16"/></TableCell>
+                          <TableCell><Input value={ing.qty_per_unit} onChange={e=>updateIngredient(i,'qty_per_unit',e.target.value)} placeholder="gm" className="w-20"/></TableCell>
+                          <TableCell><Input value={ing.cost_per_unit} onChange={e=>updateIngredient(i,'cost_per_unit',e.target.value)} placeholder="₹" className="w-20"/></TableCell>
+                          <TableCell><Button size="sm" variant="ghost" onClick={()=>removeIngredient(i)}><Trash2 className="h-3 w-3 text-red-500"/></Button></TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
               </div>
             </TabsContent>
           </Tabs>
@@ -4005,67 +4024,54 @@ function FormulationView({ user, token, can }) {
               <TabsContent value="details" className="space-y-4 pt-2">
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1.5">
-                    <Label>Formula Type</Label>
-                    {canEdit
-                      ? <Select value={editForm.formula_type||''} onValueChange={v=>setEditForm(f=>({...f,formula_type:v}))}>
-                          <SelectTrigger><SelectValue/></SelectTrigger>
-                          <SelectContent>{FORMULA_TYPES.map(t=><SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
-                        </Select>
-                      : <p className="text-sm py-2">{editForm.formula_type}</p>}
+                    <Label>Trial No.</Label>
+                    {canEdit ? <Input value={editForm.trial_no||''} onChange={e=>setEditForm(f=>({...f,trial_no:e.target.value}))} placeholder="e.g. T-001"/>
+                      : <p className="text-sm py-2">{editForm.trial_no||'—'}</p>}
                   </div>
                   <div className="space-y-1.5">
-                    <Label>Protein Source</Label>
-                    {canEdit
-                      ? <Input value={editForm.protein_source||''} onChange={e=>setEditForm(f=>({...f,protein_source:e.target.value}))} placeholder="e.g. Whey Isolate 25%"/>
-                      : <p className="text-sm py-2">{editForm.protein_source||'—'}</p>}
+                    <Label>Batch No.</Label>
+                    {canEdit ? <Input value={editForm.batch_no||''} onChange={e=>setEditForm(f=>({...f,batch_no:e.target.value}))} placeholder="e.g. B-2026-01"/>
+                      : <p className="text-sm py-2">{editForm.batch_no||'—'}</p>}
                   </div>
                   <div className="space-y-1.5">
-                    <Label>Sweetener</Label>
-                    {canEdit
-                      ? <Input value={editForm.sweetener||''} onChange={e=>setEditForm(f=>({...f,sweetener:e.target.value}))}/>
-                      : <p className="text-sm py-2">{editForm.sweetener||'—'}</p>}
+                    <Label>Batch Size (gm)</Label>
+                    {canEdit ? <Input value={editForm.batch_size||''} onChange={e=>setEditForm(f=>({...f,batch_size:e.target.value}))} placeholder="e.g. 5000"/>
+                      : <p className="text-sm py-2">{editForm.batch_size||'—'}</p>}
                   </div>
                   <div className="space-y-1.5">
-                    <Label>Protein %</Label>
-                    {canEdit
-                      ? <Input value={editForm.protein_pct||''} onChange={e=>setEditForm(f=>({...f,protein_pct:e.target.value}))}/>
-                      : <p className="text-sm py-2">{editForm.protein_pct||'—'}</p>}
+                    <Label>Unit Qty. (gm)</Label>
+                    {canEdit ? <Input value={editForm.unit_qty||''} onChange={e=>setEditForm(f=>({...f,unit_qty:e.target.value}))} placeholder="e.g. 500"/>
+                      : <p className="text-sm py-2">{editForm.unit_qty||'—'}</p>}
                   </div>
                   <div className="space-y-1.5">
-                    <Label>Cocoa %</Label>
-                    {canEdit
-                      ? <Input value={editForm.cocoa_pct||''} onChange={e=>setEditForm(f=>({...f,cocoa_pct:e.target.value}))}/>
-                      : <p className="text-sm py-2">{editForm.cocoa_pct||'—'}</p>}
+                    <Label>Mfg Date</Label>
+                    {canEdit ? <Input type="date" value={editForm.mfg_date||''} onChange={e=>setEditForm(f=>({...f,mfg_date:e.target.value}))}/>
+                      : <p className="text-sm py-2">{editForm.mfg_date||'—'}</p>}
                   </div>
                   <div className="space-y-1.5">
-                    <Label>Sugar (g/100g)</Label>
-                    {canEdit
-                      ? <Input value={editForm.sugar_per_100g||''} onChange={e=>setEditForm(f=>({...f,sugar_per_100g:e.target.value}))}/>
-                      : <p className="text-sm py-2">{editForm.sugar_per_100g||'—'}</p>}
+                    <Label>Trial Taken By</Label>
+                    {canEdit ? <Input value={editForm.trial_taken_by||''} onChange={e=>setEditForm(f=>({...f,trial_taken_by:e.target.value}))} placeholder="Name(s)"/>
+                      : <p className="text-sm py-2">{editForm.trial_taken_by||'—'}</p>}
                   </div>
                   <div className="space-y-1.5">
-                    <Label>Cost/kg (₹)</Label>
-                    {canEdit
-                      ? <Input value={editForm.cost_per_kg||''} onChange={e=>setEditForm(f=>({...f,cost_per_kg:e.target.value}))}/>
-                      : <p className="text-sm py-2">{editForm.cost_per_kg||'—'}</p>}
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label>Stability at 40°C</Label>
-                    {canEdit
-                      ? <Input value={editForm.stability_40c||''} onChange={e=>setEditForm(f=>({...f,stability_40c:e.target.value}))}/>
-                      : <p className="text-sm py-2">{editForm.stability_40c||'—'}</p>}
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label>Sensory Score</Label>
-                    {canEdit
-                      ? <Input value={editForm.sensory_score||''} onChange={e=>setEditForm(f=>({...f,sensory_score:e.target.value}))} placeholder="e.g. 8.6/10"/>
-                      : <p className="text-sm py-2">{editForm.sensory_score||'—'}</p>}
+                    <Label>Evaluated By</Label>
+                    {canEdit ? <Input value={editForm.evaluated_by||''} onChange={e=>setEditForm(f=>({...f,evaluated_by:e.target.value}))} placeholder="Name(s)"/>
+                      : <p className="text-sm py-2">{editForm.evaluated_by||'—'}</p>}
                   </div>
                   <div className="col-span-2 space-y-1.5">
-                    <Label>Notes</Label>
-                    {canEdit
-                      ? <Textarea rows={3} value={editForm.notes||''} onChange={e=>setEditForm(f=>({...f,notes:e.target.value}))}/>
-                      : <p className="text-sm py-2 whitespace-pre-line">{editForm.notes||'—'}</p>}
+                    <Label>Method of Preparation</Label>
+                    {canEdit ? <Textarea rows={2} value={editForm.method_of_preparation||''} onChange={e=>setEditForm(f=>({...f,method_of_preparation:e.target.value}))} placeholder="Describe preparation method..."/>
+                      : <p className="text-sm py-2 whitespace-pre-line">{editForm.method_of_preparation||'—'}</p>}
+                  </div>
+                  <div className="col-span-2 space-y-1.5">
+                    <Label>Observation / Reason of Modification</Label>
+                    {canEdit ? <Textarea rows={2} value={editForm.observation||''} onChange={e=>setEditForm(f=>({...f,observation:e.target.value}))} placeholder="Observations, reasons for modification..."/>
+                      : <p className="text-sm py-2 whitespace-pre-line">{editForm.observation||'—'}</p>}
+                  </div>
+                  <div className="col-span-2 space-y-1.5">
+                    <Label>Conclusion</Label>
+                    {canEdit ? <Textarea rows={2} value={editForm.conclusion||''} onChange={e=>setEditForm(f=>({...f,conclusion:e.target.value}))} placeholder="Trial conclusion..."/>
+                      : <p className="text-sm py-2 whitespace-pre-line">{editForm.conclusion||'—'}</p>}
                   </div>
                 </div>
                 <div className="grid grid-cols-3 gap-3 pt-1">
@@ -4087,52 +4093,80 @@ function FormulationView({ user, token, can }) {
                 {canEdit ? (
                   <div className="space-y-3">
                     <div className="flex justify-end">
-                      <Button size="sm" variant="outline" onClick={() => setEditForm(f=>({...f,ingredients:[...(f.ingredients||[]),{name:'',qty:'',unit:'g',supplier:''}]}))}>
-                        <Plus className="h-3 w-3 mr-1"/>Add Ingredient
+                      <Button size="sm" variant="outline" onClick={() => setEditForm(f=>({...f,ingredients:[...(f.ingredients||[]),{sr_no:String((f.ingredients||[]).length+1),name:'',ins_cas_inci:'',vendor:'',use_function:'',cost_per_kg:'',qty_pct:'',qty_per_unit:'',cost_per_unit:''}]}))}>
+                        <Plus className="h-3 w-3 mr-1"/>Add Row
                       </Button>
                     </div>
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="w-10">Sr.</TableHead>
+                            <TableHead>Name of Ingredients</TableHead>
+                            <TableHead>INS / CAS / INCI No.</TableHead>
+                            <TableHead>Vendor / Supplier</TableHead>
+                            <TableHead>Use / Function</TableHead>
+                            <TableHead>Cost Per Kg</TableHead>
+                            <TableHead>Qty (%)</TableHead>
+                            <TableHead>Qty per Unit / BOM</TableHead>
+                            <TableHead>Cost per Unit (₹)</TableHead>
+                            <TableHead className="w-10"></TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {(editForm.ingredients||[]).length === 0
+                            ? <TableRow><TableCell colSpan={10} className="text-center text-muted-foreground py-8">No ingredients added</TableCell></TableRow>
+                            : (editForm.ingredients||[]).map((ing,i) => (
+                              <TableRow key={i}>
+                                <TableCell className="text-center text-sm text-muted-foreground">{i+1}</TableCell>
+                                <TableCell><Input value={ing.name||''} onChange={e=>setEditForm(f=>({...f,ingredients:f.ingredients.map((r,idx)=>idx===i?{...r,name:e.target.value}:r)}))} placeholder="Ingredient name" className="min-w-[130px]"/></TableCell>
+                                <TableCell><Input value={ing.ins_cas_inci||''} onChange={e=>setEditForm(f=>({...f,ingredients:f.ingredients.map((r,idx)=>idx===i?{...r,ins_cas_inci:e.target.value}:r)}))} placeholder="e.g. INS 471" className="min-w-[100px]"/></TableCell>
+                                <TableCell><Input value={ing.vendor||''} onChange={e=>setEditForm(f=>({...f,ingredients:f.ingredients.map((r,idx)=>idx===i?{...r,vendor:e.target.value}:r)}))} placeholder="Vendor" className="min-w-[110px]"/></TableCell>
+                                <TableCell><Input value={ing.use_function||''} onChange={e=>setEditForm(f=>({...f,ingredients:f.ingredients.map((r,idx)=>idx===i?{...r,use_function:e.target.value}:r)}))} placeholder="Function" className="min-w-[100px]"/></TableCell>
+                                <TableCell><Input value={ing.cost_per_kg||''} onChange={e=>setEditForm(f=>({...f,ingredients:f.ingredients.map((r,idx)=>idx===i?{...r,cost_per_kg:e.target.value}:r)}))} className="w-20" placeholder="₹"/></TableCell>
+                                <TableCell><Input value={ing.qty_pct||''} onChange={e=>setEditForm(f=>({...f,ingredients:f.ingredients.map((r,idx)=>idx===i?{...r,qty_pct:e.target.value}:r)}))} className="w-16" placeholder="%"/></TableCell>
+                                <TableCell><Input value={ing.qty_per_unit||''} onChange={e=>setEditForm(f=>({...f,ingredients:f.ingredients.map((r,idx)=>idx===i?{...r,qty_per_unit:e.target.value}:r)}))} className="w-20" placeholder="gm"/></TableCell>
+                                <TableCell><Input value={ing.cost_per_unit||''} onChange={e=>setEditForm(f=>({...f,ingredients:f.ingredients.map((r,idx)=>idx===i?{...r,cost_per_unit:e.target.value}:r)}))} className="w-20" placeholder="₹"/></TableCell>
+                                <TableCell><Button size="sm" variant="ghost" onClick={()=>setEditForm(f=>({...f,ingredients:f.ingredients.filter((_,idx)=>idx!==i)}))}><Trash2 className="h-3 w-3 text-red-500"/></Button></TableCell>
+                              </TableRow>
+                            ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
                     <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Name</TableHead><TableHead>Qty</TableHead><TableHead>Unit</TableHead><TableHead>Supplier</TableHead><TableHead className="w-10"></TableHead>
-                        </TableRow>
-                      </TableHeader>
+                      <TableHeader><TableRow>
+                        <TableHead className="w-10">Sr.</TableHead>
+                        <TableHead>Name of Ingredients</TableHead>
+                        <TableHead>INS / CAS / INCI No.</TableHead>
+                        <TableHead>Vendor / Supplier</TableHead>
+                        <TableHead>Use / Function</TableHead>
+                        <TableHead>Cost Per Kg</TableHead>
+                        <TableHead>Qty (%)</TableHead>
+                        <TableHead>Qty per Unit / BOM</TableHead>
+                        <TableHead>Cost per Unit (₹)</TableHead>
+                      </TableRow></TableHeader>
                       <TableBody>
-                        {(editForm.ingredients||[]).length === 0
-                          ? <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground py-8">No ingredients added</TableCell></TableRow>
-                          : (editForm.ingredients||[]).map((ing,i) => (
+                        {(selected.ingredients||[]).length === 0
+                          ? <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground py-8">No ingredients listed</TableCell></TableRow>
+                          : (selected.ingredients||[]).map((ing,i)=>(
                             <TableRow key={i}>
-                              <TableCell><Input value={ing.name||''} onChange={e=>setEditForm(f=>({...f,ingredients:f.ingredients.map((r,idx)=>idx===i?{...r,name:e.target.value}:r)}))} placeholder="Ingredient name"/></TableCell>
-                              <TableCell><Input value={ing.qty||''} onChange={e=>setEditForm(f=>({...f,ingredients:f.ingredients.map((r,idx)=>idx===i?{...r,qty:e.target.value}:r)}))} className="w-20" placeholder="Qty"/></TableCell>
-                              <TableCell>
-                                <Select value={ing.unit||'g'} onValueChange={v=>setEditForm(f=>({...f,ingredients:f.ingredients.map((r,idx)=>idx===i?{...r,unit:v}:r)}))}>
-                                  <SelectTrigger className="w-20"><SelectValue/></SelectTrigger>
-                                  <SelectContent>{['g','kg','ml','L','%','ppm'].map(u=><SelectItem key={u} value={u}>{u}</SelectItem>)}</SelectContent>
-                                </Select>
-                              </TableCell>
-                              <TableCell><Input value={ing.supplier||''} onChange={e=>setEditForm(f=>({...f,ingredients:f.ingredients.map((r,idx)=>idx===i?{...r,supplier:e.target.value}:r)}))} placeholder="Supplier"/></TableCell>
-                              <TableCell><Button size="sm" variant="ghost" onClick={()=>setEditForm(f=>({...f,ingredients:f.ingredients.filter((_,idx)=>idx!==i)}))}><Trash2 className="h-3 w-3 text-red-500"/></Button></TableCell>
+                              <TableCell className="text-center text-sm text-muted-foreground">{i+1}</TableCell>
+                              <TableCell className="font-medium">{ing.name||'—'}</TableCell>
+                              <TableCell>{ing.ins_cas_inci||'—'}</TableCell>
+                              <TableCell>{ing.vendor||'—'}</TableCell>
+                              <TableCell>{ing.use_function||'—'}</TableCell>
+                              <TableCell>{ing.cost_per_kg||'—'}</TableCell>
+                              <TableCell>{ing.qty_pct||'—'}</TableCell>
+                              <TableCell>{ing.qty_per_unit||'—'}</TableCell>
+                              <TableCell>{ing.cost_per_unit||'—'}</TableCell>
                             </TableRow>
                           ))}
                       </TableBody>
                     </Table>
                   </div>
-                ) : (
-                  <Table>
-                    <TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Qty</TableHead><TableHead>Unit</TableHead><TableHead>Supplier</TableHead></TableRow></TableHeader>
-                    <TableBody>
-                      {(selected.ingredients||[]).length === 0
-                        ? <TableRow><TableCell colSpan={4} className="text-center text-muted-foreground py-8">No ingredients listed</TableCell></TableRow>
-                        : (selected.ingredients||[]).map((ing,i)=>(
-                          <TableRow key={i}>
-                            <TableCell className="font-medium">{ing.name}</TableCell>
-                            <TableCell>{ing.qty||'—'}</TableCell>
-                            <TableCell>{ing.unit||'—'}</TableCell>
-                            <TableCell>{ing.supplier||'—'}</TableCell>
-                          </TableRow>
-                        ))}
-                    </TableBody>
-                  </Table>
                 )}
               </TabsContent>
 
@@ -4210,6 +4244,17 @@ function FormulationView({ user, token, can }) {
               {canEdit && (
                 <Button onClick={handleSave} disabled={saving}>
                   {saving && <RefreshCw className="h-4 w-4 animate-spin mr-2"/>}Save Changes
+                </Button>
+              )}
+              {/* Send for Approval — fd / admin only */}
+              {(user?.role === 'fd' || user?.role === 'admin') && selected?.status !== 'Recommended' && (
+                <Button
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5"
+                  onClick={handleSendApproval}
+                  disabled={sendingApproval}
+                >
+                  {sendingApproval ? <RefreshCw className="h-4 w-4 animate-spin"/> : <Send className="h-4 w-4"/>}
+                  Send for Approval
                 </Button>
               )}
             </DialogFooter>

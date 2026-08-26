@@ -338,3 +338,58 @@ async def add_comment(
     await db.commit()
     await db.refresh(comment)
     return _comment_out(comment)
+
+
+# ── Send for Approval ─────────────────────────────────────────────────────────
+
+@router.post("/{formula_id}/send-for-approval", status_code=200)
+async def send_for_approval(
+    formula_id: str,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    fd / admin marks a formula ready for R&D Head review.
+    - Updates status to 'In Testing' (if still Draft)
+    - Notifies rd_head
+    """
+    role = current_user.get("role", "fd")
+    if role not in ("admin", "fd"):
+        raise HTTPException(403, "Only fd or admin can send a formula for approval")
+
+    result = await db.execute(select(Formula).where(Formula.formula_id == formula_id))
+    f = result.scalars().first()
+    if not f:
+        raise HTTPException(404, "Formula not found")
+
+    # Advance status from Draft → In Testing so rd_head knows it's ready
+    if f.status == "Draft":
+        f.status = "In Testing"
+
+    from orm_models import AuditLog
+    db.add(AuditLog(
+        user_name=current_user.get("name", ""),
+        user_email=current_user.get("sub", ""),
+        action="SUBMIT",
+        action_label=f"sent formula {formula_id} for R&D Head approval",
+        entity=formula_id,
+        involved_roles="rd_head",
+        time_ago="just now",
+    ))
+
+    await notify_roles(
+        db,
+        roles=["rd_head"],
+        title=f"Formula Requires Your Approval: {formula_id}",
+        message=(
+            f"{current_user.get('name','User')} (F&D) has submitted formula {formula_id} "
+            f"({f.project_name}) for your approval. Please review and approve."
+        ),
+        action_type="formula_approval",
+        entity_id=f.ppd_id or formula_id,
+        entity_name=f.project_name or formula_id,
+        created_by=current_user.get("name", ""),
+    )
+
+    await db.commit()
+    return {"ok": True, "formula_id": formula_id, "status": f.status, "notified": ["rd_head"]}
