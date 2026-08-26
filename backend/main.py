@@ -30,18 +30,9 @@ settings = get_settings()
 async def lifespan(app: FastAPI):
     try:
         await create_tables()   # CREATE TABLE IF NOT EXISTS on startup
-        from database import AsyncSessionLocal
-        from orm_models import PPDSubmission
-        from sqlalchemy import select, func
-        async with AsyncSessionLocal() as session:
-            res = await session.execute(select(func.count(PPDSubmission.id)))
-            count = res.scalar() or 0
-            if count == 0:
-                print("Database is empty. Auto-seeding demo data...")
-                import seed as _seed_mod
-                await _seed_mod.seed()
+        print("Database tables ready.")
     except Exception as e:
-        print(f"Startup table creation/seed warning: {e}")
+        print(f"Startup table creation warning: {e}")
     yield
 
 app = FastAPI(
@@ -95,9 +86,7 @@ async def health():
 
 @app.post("/api/seed")
 async def run_seed():
-    """
-    Populate the database with demo data.
-    """
+    """Populate the database with demo data."""
     try:
         import seed as _seed_mod
         await _seed_mod.seed()
@@ -105,3 +94,28 @@ async def run_seed():
     except Exception as e:
         import traceback
         return {"ok": False, "error": str(e), "traceback": traceback.format_exc()}
+
+
+@app.post("/api/clear-data")
+async def clear_all_data():
+    """
+    Delete ALL application data (seed + test data).
+    Keeps table structure intact. Admin use only.
+    """
+    from database import AsyncSessionLocal
+    from sqlalchemy import text
+    tables = [
+        "audit_logs", "notifications", "tasks", "ppd_comments",
+        "ppd_submissions", "formula_comments", "formulas",
+        "lab_experiments", "plant_trials", "regulatory_checks",
+        "sensory_evaluations", "costing_records", "claim_records",
+        "artwork_briefs", "master_config", "users",
+    ]
+    async with AsyncSessionLocal() as db:
+        for tbl in tables:
+            try:
+                await db.execute(text(f"DELETE FROM `{tbl}`"))
+            except Exception:
+                pass
+        await db.commit()
+    return {"ok": True, "message": "All data cleared. Tables are empty."}

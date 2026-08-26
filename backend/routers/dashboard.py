@@ -9,7 +9,8 @@ from database import get_db
 from auth import get_current_user
 from models import DashboardResponse, StatCard, PendingTask, ActivityItem, PipelineStage
 from orm_models import PPDSubmission, Task, AuditLog
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
+from database import IST
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
@@ -31,7 +32,7 @@ async def _build_stats(db: AsyncSession, role: str, user_email: str) -> list[Sta
 
     active_ppds = (await db.execute(
         _role_ppd(select(func.count()).select_from(PPDSubmission))
-        .where(PPDSubmission.status.not_in(["CEO Approved", "Archived"]))
+        .where(PPDSubmission.status.in_(["Pending", "Rework"]))
     )).scalar() or 0
 
     pending_approvals = (await db.execute(
@@ -41,12 +42,12 @@ async def _build_stats(db: AsyncSession, role: str, user_email: str) -> list[Sta
 
     under_review = (await db.execute(
         _role_ppd(select(func.count()).select_from(PPDSubmission))
-        .where(PPDSubmission.status.in_(["Under Review", "Submitted"]))
+        .where(PPDSubmission.status == "Pending")
     )).scalar() or 0
 
     approved = (await db.execute(
         _role_ppd(select(func.count()).select_from(PPDSubmission))
-        .where(PPDSubmission.status.in_(["Approved", "CEO Approved"]))
+        .where(PPDSubmission.status == "Approved")
     )).scalar() or 0
 
     return [
@@ -58,7 +59,7 @@ async def _build_stats(db: AsyncSession, role: str, user_email: str) -> list[Sta
 
 
 async def _build_tasks(db: AsyncSession, role: str, user_email: str) -> list[PendingTask]:
-    stmt = select(Task).where(Task.status.not_in(["completed", "cancelled"]))
+    stmt = select(Task).where(Task.status.not_in(["approved"]))
     if role not in _FULL_ROLES:
         stmt = stmt.where(Task.assigned_role == role)
     stmt = stmt.order_by(Task.due_date).limit(20)

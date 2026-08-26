@@ -66,8 +66,9 @@ async def get_reports_summary(
     sensory_by_status = {r.status: r.cnt for r in sensory_rows}
 
     # Recent activity count (last 30 days)
-    from datetime import datetime, timedelta, timezone
-    since = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=30)
+    from datetime import datetime, timedelta
+    from database import IST
+    since = datetime.now(IST).replace(tzinfo=None) - timedelta(days=30)
     recent_activity = (await db.execute(
         select(func.count()).select_from(AuditLog).where(AuditLog.timestamp >= since)
     )).scalar() or 0
@@ -76,9 +77,9 @@ async def get_reports_summary(
     total_ppds = (await db.execute(select(func.count()).select_from(PPDSubmission))).scalar() or 0
     active_ppds = (await db.execute(
         select(func.count()).select_from(PPDSubmission)
-        .where(PPDSubmission.status.not_in(["CEO Approved", "Archived"]))
+        .where(PPDSubmission.status.in_(["Pending", "Rework"]))
     )).scalar() or 0
-    approved_ppds = by_status.get("CEO Approved", 0) + by_status.get("Approved", 0)
+    approved_ppds = by_status.get("Approved", 0)
 
     return {
         "total_ppds": total_ppds,

@@ -1063,31 +1063,31 @@ const ICON_MAP = {
 /* -------------------- ROLE-AWARE TASK STATUS OPTIONS -------------------- */
 // Each role is only shown status options relevant to their responsibilities.
 // admin/mgmt/ceo see full list; other roles see a subset on THEIR OWN tasks.
+// Simplified: only Pending, Rework, Approved — all roles have same options
+const _REVIEWER_OPT = [{ v:'approved', l:'Approve', cls:'text-emerald-700 border-emerald-300 hover:bg-emerald-50' }, { v:'rework', l:'Request Rework', cls:'text-amber-700 border-amber-300 hover:bg-amber-50' }]
+const _TASK_OWNER_OPT = [{ v:'pending', l:'Mark Pending', cls:'text-slate-700 border-slate-300 hover:bg-slate-50' }, { v:'approved', l:'Mark Done', cls:'text-emerald-700 border-emerald-300 hover:bg-emerald-50' }]
+
 const ROLE_TASK_STATUSES = {
-  source:     [{ v:'in_progress', l:'Mark In Progress', cls:'text-blue-700 border-blue-300 hover:bg-blue-50' }, { v:'approved', l:'Approve', cls:'text-emerald-700 border-emerald-300 hover:bg-emerald-50' }, { v:'rejected', l:'Reject', cls:'text-red-700 border-red-300 hover:bg-red-50' }, { v:'rework', l:'Request Rework', cls:'text-amber-700 border-amber-300 hover:bg-amber-50' }, { v:'completed', l:'Mark Complete', cls:'text-slate-700 border-slate-300 hover:bg-slate-50' }],
-  pm:         [{ v:'in_progress', l:'Mark In Progress', cls:'text-blue-700 border-blue-300 hover:bg-blue-50' }, { v:'completed', l:'Mark Complete', cls:'text-emerald-700 border-emerald-300 hover:bg-emerald-50' }],
-  fd:         [{ v:'in_progress', l:'Mark In Progress', cls:'text-blue-700 border-blue-300 hover:bg-blue-50' }, { v:'completed', l:'Mark Complete', cls:'text-emerald-700 border-emerald-300 hover:bg-emerald-50' }],
-  rd_head:    [{ v:'in_progress', l:'Mark In Progress', cls:'text-blue-700 border-blue-300 hover:bg-blue-50' }, { v:'approved', l:'Approve', cls:'text-emerald-700 border-emerald-300 hover:bg-emerald-50' }, { v:'rejected', l:'Reject', cls:'text-red-700 border-red-300 hover:bg-red-50' }, { v:'rework', l:'Request Rework', cls:'text-amber-700 border-amber-300 hover:bg-amber-50' }, { v:'completed', l:'Mark Complete', cls:'text-slate-700 border-slate-300 hover:bg-slate-50' }],
-  marketing:  [{ v:'in_progress', l:'Mark In Progress', cls:'text-blue-700 border-blue-300 hover:bg-blue-50' }, { v:'approved', l:'Approve', cls:'text-emerald-700 border-emerald-300 hover:bg-emerald-50' }, { v:'rework', l:'Request Rework', cls:'text-amber-700 border-amber-300 hover:bg-amber-50' }, { v:'completed', l:'Mark Complete', cls:'text-slate-700 border-slate-300 hover:bg-slate-50' }],
-  regulatory: [{ v:'in_progress', l:'Mark In Progress', cls:'text-blue-700 border-blue-300 hover:bg-blue-50' }, { v:'approved', l:'Approve', cls:'text-emerald-700 border-emerald-300 hover:bg-emerald-50' }, { v:'rework', l:'Request Rework', cls:'text-amber-700 border-amber-300 hover:bg-amber-50' }, { v:'completed', l:'Mark Complete', cls:'text-slate-700 border-slate-300 hover:bg-slate-50' }],
-  packaging:  [{ v:'in_progress', l:'Mark In Progress', cls:'text-blue-700 border-blue-300 hover:bg-blue-50' }, { v:'completed', l:'Mark Complete', cls:'text-emerald-700 border-emerald-300 hover:bg-emerald-50' }],
-  adl:        [{ v:'in_progress', l:'Mark In Progress', cls:'text-blue-700 border-blue-300 hover:bg-blue-50' }, { v:'completed', l:'Mark Complete', cls:'text-emerald-700 border-emerald-300 hover:bg-emerald-50' }],
-  pmsa:       [{ v:'in_progress', l:'Mark In Progress', cls:'text-blue-700 border-blue-300 hover:bg-blue-50' }, { v:'completed', l:'Mark Complete', cls:'text-emerald-700 border-emerald-300 hover:bg-emerald-50' }],
-  sa:         [{ v:'in_progress', l:'Mark In Progress', cls:'text-blue-700 border-blue-300 hover:bg-blue-50' }, { v:'approved', l:'Approve / Verify', cls:'text-emerald-700 border-emerald-300 hover:bg-emerald-50' }, { v:'rejected', l:'Reject', cls:'text-red-700 border-red-300 hover:bg-red-50' }, { v:'completed', l:'Mark Complete', cls:'text-slate-700 border-slate-300 hover:bg-slate-50' }],
-  mgmt:       [{ v:'in_progress', l:'Mark In Progress', cls:'text-blue-700 border-blue-300 hover:bg-blue-50' }, { v:'approved', l:'Approve', cls:'text-emerald-700 border-emerald-300 hover:bg-emerald-50' }, { v:'rejected', l:'Reject', cls:'text-red-700 border-red-300 hover:bg-red-50' }, { v:'rework', l:'Request Rework', cls:'text-amber-700 border-amber-300 hover:bg-amber-50' }, { v:'completed', l:'Mark Complete', cls:'text-slate-700 border-slate-300 hover:bg-slate-50' }],
-  ceo:        [{ v:'in_progress', l:'Mark In Progress', cls:'text-blue-700 border-blue-300 hover:bg-blue-50' }, { v:'approved', l:'Approve', cls:'text-emerald-700 border-emerald-300 hover:bg-emerald-50' }, { v:'rejected', l:'Reject', cls:'text-red-700 border-red-300 hover:bg-red-50' }, { v:'completed', l:'Mark Complete', cls:'text-slate-700 border-slate-300 hover:bg-slate-50' }],
-  production: [{ v:'in_progress', l:'Mark In Progress', cls:'text-blue-700 border-blue-300 hover:bg-blue-50' }, { v:'completed', l:'Mark Complete', cls:'text-emerald-700 border-emerald-300 hover:bg-emerald-50' }],
-  admin:      [{ v:'in_progress', l:'Mark In Progress', cls:'text-blue-700 border-blue-300 hover:bg-blue-50' }, { v:'approved', l:'Approve', cls:'text-emerald-700 border-emerald-300 hover:bg-emerald-50' }, { v:'rejected', l:'Reject', cls:'text-red-700 border-red-300 hover:bg-red-50' }, { v:'rework', l:'Request Rework', cls:'text-amber-700 border-amber-300 hover:bg-amber-50' }, { v:'completed', l:'Mark Complete', cls:'text-slate-700 border-slate-300 hover:bg-slate-50' }, { v:'cancelled', l:'Cancel', cls:'text-gray-600 border-gray-300 hover:bg-gray-50' }],
+  source:     _TASK_OWNER_OPT,
+  pm:         _REVIEWER_OPT,
+  fd:         _REVIEWER_OPT,
+  rd_head:    _REVIEWER_OPT,
+  marketing:  _REVIEWER_OPT,
+  regulatory: _REVIEWER_OPT,
+  packaging:  _TASK_OWNER_OPT,
+  adl:        _TASK_OWNER_OPT,
+  pmsa:       _TASK_OWNER_OPT,
+  sa:         _REVIEWER_OPT,
+  mgmt:       _REVIEWER_OPT,
+  ceo:        _REVIEWER_OPT,
+  production: _TASK_OWNER_OPT,
+  admin:      [..._REVIEWER_OPT, ...[ { v:'pending', l:'Reset to Pending', cls:'text-slate-700 border-slate-300 hover:bg-slate-50' }]],
 }
 
 const TASK_STATUS_BADGE = {
-  pending:     'bg-slate-100 text-slate-700',
-  in_progress: 'bg-blue-100 text-blue-800',
-  approved:    'bg-emerald-100 text-emerald-800',
-  rejected:    'bg-red-100 text-red-800',
-  rework:      'bg-amber-100 text-amber-800',
-  completed:   'bg-green-100 text-green-800',
-  cancelled:   'bg-gray-200 text-gray-600',
+  pending:  'bg-slate-100 text-slate-700',
+  approved: 'bg-emerald-100 text-emerald-800',
+  rework:   'bg-amber-100 text-amber-800',
 }
 
 /* -------------------- MY TASKS PANEL (reusable across module views) -------------------- */
@@ -1121,8 +1121,7 @@ function MyTasksPanel({ user, token, taskTypes, onStatusChange }) {
       await apiCall(`/api/ppd/tasks/${t.task_id}/status`, {
         method: 'PATCH', token, body: { status: newStatus }
       })
-      toast.success(`Task marked as "${newStatus.replace('_', ' ')}"`)
-      // re-fetch + notify parent
+      toast.success(`Task updated to "${newStatus}"`)
       fetchTasks()
       if (onStatusChange) onStatusChange()
     } catch (err) { toast.error(err.message) }
@@ -1147,7 +1146,7 @@ function MyTasksPanel({ user, token, taskTypes, onStatusChange }) {
         <div className="space-y-2">
           {tasks.map((t) => {
             const statusCls = TASK_STATUS_BADGE[t.status] || TASK_STATUS_BADGE.pending
-            const isActionable = !['completed','cancelled','rejected'].includes(t.status)
+            const isActionable = t.status !== 'approved'
             return (
               <div key={t.task_id || t.id || t.title} className="flex items-center justify-between gap-3 bg-white rounded-lg px-4 py-2.5 border">
                 <div className="flex-1 min-w-0">
@@ -2126,16 +2125,13 @@ function _ProjectsViewRemoved({ setView, user, token, can }) {
 
 /* -------------------- PPD -------------------- */
 const PPD_STATUS_COLORS = {
-  'Draft':        'bg-slate-200 text-slate-800',
-  'Under Review': 'bg-blue-100 text-blue-800',
-  'Submitted':    'bg-indigo-100 text-indigo-800',
-  'Approved':     'bg-emerald-100 text-emerald-800',
-  'CEO Approved': 'bg-purple-100 text-purple-800',
-  'Rework':       'bg-amber-100 text-amber-800',
-  'Archived':     'bg-gray-200 text-gray-700',
+  'Pending':  'bg-slate-200 text-slate-800',
+  'Rework':   'bg-amber-100 text-amber-800',
+  'Approved': 'bg-emerald-100 text-emerald-800',
 }
 const PPD_STATUSES = Object.keys(PPD_STATUS_COLORS)
-const REVIEWER_STATUSES = ['Pending','In Progress','Reviewed','Approved','Rework']
+// Simplified reviewer statuses
+const REVIEWER_STATUSES = ['Pending','Rework','Approved']
 
 /** Top-level PPD list (role-filtered from API) */
 function PPDView({ user, token, can }) {
@@ -2409,30 +2405,32 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
   const [attachFile, setAttachFile]     = useState(null)   // File object
   const [uploading, setUploading]       = useState(false)
   const [attachResult, setAttachResult] = useState(null)   // {url, filename} after upload
-  const [reviewers, setReviewers]     = useState(initialPpd.reviewers || [])
-  const [mgmtApprovals, setMgmtApprovals] = useState(initialPpd.mgmt_approvals || [])
-  const [committeeActing, setCommitteeActing] = useState(false)
+  const [reviewers, setReviewers]       = useState(initialPpd.reviewers || [])
 
-  const isAdmin   = user?.role === 'admin'
-  const isSource  = user?.role === 'source'
-  const isPM      = user?.role === 'pm'
-  const isCEOUser = user?.role === 'ceo'
-  // Source can edit content in Draft/Rework; PM can edit/assign; admin has full control
-  const canEditPPD = isAdmin || (isSource && ['Draft','Rework'].includes(ppd.status)) || isPM
+  // Rework popup state
+  const [reworkOpen, setReworkOpen]     = useState(false)
+  const [reworkComment, setReworkComment] = useState('')
+  const [reworking, setReworking]       = useState(false)
+  // Rework-done popup state
+  const [reworkDoneOpen, setReworkDoneOpen]   = useState(false)
+  const [reworkDoneComment, setReworkDoneComment] = useState('')
+  const [reworkDoneSaving, setReworkDoneSaving] = useState(false)
+
+  const isAdmin    = user?.role === 'admin'
+  const isSource   = user?.role === 'source'
+  const isPM       = user?.role === 'pm'
   const myRole     = user?.role || 'fd'
 
-  // Management Committee role → committee slot mapping (mirrors backend ROLE_TO_COMMITTEE)
-  const COMMITTEE_SLOT_MAP = {
-    mgmt:       'marketing_head',
-    rd_head:    'rd_head',
-    regulatory: 'regulatory',
-    sa:         'sales_head',
-    cfo:        'cfo',
-    gdso:       'gdso_head',
-    marketing:  'marketing_head',
-  }
-  const myCommitteeSlot = COMMITTEE_SLOT_MAP[myRole]
-  const isMgmtCommittee = !!(myCommitteeSlot || isAdmin)
+  // Reviewer roles — can Approve or send Rework
+  const REVIEWER_ROLES_FE = new Set(['admin','fd','pm','rd_head','mgmt','ceo','regulatory','marketing','sa'])
+  const isReviewer = REVIEWER_ROLES_FE.has(myRole)
+
+  // Task owner roles — do the work, confirm rework
+  const TASK_OWNER_ROLES_FE = new Set(['source','packaging','adl','pmsa','production'])
+  const isTaskOwner = TASK_OWNER_ROLES_FE.has(myRole)
+
+  // Can edit PPD content in Pending/Rework
+  const canEditPPD = isAdmin || (isSource && ['Pending','Rework'].includes(ppd.status)) || isPM
 
   const fetchComments = useCallback(async () => {
     try {
@@ -2447,9 +2445,42 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
     const updated = await apiCall(`/api/ppd/${ppd.ppd_id}`, { token })
     setPpd(updated)
     setReviewers(updated.reviewers || [])
-    setMgmtApprovals(updated.mgmt_approvals || [])
     setEditForm(f => ({ ...f, status: updated.status }))
     return updated
+  }
+
+  const handleReworkRequest = async () => {
+    if (!reworkComment.trim()) return toast.error('Please explain what needs to be fixed')
+    setReworking(true)
+    try {
+      await apiCall(`/api/ppd/${ppd.ppd_id}/rework`, {
+        method: 'POST', token,
+        body: { comment: reworkComment }
+      })
+      setReworkOpen(false)
+      setReworkComment('')
+      await refreshPpd()
+      fetchComments()
+      toast.warning('Rework requested — involved team notified')
+    } catch (err) { toast.error(err.message) }
+    finally { setReworking(false) }
+  }
+
+  const handleReworkDone = async () => {
+    if (!reworkDoneComment.trim()) return toast.error('Please describe the changes made')
+    setReworkDoneSaving(true)
+    try {
+      await apiCall(`/api/ppd/${ppd.ppd_id}/rework-done`, {
+        method: 'POST', token,
+        body: { reply_comment: reworkDoneComment }
+      })
+      setReworkDoneOpen(false)
+      setReworkDoneComment('')
+      await refreshPpd()
+      fetchComments()
+      toast.success('Submitted for review — reviewer notified')
+    } catch (err) { toast.error(err.message) }
+    finally { setReworkDoneSaving(false) }
   }
 
   const handleSave = async () => {
@@ -2525,22 +2556,6 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
     } catch (err) { toast.error(err.message) }
   }
 
-  // Step 5: Management Committee approve / rework
-  const handleCommitteeAction = async (action, committeeRole, comment = '') => {
-    setCommitteeActing(true)
-    try {
-      const res = await apiCall(`/api/ppd/${ppd.ppd_id}/mgmt-approve`, {
-        method: 'PATCH', token,
-        body: { action, committee_role: committeeRole, comment },
-      })
-      setMgmtApprovals(res.mgmt_approvals || mgmtApprovals)
-      await refreshPpd()
-      if (action === 'approve') toast.success('Approval recorded')
-      else toast.warning('Rework requested — source team notified')
-    } catch (err) { toast.error(err.message) }
-    finally { setCommitteeActing(false) }
-  }
-
   const relTime = (iso) => {
     if (!iso) return '—'
     const diff = Date.now() - new Date(iso).getTime()
@@ -2552,64 +2567,39 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
     return `${Math.floor(h / 24)}d ago`
   }
 
-  // Derive workflow step status from reviewers
-  const reviewedCount = reviewers.filter(r => ['Reviewed','Approved'].includes(r.status)).length
-  const allMgmtApproved = mgmtApprovals.length > 0 && mgmtApprovals.every(m => m.status === 'Approved')
-  const mgmtApprovedCount = mgmtApprovals.filter(m => m.status === 'Approved').length
+  // Simplified 3-status workflow tracking
+  const approvedCount  = reviewers.filter(r => r.status === 'Approved').length
+  const reworkCount    = reviewers.filter(r => r.status === 'Rework').length
+  const isPending      = ppd.status === 'Pending'
+  const isApproved     = ppd.status === 'Approved'
+  const isRework       = ppd.status === 'Rework'
 
-  const isDraft       = ppd.status === 'Draft'
-  const isUnderReview = ppd.status === 'Under Review'
-  const isSubmitted   = ppd.status === 'Submitted'
-  const isApproved    = ppd.status === 'Approved'
-  const isCEOApproved = ppd.status === 'CEO Approved'
-  const isRework      = ppd.status === 'Rework'
-
-  // 6-step parallel approval workflow
-  const bothReviewersDone = reviewers.length > 0 && reviewers.every(r => ['Reviewed','Approved'].includes(r.status))
   const wfSteps = [
     {
-      s: '1. Source Team Creates PPD',
-      d: `${ppd.created_by} (${ROLES[ppd.created_by_role]?.label || ppd.created_by_role}) — saved as draft`,
+      s: '1. PPD Created',
+      d: `${ppd.created_by} (${ROLES[ppd.created_by_role]?.label || ppd.created_by_role}) created this PPD`,
       st: 'done',
     },
     {
-      s: '2. R&D/F&D & PM Review — In Parallel',
-      d: bothReviewersDone
-        ? `✓ Both R&D/F&D and PM have completed their review (${reviewedCount}/${reviewers.length})`
-        : isDraft || isUnderReview || isRework
-        ? `${reviewedCount}/${reviewers.length} reviewers done — R&D/F&D and PM review simultaneously, no waiting`
-        : `${reviewedCount}/${reviewers.length} reviewers completed`,
-      st: bothReviewersDone || isSubmitted || isApproved || isCEOApproved ? 'done'
-        : (isDraft || isUnderReview) ? 'active'
-        : 'pending',
-    },
-    {
-      s: '3. Source Team — Submit for Approval',
-      d: isSubmitted || isApproved || isCEOApproved
-        ? 'Source team submitted PPD to Management Committee for approval'
+      s: '2. Under Review',
+      d: isApproved
+        ? `✓ All ${reviewers.length} reviewers approved`
         : isRework
-        ? '⚠ PPD sent back for rework — Source team to revise and re-submit'
-        : 'Source team reviews feedback from R&D/F&D & PM, then clicks Submit for Approval',
-      st: isSubmitted || isApproved || isCEOApproved ? 'done' : isRework ? 'active' : bothReviewersDone ? 'active' : 'pending',
+        ? `⚠ ${reworkCount} reviewer(s) requested rework — task owner to fix and resubmit`
+        : `${approvedCount}/${reviewers.length} reviewers approved — reviewers can Approve or send for Rework`,
+      st: isApproved ? 'done' : (isPending || isRework) ? 'active' : 'pending',
     },
     {
-      s: '4. Management Committee Approval — In Parallel',
-      d: isApproved || isCEOApproved
-        ? `✓ All ${mgmtApprovals.length} committee members approved`
-        : isSubmitted
-        ? `${mgmtApprovedCount}/${mgmtApprovals.length} approvals received — Marketing Head, Sales Head, R&D Head, GDSO Head, Regulatory Head, CFO (all parallel)`
-        : 'Marketing Head, Sales Head, R&D Head, GDSO Head, Regulatory Head, CFO — all approve simultaneously',
-      st: isApproved || isCEOApproved ? 'done' : isSubmitted ? 'active' : 'pending',
+      s: '3. Rework (if needed)',
+      d: isRework
+        ? 'Task owner addresses feedback and submits — reviewer then approves'
+        : 'If a reviewer finds issues, they send it for Rework with a comment explaining what to fix',
+      st: isRework ? 'active' : isApproved ? 'done' : 'pending',
     },
     {
-      s: '5. CEO Final Approval',
-      d: isCEOApproved ? '✓ CEO approved — execution initiated' : 'CEO Office — final sign-off to initiate execution',
-      st: isCEOApproved ? 'done' : isApproved ? 'active' : 'pending',
-    },
-    {
-      s: '6. Execution — Formulation Development',
-      d: 'PPD locked; R&D/F&D team starts formulation development',
-      st: isCEOApproved ? 'active' : 'pending',
+      s: '4. Approved',
+      d: isApproved ? '✓ PPD approved — moving to execution phase' : 'Once all reviewers approve, PPD is marked Approved',
+      st: isApproved ? 'done' : 'pending',
     },
   ]
 
@@ -2637,73 +2627,57 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
           </div>
         </div>
         <div className="flex gap-2 shrink-0 flex-wrap">
-          {/* PPD Locked banner */}
-          {isCEOApproved && (
-            <Badge className="bg-purple-600 text-white px-3 py-1 text-xs gap-1.5 shadow-sm">
-              <ShieldCheck className="h-4 w-4" /> PPD Locked — Formulation Unlocked
+          {/* Approved banner */}
+          {isApproved && (
+            <Badge className="bg-emerald-600 text-white px-3 py-1 text-xs gap-1.5 shadow-sm">
+              <CheckCircle2 className="h-4 w-4" /> Approved
             </Badge>
           )}
-          {/* Source: Save as Draft */}
-          {isSource && ['Draft','Rework'].includes(ppd.status) && (
+          {/* Reviewer: Approve button — only in Pending/Rework status */}
+          {isReviewer && !isApproved && (
+            <Button size="sm" className="gap-1 bg-emerald-600 hover:bg-emerald-700 text-white" onClick={async () => {
+              setSaving(true)
+              try {
+                await apiCall(`/api/ppd/${ppd.ppd_id}/reviewers`, {
+                  method: 'PATCH', token,
+                  body: { reviewers: reviewers.map(r => r.role === myRole ? { ...r, status: 'Approved' } : r) }
+                })
+                await refreshPpd()
+                toast.success('Approved!')
+              } catch (err) { toast.error(err.message) }
+              finally { setSaving(false) }
+            }} disabled={saving}>
+              {saving ? <RefreshCw className="h-4 w-4 animate-spin mr-1"/> : <CheckCircle2 className="h-4 w-4 mr-1"/>}
+              Approve
+            </Button>
+          )}
+          {/* Reviewer: Request Rework button — only in Pending status */}
+          {isReviewer && !isApproved && (
+            <Button size="sm" variant="outline" className="gap-1 border-amber-400 text-amber-700 hover:bg-amber-50"
+              onClick={() => setReworkOpen(true)} disabled={saving}>
+              <AlertCircle className="h-4 w-4 mr-1"/>Request Rework
+            </Button>
+          )}
+          {/* Task owner: Mark Rework Done (submit back) — only when status is Rework */}
+          {isTaskOwner && isRework && (
+            <Button size="sm" className="gap-1 bg-blue-600 hover:bg-blue-700 text-white"
+              onClick={() => setReworkDoneOpen(true)}>
+              <Send className="h-4 w-4 mr-1"/>Submit Rework Done
+            </Button>
+          )}
+          {/* Editable roles: Save */}
+          {canEditPPD && (
             <Button variant="outline" size="sm" onClick={handleSave} disabled={saving}>
               {saving ? <RefreshCw className="h-4 w-4 animate-spin mr-1"/> : <Edit className="h-4 w-4 mr-1"/>}
-              Save as Draft
+              Save
             </Button>
           )}
-          {/* Source: Submit for Mgmt approval (Step 4) — after functional review */}
-          {isSource && ['Draft','Under Review','Rework'].includes(ppd.status) && (
-            <Button size="sm" className="gap-1 bg-amber-600 hover:bg-amber-700 text-white" onClick={async () => {
-              setSaving(true)
-              try {
-                await apiCall(`/api/ppd/${ppd.ppd_id}`, { method: 'PUT', token, body: { ...editForm, status: 'Submitted' } })
-                await refreshPpd()
-                toast.success('PPD submitted to Management Committee for approval')
-              } catch (err) { toast.error(err.message) }
-              finally { setSaving(false) }
-            }} disabled={saving}>
-              {saving ? <RefreshCw className="h-4 w-4 animate-spin mr-1"/> : <Send className="h-4 w-4 mr-1"/>}
-              Submit for Approval
-            </Button>
-          )}
-          {/* PM: Set Under Review (Step 2) */}
-          {isPM && isDraft && (
-            <Button size="sm" variant="outline" onClick={async () => {
-              try {
-                await apiCall(`/api/ppd/${ppd.ppd_id}`, { method: 'PUT', token, body: { status: 'Under Review' } })
-                await refreshPpd()
-                toast.success('PPD set to Under Review — assigned teams notified')
-              } catch (err) { toast.error(err.message) }
-            }}>
-              <Users className="h-4 w-4 mr-1"/>Set Under Review
-            </Button>
-          )}
-          {/* CEO: Final Approval (Step 6) — only when ALL mgmt committee approved (status = Approved) */}
-          {(isCEOUser || isAdmin) && isApproved && (
-            <Button size="sm" className="gap-1 bg-purple-700 hover:bg-purple-800 text-white" onClick={async () => {
-              if (!confirm('Grant CEO Final Approval? This will lock the PPD and move the project to Formulation Development.')) return
-              setSaving(true)
-              try {
-                await apiCall(`/api/ppd/${ppd.ppd_id}`, { method: 'PUT', token, body: { status: 'CEO Approved' } })
-                await refreshPpd(); fetchComments()
-                toast.success('CEO Approved! Project moved to Formulation phase.')
-              } catch (err) { toast.error(err.message) }
-              finally { setSaving(false) }
-            }} disabled={saving}>
-              <BadgeCheck className="h-4 w-4 mr-1"/>CEO Final Approval
-            </Button>
-          )}
-          {/* Admin: full controls */}
+          {/* Admin: delete */}
           {isAdmin && (
-            <>
-              <Button variant="outline" size="sm" onClick={handleSave} disabled={saving}>
-                {saving ? <RefreshCw className="h-4 w-4 animate-spin mr-1"/> : <Edit className="h-4 w-4 mr-1"/>}
-                Save
-              </Button>
-              <Button variant="destructive" size="sm" onClick={handleDelete} disabled={deleting}>
-                {deleting ? <RefreshCw className="h-4 w-4 animate-spin mr-1"/> : <Trash2 className="h-4 w-4 mr-1"/>}
-                Delete
-              </Button>
-            </>
+            <Button variant="destructive" size="sm" onClick={handleDelete} disabled={deleting}>
+              {deleting ? <RefreshCw className="h-4 w-4 animate-spin mr-1"/> : <Trash2 className="h-4 w-4 mr-1"/>}
+              Delete
+            </Button>
           )}
         </div>
       </div>
@@ -2722,16 +2696,82 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
         </CardContent>
       </Card>
 
+      {/* ── Rework Request Dialog ── */}
+      <Dialog open={reworkOpen} onOpenChange={setReworkOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-amber-700">
+              <AlertCircle className="h-5 w-5" /> Request Rework
+            </DialogTitle>
+            <DialogDescription>
+              Explain what needs to be fixed. This comment will be visible only to the relevant team members.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <Textarea
+              rows={4}
+              value={reworkComment}
+              onChange={e => setReworkComment(e.target.value)}
+              placeholder="Describe what needs to be corrected or improved…"
+              className="border-amber-300 focus:border-amber-500"
+            />
+            <p className="text-xs text-muted-foreground">
+              🔔 Notification will go only to the task owners involved in this PPD (e.g. Source Team, R&amp;D/F&amp;D).
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setReworkOpen(false); setReworkComment('') }}>Cancel</Button>
+            <Button onClick={handleReworkRequest} disabled={reworking || !reworkComment.trim()}
+              className="bg-amber-600 hover:bg-amber-700 text-white">
+              {reworking ? <RefreshCw className="h-4 w-4 animate-spin mr-2"/> : <AlertCircle className="h-4 w-4 mr-2"/>}
+              Send Rework Request
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Rework Done Dialog ── */}
+      <Dialog open={reworkDoneOpen} onOpenChange={setReworkDoneOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-blue-700">
+              <CheckCircle2 className="h-5 w-5" /> Confirm Rework Completed
+            </DialogTitle>
+            <DialogDescription>
+              Describe the changes you made. The reviewer will be notified to re-review and approve.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <Textarea
+              rows={4}
+              value={reworkDoneComment}
+              onChange={e => setReworkDoneComment(e.target.value)}
+              placeholder="Describe what was changed / fixed…"
+              className="border-blue-300 focus:border-blue-500"
+            />
+            <p className="text-xs text-muted-foreground">
+              🔔 The reviewer will be notified to review your changes and approve.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setReworkDoneOpen(false); setReworkDoneComment('') }}>Cancel</Button>
+            <Button onClick={handleReworkDone} disabled={reworkDoneSaving || !reworkDoneComment.trim()}
+              className="bg-blue-600 hover:bg-blue-700 text-white">
+              {reworkDoneSaving ? <RefreshCw className="h-4 w-4 animate-spin mr-2"/> : <Send className="h-4 w-4 mr-2"/>}
+              Submit for Review
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Tabs defaultValue="details">
-        <TabsList className={`grid w-full max-w-3xl ${isAdmin ? 'grid-cols-6' : 'grid-cols-5'}`}>
+        <TabsList className={`grid w-full max-w-3xl ${isAdmin ? 'grid-cols-5' : 'grid-cols-4'}`}>
           <TabsTrigger value="details">Details</TabsTrigger>
-          <TabsTrigger value="reviewers">Reviewers</TabsTrigger>
-          <TabsTrigger value="committee">
-            Committee
-            {isSubmitted && <span className="ml-1 text-[10px] bg-amber-500 text-white rounded px-1">{mgmtApprovedCount}/{mgmtApprovals.length}</span>}
+          <TabsTrigger value="reviewers">Reviewers
+            {isRework && <span className="ml-1 text-[10px] bg-amber-500 text-white rounded px-1">Rework</span>}
           </TabsTrigger>
           <TabsTrigger value="comments">Comments ({comments.length})</TabsTrigger>
-          <TabsTrigger value="workflow">Approval Flow</TabsTrigger>
+          <TabsTrigger value="workflow">Workflow</TabsTrigger>
           {isAdmin && <TabsTrigger value="admin">Admin</TabsTrigger>}
         </TabsList>
 
@@ -2744,10 +2784,10 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
                   <CardTitle>Product Details</CardTitle>
                   <CardDescription>Structured PPD fields — required for submission</CardDescription>
                 </div>
-                {!isAdmin && myReviewerEntry && (
+                {myReviewerEntry && (
                   <div className="flex items-center gap-2">
                     <span className="text-xs text-muted-foreground">Your review:</span>
-                    <Badge variant={myReviewerEntry.status === 'Reviewed' ? 'default' : myReviewerEntry.status === 'Rework' ? 'destructive' : 'secondary'}>
+                    <Badge variant={myReviewerEntry.status === 'Approved' ? 'default' : myReviewerEntry.status === 'Rework' ? 'destructive' : 'secondary'}>
                       {myReviewerEntry.status}
                     </Badge>
                   </div>
@@ -2824,16 +2864,13 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
         <TabsContent value="reviewers">
           <Card>
             <CardHeader>
-              <CardTitle>Parallel Review — R&amp;D/F&amp;D &amp; PM</CardTitle>
+              <CardTitle>Review Status</CardTitle>
               <CardDescription>
-                {(() => {
-                    const doneCount = reviewers.filter(r => ['Reviewed','Approved'].includes(r.status)).length
-                    const allDone   = reviewers.length > 0 && doneCount === reviewers.length
-                    if (allDone) return '✓ Both reviewers have approved — Source Team can now submit for Management Committee approval.'
-                    if (isAdmin || isSource) return `${doneCount}/${reviewers.length} reviewers have completed their review. Both R&D/F&D and PM review independently in parallel.`
-                    if (isMgmtCommittee && !myReviewerEntry) return `View only — R&D/F&D and PM complete Step 2 review before source team submits. ${doneCount}/${reviewers.length} done.`
-                    return 'Review this PPD and update your status. R&D/F&D and PM both review simultaneously — no waiting required.'
-                  })()}
+                {isApproved
+                  ? `✓ All ${reviewers.length} reviewers approved this PPD.`
+                  : isRework
+                  ? '⚠ Rework requested — see rework comments below. Task owner should fix and submit.'
+                  : `${approvedCount}/${reviewers.length} reviewers approved. Use the Approve / Request Rework buttons at the top.`}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-2">
@@ -2841,149 +2878,51 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
                 <p className="text-sm text-muted-foreground text-center py-8">No reviewers assigned yet.</p>
               ) : (
                 reviewers.map((r, i) => {
-                  const isDone  = ['Reviewed','Approved'].includes(r.status)
-                  const isMyRow = r.role === myRole
-                  // Anyone in the reviewer list can act on their own row immediately — no dependency
-                  const canAct  = (isMyRow && !isDone) || isAdmin
+                  const isApprovedRow = r.status === 'Approved'
+                  const isReworkRow   = r.status === 'Rework'
+                  const isMyRow       = r.role === myRole
 
                   return (
                     <div key={i} className={`flex items-center justify-between p-3 border rounded-lg gap-4
-                      ${isDone
+                      ${isApprovedRow
                         ? 'border-emerald-200 bg-emerald-50'
-                        : isMyRow
-                          ? 'border-blue-300 bg-blue-50 ring-1 ring-blue-300'
-                          : 'border-slate-200 bg-white'}`}>
+                        : isReworkRow
+                          ? 'border-amber-200 bg-amber-50'
+                          : isMyRow
+                            ? 'border-blue-300 bg-blue-50 ring-1 ring-blue-300'
+                            : 'border-slate-200 bg-white'}`}>
                       <div className="flex-1">
                         <div className="flex items-center gap-2">
                           <span className="font-medium text-sm">{r.team_label}</span>
-                          {isMyRow && !isDone && (
+                          {isMyRow && !isApprovedRow && (
                             <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-600 text-white font-medium">
-                              Action Required
-                            </span>
-                          )}
-                          {isDone && (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-600 text-white font-medium">
-                              Done
-                            </span>
-                          )}
-                          {!isDone && !isMyRow && (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-400 text-white font-medium">
-                              Pending
+                              Your Review
                             </span>
                           )}
                         </div>
-                        {r.head_name && <div className="text-xs text-muted-foreground">Head: {r.head_name}</div>}
                         {r.comment && <div className="text-xs text-muted-foreground mt-1 italic">"{r.comment}"</div>}
                         {r.updated_at && <div className="text-xs text-muted-foreground">{relTime(r.updated_at)}</div>}
                       </div>
-                      <div className="flex items-center gap-2">
-                        <Badge
-                          variant={isDone ? 'default' : r.status === 'Rework' ? 'destructive' : r.status === 'In Progress' ? 'secondary' : 'outline'}
-                          className={isDone ? 'bg-emerald-600' : ''}>
-                          {r.status}
-                        </Badge>
-                        {/* Each reviewer can update their own row independently */}
-                        {canAct && (
-                          <Select value={r.status} onValueChange={v => handleReviewerUpdate(r.role, v)}>
-                            <SelectTrigger className="h-7 text-xs w-28"><SelectValue /></SelectTrigger>
-                            <SelectContent>
-                              {REVIEWER_STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-                            </SelectContent>
-                          </Select>
-                        )}
-                      </div>
+                      <Badge
+                        variant={isApprovedRow ? 'default' : isReworkRow ? 'destructive' : 'outline'}
+                        className={isApprovedRow ? 'bg-emerald-600' : ''}>
+                        {r.status}
+                      </Badge>
                     </div>
                   )
                 })
               )}
-              {/* All done banner for source team */}
-              {isSource && reviewers.length > 0 && reviewers.every(r => ['Reviewed','Approved'].includes(r.status)) && (
+              {isRework && (
+                <div className="mt-2 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800 flex items-center gap-2">
+                  <AlertCircle className="h-4 w-4 shrink-0" />
+                  Rework requested. See the Comments tab for the reviewer's instructions.
+                  {isTaskOwner && <strong className="ml-1">Use the "Submit Rework Done" button above when ready.</strong>}
+                </div>
+              )}
+              {isApproved && (
                 <div className="mt-2 p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-sm text-emerald-800 flex items-center gap-2">
                   <CheckCircle2 className="h-4 w-4 shrink-0" />
-                  Both reviewers have approved. Use the <strong>Submit for Approval</strong> button above to send to the Management Committee.
-                </div>
-              )}
-              {isAdmin && (
-                <div className="pt-2 text-xs text-muted-foreground border-t">
-                  Admin view — R&D/F&D and PM review in parallel with no dependency on each other.
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* ── COMMITTEE TAB ── */}
-        <TabsContent value="committee">
-          <Card>
-            <CardHeader>
-              <CardTitle>Management Committee Approval</CardTitle>
-              <CardDescription>
-                Step 5 — Each of the 6 committee members must approve independently.
-                {isSubmitted && ` ${mgmtApprovedCount} of ${mgmtApprovals.length} have approved.`}
-                {isApproved && ' ✓ All approved — awaiting CEO final sign-off.'}
-                {isCEOApproved && ' ✓ Completed — CEO approved.'}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {mgmtApprovals.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-8">
-                  Committee approvals will be available after Source Team submits the PPD (Step 4).
-                </p>
-              ) : (
-                mgmtApprovals.map((m, i) => {
-                  const isMySlot = myCommitteeSlot === m.role || isAdmin
-                  const canAct   = isMySlot && ['Submitted','Approved'].includes(ppd.status) && m.status !== 'Approved'
-                  return (
-                    <div key={i} className={`flex items-center justify-between p-3 border rounded-lg gap-4
-                      ${m.status === 'Approved' ? 'border-emerald-200 bg-emerald-50' : m.status === 'Rework' ? 'border-red-200 bg-red-50' : ''}`}>
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium text-sm">{m.label}</span>
-                          <Badge
-                            variant={m.status === 'Approved' ? 'default' : m.status === 'Rework' ? 'destructive' : 'outline'}
-                            className={`text-xs ${m.status === 'Approved' ? 'bg-emerald-600' : ''}`}>
-                            {m.status}
-                          </Badge>
-                        </div>
-                        {m.comment && <p className="text-xs text-muted-foreground mt-1 italic">"{m.comment}"</p>}
-                        {m.approved_at && <p className="text-xs text-muted-foreground">{relTime(m.approved_at)}</p>}
-                      </div>
-                      {canAct && (
-                        <div className="flex gap-2 shrink-0">
-                          <Button size="sm" variant="outline"
-                            className="border-emerald-300 text-emerald-700 hover:bg-emerald-50 text-xs"
-                            disabled={committeeActing}
-                            onClick={() => handleCommitteeAction('approve', m.role, '')}>
-                            {committeeActing ? <RefreshCw className="h-3 w-3 animate-spin mr-1"/> : <CheckCircle2 className="h-3 w-3 mr-1"/>}
-                            Approve
-                          </Button>
-                          <Button size="sm" variant="outline"
-                            className="border-red-300 text-red-700 hover:bg-red-50 text-xs"
-                            disabled={committeeActing}
-                            onClick={async () => {
-                              const reason = window.prompt(`Reason for rework (${m.label}):`)
-                              if (reason === null) return
-                              await handleCommitteeAction('rework', m.role, reason || 'Rework requested')
-                            }}>
-                            <AlertCircle className="h-3 w-3 mr-1"/>Rework
-                          </Button>
-                        </div>
-                      )}
-                      {m.status === 'Approved' && (
-                        <CheckCircle2 className="h-5 w-5 text-emerald-600 shrink-0" />
-                      )}
-                    </div>
-                  )
-                })
-              )}
-              {mgmtApprovals.length > 0 && !['Submitted','Approved'].includes(ppd.status) && !isCEOApproved && (
-                <p className="text-xs text-muted-foreground pt-2 border-t">
-                  Committee approval buttons will activate once the Source Team submits the PPD.
-                </p>
-              )}
-              {allMgmtApproved && !isCEOApproved && (
-                <div className="mt-3 p-3 bg-purple-50 border border-purple-200 rounded-lg text-sm text-purple-800">
-                  ✓ All committee members have approved. PPD is now awaiting <strong>CEO Final Approval</strong>.
+                  All reviewers approved. PPD is marked <strong>Approved</strong>.
                 </div>
               )}
             </CardContent>
@@ -2993,54 +2932,77 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
         {/* ── COMMENTS TAB ── */}
         <TabsContent value="comments">
           <Card>
-            <CardHeader><CardTitle>Review Comments & Remarks</CardTitle><CardDescription>Consolidated feedback from all reviewers — any update here notifies all teams</CardDescription></CardHeader>
+            <CardHeader>
+              <CardTitle>Comments &amp; Rework History</CardTitle>
+              <CardDescription>
+                Comments visible to you. Rework comments are restricted to involved parties only.
+              </CardDescription>
+            </CardHeader>
             <CardContent className="space-y-4">
               {comments.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-8">No comments yet. Be the first to review.</p>
+                <p className="text-sm text-muted-foreground text-center py-8">No comments yet.</p>
               ) : (
-                comments.map((c, i) => (
-                  <div key={i} className="flex gap-3 p-3 border rounded-lg">
-                    <Avatar className="h-9 w-9">
-                      <AvatarFallback className="text-xs bg-primary text-white">
-                        {(c.user_name || '?').split(' ').map(s => s[0]).join('').slice(0, 2).toUpperCase()}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div className="flex-1">
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium text-sm">{c.user_name}</span>
-                          <span className={`text-[10px] px-1.5 py-0.5 rounded text-white font-medium ${ROLES[c.user_role]?.color || 'bg-slate-600'}`}>
-                            {ROLES[c.user_role]?.label || c.user_role}
-                          </span>
-                          {c.action_tag !== 'comment' && (
-                            <Badge variant={c.action_tag==='rework'?'destructive':c.action_tag==='approve'?'default':'secondary'} className="text-xs">
-                              {c.action_tag}
-                            </Badge>
-                          )}
+                comments.map((c, i) => {
+                  const tagColors = {
+                    rework:      'bg-amber-100 text-amber-800 border-amber-200',
+                    rework_done: 'bg-blue-100 text-blue-800 border-blue-200',
+                    approve:     'bg-emerald-100 text-emerald-800 border-emerald-200',
+                    comment:     'bg-slate-100 text-slate-700 border-slate-200',
+                  }
+                  const tagBorderColor = c.action_tag === 'rework' ? 'border-l-amber-400'
+                    : c.action_tag === 'rework_done' ? 'border-l-blue-400'
+                    : c.action_tag === 'approve' ? 'border-l-emerald-400'
+                    : 'border-l-transparent'
+                  return (
+                    <div key={i} className={`flex gap-3 p-3 border rounded-lg border-l-4 ${tagBorderColor}`}>
+                      <Avatar className="h-9 w-9">
+                        <AvatarFallback className="text-xs bg-primary text-white">
+                          {(c.user_name || '?').split(' ').map(s => s[0]).join('').slice(0, 2).toUpperCase()}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="flex-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium text-sm">{c.user_name}</span>
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded text-white font-medium ${ROLES[c.user_role]?.color || 'bg-slate-600'}`}>
+                              {ROLES[c.user_role]?.label || c.user_role}
+                            </span>
+                            {c.action_tag !== 'comment' && (
+                              <span className={`text-[10px] px-1.5 py-0.5 rounded border font-medium ${tagColors[c.action_tag] || tagColors.comment}`}>
+                                {c.action_tag === 'rework' ? '🔁 Rework Required'
+                                  : c.action_tag === 'rework_done' ? '✅ Rework Done'
+                                  : c.action_tag === 'approve' ? '✅ Approved'
+                                  : c.action_tag}
+                              </span>
+                            )}
+                            {c.visible_to_roles && (
+                              <span className="text-[10px] px-1 py-0.5 rounded bg-slate-200 text-slate-600 border">🔒 restricted</span>
+                            )}
+                          </div>
+                          <span className="text-xs text-muted-foreground shrink-0">{relTime(c.created_at)}</span>
                         </div>
-                        <span className="text-xs text-muted-foreground shrink-0">{relTime(c.created_at)}</span>
+                        <p className="text-sm mt-1 whitespace-pre-line">{c.comment}</p>
+                        {c.attachment_url && (
+                          <a
+                            href={`${API_BASE}${c.attachment_url}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-1 mt-1.5 text-xs text-blue-600 hover:underline border border-blue-200 bg-blue-50 rounded px-2 py-0.5"
+                          >
+                            <Paperclip className="h-3 w-3" />
+                            {c.attachment_name || 'Attachment'}
+                          </a>
+                        )}
                       </div>
-                      <p className="text-sm mt-1 whitespace-pre-line">{c.comment}</p>
-                      {c.attachment_url && (
-                        <a
-                          href={`${API_BASE}${c.attachment_url}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="inline-flex items-center gap-1 mt-1.5 text-xs text-blue-600 hover:underline border border-blue-200 bg-blue-50 rounded px-2 py-0.5"
-                        >
-                          <Paperclip className="h-3 w-3" />
-                          {c.attachment_name || 'Attachment'}
-                        </a>
-                      )}
                     </div>
-                  </div>
-                ))
+                  )
+                })
               )}
 
               {/* New comment box */}
               <div className="border rounded-lg p-3 space-y-3">
                 <Textarea
-                  placeholder="Add your review comment, feedback, or rework instructions..."
+                  placeholder="Add a comment or feedback…"
                   rows={3}
                   value={newComment}
                   onChange={e => setNewComment(e.target.value)}
@@ -3078,8 +3040,6 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
                     <SelectTrigger className="w-40 h-8 text-xs"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="comment">💬 Comment</SelectItem>
-                      <SelectItem value="rework">🔁 Request Rework</SelectItem>
-                      {(isAdmin || ['mgmt','ceo','rd_head'].includes(myRole)) && <SelectItem value="approve">✅ Approve</SelectItem>}
                     </SelectContent>
                   </Select>
                   <Button size="sm" onClick={handlePostComment} disabled={postingComment || uploading || !newComment.trim()}>
@@ -3152,7 +3112,7 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
                           </TableCell>
                           <TableCell>
                             {rev ? (
-                              <Badge variant={rev.status==='Reviewed'||rev.status==='Approved'?'default':rev.status==='Rework'?'destructive':'secondary'} className="text-xs">
+                              <Badge variant={rev.status==='Approved'?'default':rev.status==='Rework'?'destructive':'secondary'} className="text-xs">
                                 {rev.status}
                               </Badge>
                             ) : (

@@ -16,11 +16,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from database import get_db
+from database import get_db, IST
 from auth import decode_token
 from orm_models import PPDSubmission, Formula
 from io import BytesIO
-from datetime import datetime, timezone
+from datetime import datetime
 
 # reportlab imports
 from reportlab.lib.pagesizes import A4
@@ -134,7 +134,7 @@ def _generate_pdf(ppd: PPDSubmission, formulas: list[Formula]) -> bytes:
         S["body"]
     ))
     story.append(Paragraph(
-        f"Generated: {datetime.now(timezone.utc).strftime('%d %b %Y %H:%M UTC')} &nbsp;|&nbsp; "
+        f"Generated: {datetime.now(IST).strftime('%d %b %Y %H:%M IST')} &nbsp;|&nbsp; "
         f"Status: <b>{ppd.status or '—'}</b> &nbsp;|&nbsp; "
         f"Version: {ppd.ppd_version or '—'}",
         S["subtitle"]
@@ -309,7 +309,7 @@ def _generate_pdf(ppd: PPDSubmission, formulas: list[Formula]) -> bytes:
     story.append(Spacer(1, 4))
     story.append(Paragraph(
         f"FMCG Software Platform &nbsp;|&nbsp; PPD {ppd.ppd_id} — {ppd.project_name} &nbsp;|&nbsp; "
-        f"Report generated {datetime.now(timezone.utc).strftime('%d %b %Y %H:%M UTC')}",
+        f"Report generated {datetime.now(IST).strftime('%d %b %Y %H:%M IST')}",
         S["footer"]
     ))
 

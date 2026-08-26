@@ -4,8 +4,8 @@ Auth router — login, signup, forgot-password OTP, reset-password, token verify
 from fastapi import APIRouter, HTTPException, Depends, status
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
-from datetime import datetime, timedelta, timezone
-from database import get_db
+from datetime import datetime, timedelta
+from database import get_db, IST
 from auth import verify_password, hash_password, create_access_token, get_current_user
 from models import (
     LoginRequest, TokenResponse,
@@ -40,7 +40,8 @@ DEMO_USERS = {
 # ── helpers ────────────────────────────────────────────────────────────────────
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+    """Return current IST time as a naive datetime for MySQL storage."""
+    return datetime.now(IST).replace(tzinfo=None)
 
 
 async def _get_user(db: AsyncSession, email: str) -> User | None:

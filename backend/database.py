@@ -6,6 +6,21 @@ import aiomysql
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase
 from config import get_settings
+from datetime import datetime
+try:
+    import zoneinfo
+    IST = zoneinfo.ZoneInfo("Asia/Kolkata")
+except ImportError:
+    from datetime import timezone, timedelta
+    IST = timezone(timedelta(hours=5, minutes=30))  # IST = UTC+5:30 fallback
+
+def now_ist() -> datetime:
+    """Return the current time as a timezone-aware IST datetime (naive UTC removed)."""
+    return datetime.now(IST)
+
+def now_ist_naive() -> datetime:
+    """Return the current time in IST as a *naive* datetime (for MySQL storage)."""
+    return datetime.now(IST).replace(tzinfo=None)
 
 settings = get_settings()
 
@@ -71,21 +86,24 @@ async def _migrate_columns() -> None:
     """Add any new columns to already-deployed tables."""
     column_migrations = [
         # (table, column, column_definition)
-        ("ppd_submissions",  "mgmt_approvals",  "JSON NULL"),
-        ("ppd_submissions",  "ppd_title",        "VARCHAR(255) NULL"),
-        ("lab_experiments",  "formula_id",       "VARCHAR(30) NULL"),
-        ("lab_experiments",  "version",          "VARCHAR(10) NULL"),
-        ("lab_experiments",  "ppd_id",           "VARCHAR(50) NULL"),
-        ("formulas",         "ppd_id",           "VARCHAR(50) NULL"),
-        ("plant_trials",     "ppd_id",           "VARCHAR(50) NULL"),
-        ("regulatory_checks","ppd_id",           "VARCHAR(50) NULL"),
-        ("sensory_evaluations","ppd_id",         "VARCHAR(50) NULL"),
-        ("costing_records",  "ppd_id",           "VARCHAR(50) NULL"),
-        ("claim_records",    "ppd_id",           "VARCHAR(50) NULL"),
-        ("artwork_briefs",   "ppd_id",           "VARCHAR(50) NULL"),
-        ("tasks",            "ppd_id",           "VARCHAR(50) NULL"),
-        ("ppd_comments",     "attachment_url",   "VARCHAR(500) NULL"),
-        ("ppd_comments",     "attachment_name",  "VARCHAR(255) NULL"),
+        ("ppd_submissions",  "mgmt_approvals",   "JSON NULL"),
+        ("ppd_submissions",  "ppd_title",         "VARCHAR(255) NULL"),
+        ("lab_experiments",  "formula_id",        "VARCHAR(30) NULL"),
+        ("lab_experiments",  "version",           "VARCHAR(10) NULL"),
+        ("lab_experiments",  "ppd_id",            "VARCHAR(50) NULL"),
+        ("formulas",         "ppd_id",            "VARCHAR(50) NULL"),
+        ("plant_trials",     "ppd_id",            "VARCHAR(50) NULL"),
+        ("regulatory_checks","ppd_id",            "VARCHAR(50) NULL"),
+        ("sensory_evaluations","ppd_id",          "VARCHAR(50) NULL"),
+        ("costing_records",  "ppd_id",            "VARCHAR(50) NULL"),
+        ("claim_records",    "ppd_id",            "VARCHAR(50) NULL"),
+        ("artwork_briefs",   "ppd_id",            "VARCHAR(50) NULL"),
+        ("tasks",            "ppd_id",            "VARCHAR(50) NULL"),
+        ("ppd_comments",     "attachment_url",    "VARCHAR(500) NULL"),
+        ("ppd_comments",     "attachment_name",   "VARCHAR(255) NULL"),
+        # New columns for rework workflow
+        ("ppd_comments",     "rework_resolved",   "TINYINT(1) NOT NULL DEFAULT 0"),
+        ("ppd_comments",     "visible_to_roles",  "VARCHAR(500) NULL"),
     ]
 
     try:
@@ -136,20 +154,12 @@ async def _migrate_columns() -> None:
         except Exception as e:
             print(f"Warning: ppd_submissions project_id nullable migration failed ({e})")
 
-        # Backfill PPD submissions with empty reviewers/mgmt_approvals
+        # Backfill PPD submissions with empty reviewers if NULL
         _default_reviewers = (
             '[{"role":"fd","team_label":"R&D / F&D Team","head_name":"",'
             '"status":"Pending","comment":"","updated_at":""},'
             '{"role":"pm","team_label":"Project Management","head_name":"",'
             '"status":"Pending","comment":"","updated_at":""}]'
-        )
-        _default_mgmt = (
-            '[{"role":"marketing_head","label":"Marketing Head","status":"Pending","comment":"","approved_at":""},'
-            '{"role":"sales_head","label":"Sales Head","status":"Pending","comment":"","approved_at":""},'
-            '{"role":"rd_head","label":"R&D Head","status":"Pending","comment":"","approved_at":""},'
-            '{"role":"gdso_head","label":"GDSO Head","status":"Pending","comment":"","approved_at":""},'
-            '{"role":"regulatory","label":"Regulatory Head","status":"Pending","comment":"","approved_at":""},'
-            '{"role":"cfo","label":"CFO","status":"Pending","comment":"","approved_at":""}]'
         )
         try:
             await cur.execute(
@@ -160,15 +170,5 @@ async def _migrate_columns() -> None:
             await conn.commit()
         except Exception as e:
             print(f"Warning: ppd_submissions reviewers backfill failed ({e})")
-
-        try:
-            await cur.execute(
-                "UPDATE `ppd_submissions` SET `mgmt_approvals` = %s "
-                "WHERE `mgmt_approvals` IS NULL OR JSON_LENGTH(`mgmt_approvals`) = 0",
-                (_default_mgmt,),
-            )
-            await conn.commit()
-        except Exception as e:
-            print(f"Warning: ppd_submissions mgmt_approvals backfill failed ({e})")
 
     conn.close()

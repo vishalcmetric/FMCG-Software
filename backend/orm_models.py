@@ -12,24 +12,17 @@ from database import Base
 import enum
 
 # ── PPD Status enum ───────────────────────────────────────────────────────────
+# Simplified workflow: Pending → Rework → Approved
 class PPDStatus(str, enum.Enum):
-    Draft           = "Draft"
-    Under_Review    = "Under Review"
+    Pending         = "Pending"
     Approved        = "Approved"
     Rework          = "Rework"
-    Submitted       = "Submitted"
-    CEO_Approved    = "CEO Approved"
-    Archived        = "Archived"
 
 # ── Enums ─────────────────────────────────────────────────────────────────────
 class TaskStatus(str, enum.Enum):
     pending     = "pending"
-    in_progress = "in_progress"
-    completed   = "completed"
-    approved    = "approved"
-    rejected    = "rejected"
     rework      = "rework"
-    cancelled   = "cancelled"
+    approved    = "approved"
 
 class UserStatus(str, enum.Enum):
     Active   = "Active"
@@ -127,7 +120,7 @@ class PPDSubmission(Base):
     objective           = Column(Text)
     key_benefits        = Column(Text)
 
-    status              = Column(String(50), default="Draft", index=True)
+    status              = Column(String(50), default="Pending", index=True)
     ppd_version         = Column(String(10), default="v1.0")
 
     # Comma-separated role keys
@@ -154,15 +147,17 @@ class PPDSubmission(Base):
 class PPDComment(Base):
     __tablename__ = "ppd_comments"
 
-    id             = Column(Integer, primary_key=True, autoincrement=True)
-    ppd_id         = Column(String(50), nullable=False, index=True)
-    user_name      = Column(String(150))
-    user_role      = Column(String(50))
-    comment        = Column(Text, nullable=False)
-    action_tag     = Column(String(30), default="comment")   # "comment" | "rework" | "approve"
-    attachment_url = Column(String(500), nullable=True)      # uploaded file URL (optional)
-    attachment_name= Column(String(255), nullable=True)      # original filename for display
-    created_at     = Column(DateTime, server_default=func.now(), index=True)
+    id                = Column(Integer, primary_key=True, autoincrement=True)
+    ppd_id            = Column(String(50), nullable=False, index=True)
+    user_name         = Column(String(150))
+    user_role         = Column(String(50))
+    comment           = Column(Text, nullable=False)
+    action_tag        = Column(String(30), default="comment")   # "comment" | "rework" | "approve" | "rework_reply" | "rework_done"
+    attachment_url    = Column(String(500), nullable=True)      # uploaded file URL (optional)
+    attachment_name   = Column(String(255), nullable=True)      # original filename for display
+    rework_resolved   = Column(Boolean, default=False)          # True once rework is completed & resubmitted
+    visible_to_roles  = Column(String(500), nullable=True)      # NULL = all; CSV of role keys if restricted
+    created_at        = Column(DateTime, server_default=func.now(), index=True)
 
 
 # ── Formulation ───────────────────────────────────────────────────────────────

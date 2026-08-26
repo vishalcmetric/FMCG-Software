@@ -3,10 +3,11 @@ Seed script — full demo data for every module.
 Run:  python seed.py
 """
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from passlib.context import CryptContext
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from config import get_settings
+from database import IST
 from orm_models import (
     Base, Task, AuditLog, User, MasterConfig,
     PPDSubmission, PPDComment,
@@ -23,7 +24,7 @@ from orm_models import (
 settings = get_settings()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-NOW = datetime.now(timezone.utc).replace(tzinfo=None)
+NOW = datetime.now(IST).replace(tzinfo=None)
 ALL = "admin,source,pm,fd,rd_head,marketing,regulatory,packaging,adl,pmsa,sa,mgmt,ceo,production"
 
 # ─────────────────────────────────────────────────────────────

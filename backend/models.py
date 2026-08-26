@@ -111,9 +111,16 @@ class PPDUpdate(BaseModel):
 
 class PPDCommentCreate(BaseModel):
     comment: str
-    action_tag: str = "comment"       # "comment" | "rework" | "approve"
+    action_tag: str = "comment"       # "comment" | "approve" | "rework_done" | "rework_reply"
     attachment_url: Optional[str] = None
     attachment_name: Optional[str] = None
+
+class PPDReworkRequest(BaseModel):
+    comment: str                      # required — what needs to be fixed
+    notify_roles: Optional[List[str]] = None  # optional targeted role list
+
+class PPDReworkDoneRequest(BaseModel):
+    reply_comment: str                # required — confirmation of what was done
 
 # ── Formulation ───────────────────────────────────────────────────────────────
 class IngredientItem(BaseModel):
