@@ -2254,7 +2254,6 @@ function PPDView({ user, token, can }) {
   return (
     <div className="space-y-4">
       {/* ── My PPD Tasks ── */}
-      <MyTasksPanel user={user} token={token} taskTypes={['ppd_review','ppd_mgmt_approval','PPD Creation','PM Review']} onStatusChange={fetchPPDs} />
 
       {/* ── Header ── */}
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -3799,8 +3798,6 @@ function FormulationView({ user, token, can }) {
 
   return (
     <div className="space-y-4">
-      {/* ── My Assigned Tasks (Formulation) ── */}
-      <MyTasksPanel user={user} token={token} taskTypes={['formulation','Formulation']} onStatusChange={fetchFormulas} />
 
       {/* ── Header ── */}
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -4594,8 +4591,6 @@ function PlantTrialsView({ user, token, can }) {
 
   return (
     <div className="space-y-4">
-      {/* ── My Assigned Tasks (Plant Trials) ── */}
-      <MyTasksPanel user={user} token={token} taskTypes={['plant','Plant','production']} onStatusChange={load} />
 
       <div className="flex justify-between items-center">
         <div><h1 className="text-2xl font-bold">Plant Trials</h1><p className="text-muted-foreground text-sm">Production scale-up, stability, and commercial run reports</p></div>
@@ -4726,8 +4721,6 @@ function RegulatoryView({ user, token, can }) {
 
   return (
     <div className="space-y-4">
-      {/* ── My Assigned Tasks (Regulatory) ── */}
-      <MyTasksPanel user={user} token={token} taskTypes={['regulatory','Regulatory']} onStatusChange={load} />
 
       <div className="flex justify-between items-center">
         <div><h1 className="text-2xl font-bold">Regulatory Compliance</h1><p className="text-muted-foreground text-sm">Ingredient validation, claims verification, statutory documents</p></div>
@@ -4853,8 +4846,6 @@ function SensoryView({ user, token, can }) {
 
   return (
     <div className="space-y-4">
-      {/* ── My Assigned Tasks (Sensory) ── */}
-      <MyTasksPanel user={user} token={token} taskTypes={['sensory','Sensory']} onStatusChange={load} />
 
       <div className="flex justify-between items-center">
         <div><h1 className="text-2xl font-bold">Sensory & Analytical Evaluation</h1><p className="text-muted-foreground text-sm">PM & SA + ADL evaluation results</p></div>
@@ -5007,8 +4998,6 @@ function CostingView({ user, token, can }) {
 
   return (
     <div className="space-y-4">
-      {/* ── My Assigned Tasks (Costing) ── */}
-      <MyTasksPanel user={user} token={token} taskTypes={['costing','Costing']} onStatusChange={load} />
 
       <div className="flex justify-between items-center">
         <div><h1 className="text-2xl font-bold">Costing & Packaging Feasibility</h1><p className="text-muted-foreground text-sm">Packaging team costing analysis</p></div>
@@ -5177,8 +5166,6 @@ function ClaimView({ user, token, can }) {
 
   return (
     <div className="space-y-4">
-      {/* ── My Assigned Tasks (Claims) ── */}
-      <MyTasksPanel user={user} token={token} taskTypes={['claim','Claim']} onStatusChange={load} />
 
       <div className="flex justify-between items-center">
         <div><h1 className="text-2xl font-bold">Claim Substantiation</h1><p className="text-muted-foreground text-sm">SA Team — evidence and validation of product claims</p></div>
@@ -5341,8 +5328,6 @@ function ArtworkView({ user, token, can }) {
 
   return (
     <div className="space-y-4">
-      {/* ── My Assigned Tasks (Artwork) ── */}
-      <MyTasksPanel user={user} token={token} taskTypes={['artwork','Artwork']} onStatusChange={load} />
 
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3">
