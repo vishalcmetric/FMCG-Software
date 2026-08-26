@@ -10,7 +10,7 @@ Rules:
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
-from database import get_db
+from database import get_db, fmt_ist
 from auth import get_current_user
 from models import FormulaCreate, FormulaUpdate, FormulaCommentCreate
 from orm_models import Formula, FormulaComment, PPDSubmission, AuditLog
@@ -46,8 +46,8 @@ def _formula_out(f: Formula) -> dict:
         "ingredients":    f.ingredients or [],
         "created_by":     f.created_by,
         "created_by_role":f.created_by_role,
-        "created_at":     f.created_at.isoformat() if f.created_at else None,
-        "updated_at":     f.updated_at.isoformat() if f.updated_at else None,
+        "created_at":     fmt_ist(f.created_at),
+        "updated_at":     fmt_ist(f.updated_at),
     }
 
 
@@ -58,7 +58,7 @@ def _comment_out(c: FormulaComment) -> dict:
         "user_name":  c.user_name,
         "user_role":  c.user_role,
         "comment":    c.comment,
-        "created_at": c.created_at.isoformat() if c.created_at else None,
+        "created_at": fmt_ist(c.created_at),
     }
 
 

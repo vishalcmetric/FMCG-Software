@@ -124,7 +124,12 @@ class PPDSubmission(Base):
     ppd_version         = Column(String(10), default="v1.0")
 
     # Comma-separated role keys
-    teams_involved      = Column(String(500), default="admin,source,pm,fd,rd_head,marketing,regulatory,packaging,adl,pmsa,sa,mgmt,ceo,production")
+    # While Pending/Rework: contains only the directly involved roles (creator + reviewers)
+    # After Approved: expanded to full_teams_involved (all relevant roles)
+    teams_involved      = Column(String(500), default="admin,source,pm,fd")
+
+    # Full post-approval visibility — set at creation, applied when PPD is Approved
+    full_teams_involved = Column(String(500), default="admin,source,pm,fd,rd_head,marketing,regulatory,packaging,adl,pmsa,sa,mgmt,ceo,production")
 
     # Owner / submitter info
     created_by          = Column(String(150))

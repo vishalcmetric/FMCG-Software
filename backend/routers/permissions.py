@@ -7,7 +7,7 @@ POST /api/role-permissions/bulk     → save entire matrix at once (admin only)
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from database import get_db
+from database import get_db, fmt_ist
 from auth import get_current_user, require_admin
 from orm_models import RolePermission
 from notify import notify_roles
@@ -150,7 +150,7 @@ def _row_out(r: RolePermission) -> dict:
         "role":        r.role,
         "module":      r.module,
         "permissions": r.permissions or {},
-        "updated_at":  r.updated_at.isoformat() if r.updated_at else None,
+        "updated_at":  fmt_ist(r.updated_at),
     }
 
 

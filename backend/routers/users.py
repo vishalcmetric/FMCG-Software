@@ -4,7 +4,7 @@ Users router — admin-only user management.
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from database import get_db
+from database import get_db, fmt_ist
 from auth import require_admin, hash_password
 from models import UserCreate, UserUpdate
 from orm_models import User
@@ -21,8 +21,8 @@ def _user_out(u: User) -> dict:
         "role":        u.role,
         "department":  u.department,
         "status":      u.status,
-        "last_login":  u.last_login.isoformat() if u.last_login else None,
-        "created_at":  u.created_at.isoformat() if u.created_at else None,
+        "last_login":  fmt_ist(u.last_login),
+        "created_at":  fmt_ist(u.created_at),
     }
 
 

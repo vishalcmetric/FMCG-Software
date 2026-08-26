@@ -4,7 +4,7 @@ Audit router — full activity trail, admin + mgmt + ceo read access.
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
-from database import get_db
+from database import get_db, fmt_ist
 from auth import get_current_user
 from orm_models import AuditLog
 
@@ -49,7 +49,7 @@ async def get_audit_logs(
             "involved_roles": l.involved_roles,
             "ip":            l.ip,
             "time_ago":      l.time_ago,
-            "timestamp":     l.timestamp.isoformat() if l.timestamp else None,
+            "timestamp":     fmt_ist(l.timestamp),
         })
 
     return {"total": total, "logs": logs}

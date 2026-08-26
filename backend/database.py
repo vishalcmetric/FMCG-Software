@@ -15,12 +15,24 @@ except ImportError:
     IST = timezone(timedelta(hours=5, minutes=30))  # IST = UTC+5:30 fallback
 
 def now_ist() -> datetime:
-    """Return the current time as a timezone-aware IST datetime (naive UTC removed)."""
+    """Return the current time as a timezone-aware IST datetime."""
     return datetime.now(IST)
 
 def now_ist_naive() -> datetime:
     """Return the current time in IST as a *naive* datetime (for MySQL storage)."""
     return datetime.now(IST).replace(tzinfo=None)
+
+def fmt_ist(dt) -> str | None:
+    """
+    Serialise a datetime for API responses.
+    MySQL stores naive datetimes; after setting the connection timezone to +05:30
+    those values are in IST.  We append '+05:30' so the browser parses them
+    correctly instead of treating them as local (UTC) time.
+    Returns None when dt is None.
+    """
+    if dt is None:
+        return None
+    return dt.strftime("%Y-%m-%dT%H:%M:%S+05:30")
 
 settings = get_settings()
 
@@ -104,6 +116,8 @@ async def _migrate_columns() -> None:
         # New columns for rework workflow
         ("ppd_comments",     "rework_resolved",   "TINYINT(1) NOT NULL DEFAULT 0"),
         ("ppd_comments",     "visible_to_roles",  "VARCHAR(500) NULL"),
+        # Post-approval full visibility list
+        ("ppd_submissions",  "full_teams_involved", "VARCHAR(500) NULL"),
     ]
 
     try:
@@ -170,5 +184,27 @@ async def _migrate_columns() -> None:
             await conn.commit()
         except Exception as e:
             print(f"Warning: ppd_submissions reviewers backfill failed ({e})")
+
+        # Backfill full_teams_involved for existing rows that don't have it set yet
+        _all_roles = "admin,source,pm,fd,rd_head,marketing,regulatory,packaging,adl,pmsa,sa,mgmt,ceo,production"
+        try:
+            await cur.execute(
+                "UPDATE `ppd_submissions` SET `full_teams_involved` = %s "
+                "WHERE `full_teams_involved` IS NULL OR `full_teams_involved` = ''",
+                (_all_roles,),
+            )
+            await conn.commit()
+        except Exception as e:
+            print(f"Warning: ppd_submissions full_teams_involved backfill failed ({e})")
+
+        # For already-Approved PPDs: ensure teams_involved is the full list
+        try:
+            await cur.execute(
+                "UPDATE `ppd_submissions` SET `teams_involved` = `full_teams_involved` "
+                "WHERE `status` = 'Approved' AND (`full_teams_involved` IS NOT NULL AND `full_teams_involved` != '')"
+            )
+            await conn.commit()
+        except Exception as e:
+            print(f"Warning: ppd_submissions approved teams_involved backfill failed ({e})")
 
     conn.close()

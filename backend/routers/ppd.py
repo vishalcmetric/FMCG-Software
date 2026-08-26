@@ -17,7 +17,7 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 import copy, os, uuid, aiofiles
-from database import get_db, now_ist_naive, IST
+from database import get_db, now_ist_naive, IST, fmt_ist
 from auth import get_current_user, require_admin
 from models import PPDCreate, PPDUpdate, PPDCommentCreate
 from orm_models import PPDSubmission, PPDComment, AuditLog, Task
@@ -26,20 +26,29 @@ from datetime import datetime
 
 router = APIRouter(prefix="/api/ppd", tags=["ppd"])
 
-# Full team list — always used for PPD visibility
+# Full team list — used for post-approval visibility
 ALL_ROLES = "admin,source,pm,fd,rd_head,marketing,regulatory,packaging,adl,pmsa,sa,mgmt,ceo,production"
 
-# Simplified: two reviewers (R&D/F&D and PM)
-DEFAULT_REVIEWERS = [
-    {"role": "fd",  "team_label": "R&D / F&D Team",    "head_name": "", "status": "Pending", "comment": "", "updated_at": ""},
-    {"role": "pm",  "team_label": "Project Management", "head_name": "", "status": "Pending", "comment": "", "updated_at": ""},
-]
+# Initial visibility: creator role + reviewer roles only (before approval)
+# Management/other teams cannot see the PPD until it is Approved
+INITIAL_REVIEWER_ROLES = ["fd", "pm"]   # the two roles assigned review tasks
+INITIAL_VISIBLE_ROLES  = {"admin", "source", "fd", "pm"}  # always visible from day 1
 
 # Roles that count as "reviewers" who can Approve/Rework
 REVIEWER_ROLES = {"admin", "fd", "pm", "rd_head", "mgmt", "ceo", "regulatory", "marketing", "sa"}
 
 # Roles that are "task owners" (responsible for doing the work, not reviewing)
 TASK_OWNER_ROLES = {"source", "packaging", "adl", "pmsa", "production"}
+
+# Roles that gain access ONLY after a PPD is Approved
+MGMT_ROLES = {"mgmt", "ceo", "rd_head", "regulatory", "marketing", "sa",
+              "packaging", "adl", "pmsa", "production"}
+
+# Default reviewers list (R&D/F&D and PM)
+DEFAULT_REVIEWERS = [
+    {"role": "fd",  "team_label": "R&D / F&D Team",    "head_name": "", "status": "Pending", "comment": "", "updated_at": ""},
+    {"role": "pm",  "team_label": "Project Management", "head_name": "", "status": "Pending", "comment": "", "updated_at": ""},
+]
 
 
 def _ist_now_iso() -> str:
@@ -49,27 +58,28 @@ def _ist_now_iso() -> str:
 
 def _ppd_out(p: PPDSubmission) -> dict:
     return {
-        "id":               p.id,
-        "ppd_id":           p.ppd_id,
-        "project_name":     p.project_name,
-        "ppd_title":        p.ppd_title or "",
-        "brand":            p.brand,
-        "product_category": p.product_category,
-        "target_consumer":  p.target_consumer,
-        "market_segment":   p.market_segment,
-        "expected_launch":  p.expected_launch,
-        "objective":        p.objective,
-        "key_benefits":     p.key_benefits,
-        "status":           p.status,
-        "ppd_version":      p.ppd_version,
-        "teams_involved":   p.teams_involved,
-        "created_by":       p.created_by,
-        "created_by_email": p.created_by_email,
-        "created_by_role":  p.created_by_role,
-        "reviewers":        p.reviewers or [],
-        "mgmt_approvals":   p.mgmt_approvals or [],
-        "created_at":       p.created_at.isoformat() if p.created_at else None,
-        "updated_at":       p.updated_at.isoformat() if p.updated_at else None,
+        "id":                   p.id,
+        "ppd_id":               p.ppd_id,
+        "project_name":         p.project_name,
+        "ppd_title":            p.ppd_title or "",
+        "brand":                p.brand,
+        "product_category":     p.product_category,
+        "target_consumer":      p.target_consumer,
+        "market_segment":       p.market_segment,
+        "expected_launch":      p.expected_launch,
+        "objective":            p.objective,
+        "key_benefits":         p.key_benefits,
+        "status":               p.status,
+        "ppd_version":          p.ppd_version,
+        "teams_involved":       p.teams_involved,
+        "full_teams_involved":  p.full_teams_involved or p.teams_involved or ALL_ROLES,
+        "created_by":           p.created_by,
+        "created_by_email":     p.created_by_email,
+        "created_by_role":      p.created_by_role,
+        "reviewers":            p.reviewers or [],
+        "mgmt_approvals":       p.mgmt_approvals or [],
+        "created_at":           fmt_ist(p.created_at),
+        "updated_at":           fmt_ist(p.updated_at),
     }
 
 
@@ -85,7 +95,7 @@ def _comment_out(c: PPDComment) -> dict:
         "attachment_name":  c.attachment_name,
         "rework_resolved":  bool(c.rework_resolved),
         "visible_to_roles": c.visible_to_roles,
-        "created_at":       c.created_at.isoformat() if c.created_at else None,
+        "created_at":       fmt_ist(c.created_at),
     }
 
 
@@ -104,13 +114,23 @@ async def list_ppds(
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Return all PPDs visible to the current user's role."""
+    """
+    Return PPDs visible to the current user.
+
+    Visibility rules:
+    - While Pending/Rework: only roles in teams_involved (creator + direct reviewers) can see it.
+    - After Approved: teams_involved expands to all relevant roles.
+    - admin always sees everything.
+    """
     role = current_user.get("role", "fd")
     stmt = select(PPDSubmission)
 
-    FULL_VISIBILITY_ROLES = {"admin", "mgmt", "ceo", "rd_head", "regulatory", "sa", "cfo", "gdso", "marketing"}
-    if role not in FULL_VISIBILITY_ROLES:
+    if role != "admin":
+        # A PPD is visible when the user's role appears in teams_involved.
+        # For Pending/Rework PPDs, teams_involved is narrow (source+fd+pm only).
+        # For Approved PPDs, teams_involved is expanded to all roles.
         stmt = stmt.where(PPDSubmission.teams_involved.contains(role))
+
     if status != "all":
         stmt = stmt.where(PPDSubmission.status == status)
     if brand != "all":
@@ -140,9 +160,9 @@ async def get_ppd(
     if not p:
         raise HTTPException(404, "PPD not found")
     role = current_user.get("role", "fd")
-    FULL_VISIBILITY_ROLES = {"admin", "mgmt", "ceo", "rd_head", "regulatory", "sa", "cfo", "gdso", "marketing"}
-    if role not in FULL_VISIBILITY_ROLES and role not in (p.teams_involved or "").split(","):
-        raise HTTPException(403, "You are not assigned to this PPD")
+    # Access follows teams_involved — narrow until Approved, full after
+    if role != "admin" and role not in (p.teams_involved or "").split(","):
+        raise HTTPException(403, "This PPD is not accessible to your role yet")
     return _ppd_out(p)
 
 
@@ -157,10 +177,18 @@ async def create_ppd(
     """
     Source Team (or admin) creates a PPD.
     - Status starts as "Pending"
+    - teams_involved is NARROW (admin + source + fd + pm) until the PPD is Approved
+    - full_teams_involved is ALL_ROLES (expanded when PPD is Approved)
     - Auto-tasks created for R&D/F&D (fd) and PM
-    - teams_involved always = ALL_ROLES
+    - Notifications go only to directly involved roles
     """
     role = current_user.get("role", "fd")
+
+    # Narrow initial visibility — only the creator's team + direct reviewers
+    initial_teams = "admin,source,fd,pm"
+    # Creator role always included
+    if role and role not in initial_teams.split(","):
+        initial_teams = f"{initial_teams},{role}"
 
     # Generate a global sequential ppd_id
     count_result = await db.execute(select(func.count(PPDSubmission.id)))
@@ -187,7 +215,8 @@ async def create_ppd(
         key_benefits=body.key_benefits,
         status="Pending",
         ppd_version="v1.0",
-        teams_involved=ALL_ROLES,
+        teams_involved=initial_teams,          # narrow — only directly involved
+        full_teams_involved=ALL_ROLES,          # expanded after Approved
         created_by=current_user.get("name", ""),
         created_by_email=current_user.get("sub", ""),
         created_by_role=role,
@@ -209,19 +238,21 @@ async def create_ppd(
             due_label="Today",
         ))
 
+    notify_roles_list = list(set(initial_teams.split(",")) | {"fd", "pm"})
+
     db.add(AuditLog(
         user_name=current_user.get("name", ""),
         user_email=current_user.get("sub", ""),
         action="CREATE",
         action_label=f"created PPD {ppd_id}: {body.project_name}",
         entity=ppd_id,
-        involved_roles=ALL_ROLES,
+        involved_roles=initial_teams,
         time_ago="just now",
     ))
 
     await notify_roles(
         db,
-        roles=ALL_ROLES.split(","),
+        roles=notify_roles_list,
         title=f"New PPD Created: {body.project_name}",
         message=(
             f"{current_user.get('name','User')} created PPD {ppd_id}: {body.project_name}. "
@@ -253,8 +284,8 @@ async def update_ppd(
         raise HTTPException(404, "PPD not found")
 
     role = current_user.get("role", "fd")
-    FULL_VISIBILITY_ROLES = {"admin", "mgmt", "ceo", "rd_head", "regulatory", "sa", "cfo", "gdso", "marketing"}
-    if role not in FULL_VISIBILITY_ROLES and role not in (p.teams_involved or "").split(","):
+    # Access follows teams_involved — narrow until Approved, full after
+    if role != "admin" and role not in (p.teams_involved or "").split(","):
         raise HTTPException(403, "You are not assigned to this PPD")
 
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
@@ -366,13 +397,17 @@ async def update_reviewers(
             all_approved = all(r.get("status") == "Approved" for r in current_reviewers)
             if all_approved:
                 p.status = "Approved"
+                # Expand visibility to all teams now that PPD is Approved
+                full_teams = p.full_teams_involved or ALL_ROLES
+                p.teams_involved = full_teams
+                flag_modified(p, "teams_involved")
                 await notify_roles(
                     db,
-                    roles=_involved_roles(p),
+                    roles=full_teams.split(","),
                     title=f"PPD Approved: {p.project_name}",
                     message=(
                         f"All reviewers approved PPD {ppd_id}. "
-                        f"The PPD is now marked Approved."
+                        f"The PPD is now marked Approved and visible to all teams."
                     ),
                     action_type="ppd_approved",
                     entity_id=ppd_id,
@@ -665,8 +700,8 @@ async def add_comment(
         raise HTTPException(404, "PPD not found")
 
     role = current_user.get("role", "fd")
-    FULL_VISIBILITY_ROLES = {"admin", "mgmt", "ceo", "rd_head", "regulatory", "sa", "cfo", "gdso", "marketing"}
-    if role not in FULL_VISIBILITY_ROLES and role not in (p.teams_involved or "").split(","):
+    # Access follows teams_involved — narrow until Approved, full after
+    if role != "admin" and role not in (p.teams_involved or "").split(","):
         raise HTTPException(403, "You are not assigned to this PPD")
 
     # Validate action_tag

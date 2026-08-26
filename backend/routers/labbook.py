@@ -6,7 +6,7 @@ Any role can view.
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
-from database import get_db
+from database import get_db, fmt_ist
 from auth import get_current_user
 from orm_models import LabExperiment, PPDSubmission, AuditLog
 from notify import notify_roles
@@ -51,8 +51,8 @@ def _out(e: LabExperiment) -> dict:
         "observations": e.observations, "result": e.result, "status": e.status,
         "formula_id": e.formula_id or "", "version": e.version or "",
         "created_by": e.created_by, "created_by_role": e.created_by_role,
-        "created_at": e.created_at.isoformat() if e.created_at else None,
-        "updated_at": e.updated_at.isoformat() if e.updated_at else None,
+        "created_at": fmt_ist(e.created_at),
+        "updated_at": fmt_ist(e.updated_at),
     }
 
 

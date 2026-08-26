@@ -5,7 +5,7 @@ Roles: admin, packaging, rd_head, mgmt can create/update.
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
-from database import get_db
+from database import get_db, fmt_ist
 from auth import get_current_user
 from orm_models import CostingRecord, PPDSubmission, AuditLog
 from notify import notify_roles
@@ -54,8 +54,8 @@ def _out(c: CostingRecord) -> dict:
         "cost_breakdown": c.cost_breakdown or [], "total_cost_per_kg": c.total_cost_per_kg,
         "packaging_items": c.packaging_items or [], "status": c.status, "notes": c.notes,
         "created_by": c.created_by, "created_by_role": c.created_by_role,
-        "created_at": c.created_at.isoformat() if c.created_at else None,
-        "updated_at": c.updated_at.isoformat() if c.updated_at else None,
+        "created_at": fmt_ist(c.created_at),
+        "updated_at": fmt_ist(c.updated_at),
     }
 
 

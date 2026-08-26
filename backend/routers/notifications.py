@@ -8,7 +8,7 @@ POST /api/notifications/read-all  → mark all as read for this role
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select, func, or_, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from database import get_db
+from database import get_db, fmt_ist
 from auth import get_current_user
 from orm_models import Notification
 
@@ -27,7 +27,7 @@ def _notif_out(n: Notification) -> dict:
         "entity_name": n.entity_name,
         "created_by":  n.created_by,
         "is_read":     n.is_read,
-        "created_at":  n.created_at.isoformat() if n.created_at else None,
+        "created_at":  fmt_ist(n.created_at),
     }
 
 

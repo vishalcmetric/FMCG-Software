@@ -5,7 +5,7 @@ Roles: admin, production, rd_head, packaging can create/update.
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
-from database import get_db
+from database import get_db, fmt_ist
 from auth import get_current_user
 from orm_models import PlantTrial, PPDSubmission, AuditLog
 from notify import notify_roles
@@ -54,8 +54,8 @@ def _out(t: PlantTrial) -> dict:
         "product_code": t.product_code, "sfg_code": t.sfg_code, "notes": t.notes,
         "scheduled_date": t.scheduled_date, "completed_date": t.completed_date,
         "created_by": t.created_by, "created_by_role": t.created_by_role,
-        "created_at": t.created_at.isoformat() if t.created_at else None,
-        "updated_at": t.updated_at.isoformat() if t.updated_at else None,
+        "created_at": fmt_ist(t.created_at),
+        "updated_at": fmt_ist(t.updated_at),
     }
 
 

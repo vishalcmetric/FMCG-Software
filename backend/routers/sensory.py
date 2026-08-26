@@ -5,7 +5,7 @@ Roles: admin, pmsa, adl, rd_head can create/update.
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
-from database import get_db
+from database import get_db, fmt_ist
 from auth import get_current_user
 from orm_models import SensoryEvaluation, PPDSubmission, AuditLog
 from notify import notify_roles
@@ -67,8 +67,8 @@ def _out(e: SensoryEvaluation) -> dict:
         "adl_apc": e.adl_apc, "adl_ecoli": e.adl_ecoli,
         "status": e.status, "notes": e.notes,
         "created_by": e.created_by, "created_by_role": e.created_by_role,
-        "created_at": e.created_at.isoformat() if e.created_at else None,
-        "updated_at": e.updated_at.isoformat() if e.updated_at else None,
+        "created_at": fmt_ist(e.created_at),
+        "updated_at": fmt_ist(e.updated_at),
     }
 
 

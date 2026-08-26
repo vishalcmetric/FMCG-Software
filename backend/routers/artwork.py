@@ -5,7 +5,7 @@ Marketing creates briefs, Packaging manages design versions & approvals.
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
-from database import get_db
+from database import get_db, fmt_ist
 from auth import get_current_user
 from orm_models import ArtworkBrief, PPDSubmission, AuditLog
 from notify import notify_roles
@@ -52,8 +52,8 @@ def _out(a: ArtworkBrief) -> dict:
         "design_link": a.design_link, "comment": a.comment, "status": a.status,
         "assigned_to": a.assigned_to,
         "created_by": a.created_by, "created_by_role": a.created_by_role,
-        "created_at": a.created_at.isoformat() if a.created_at else None,
-        "updated_at": a.updated_at.isoformat() if a.updated_at else None,
+        "created_at": fmt_ist(a.created_at),
+        "updated_at": fmt_ist(a.updated_at),
     }
 
 

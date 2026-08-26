@@ -5,7 +5,7 @@ Roles: admin, regulatory, rd_head can create/update.
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
-from database import get_db
+from database import get_db, fmt_ist
 from auth import get_current_user
 from orm_models import RegulatoryCheck, PPDSubmission, AuditLog
 from notify import notify_roles
@@ -45,8 +45,8 @@ def _out(r: RegulatoryCheck) -> dict:
         "ingredient_or_claim": r.ingredient_or_claim, "assigned_to": r.assigned_to,
         "assigned_role": r.assigned_role, "due_date": r.due_date, "status": r.status,
         "notes": r.notes, "created_by": r.created_by, "created_by_role": r.created_by_role,
-        "created_at": r.created_at.isoformat() if r.created_at else None,
-        "updated_at": r.updated_at.isoformat() if r.updated_at else None,
+        "created_at": fmt_ist(r.created_at),
+        "updated_at": fmt_ist(r.updated_at),
     }
 
 

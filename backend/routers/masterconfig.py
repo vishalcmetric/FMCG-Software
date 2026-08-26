@@ -5,7 +5,7 @@ Admin only for mutations; all roles can read.
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from database import get_db
+from database import get_db, fmt_ist
 from auth import get_current_user, require_admin
 from orm_models import MasterConfig
 from pydantic import BaseModel
@@ -63,7 +63,7 @@ def _out(c: MasterConfig) -> dict:
         "id": c.id, "config_type": c.config_type, "key": c.key,
         "label": c.label, "meta": c.meta or {}, "is_active": c.is_active,
         "sort_order": c.sort_order,
-        "created_at": c.created_at.isoformat() if c.created_at else None,
+        "created_at": fmt_ist(c.created_at),
     }
 
 

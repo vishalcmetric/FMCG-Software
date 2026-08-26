@@ -35,7 +35,7 @@ class Settings(BaseSettings):
         return (
             f"mysql+aiomysql://{user}:{pwd}"
             f"@{self.mysql_host}:{self.mysql_port}/{self.mysql_db}"
-            f"?charset=utf8mb4"
+            f"?charset=utf8mb4&init_command=SET+time_zone%3D%27%2B05%3A30%27"
         )
 
     @property
