@@ -110,19 +110,45 @@ _DEFAULT: dict[str, dict[str, list[str]]] = {
         "Reports":   ["view"],
         "Archive":   ["view"],
     },
+    # Stage-3 Management Committee — individual roles
+    "marketing_head": {
+        "Projects": ["view"],
+        "PPD":      ["view", "approve"],
+        "Reports":  ["view"],
+        "Archive":  ["view"],
+    },
+    "sales_head": {
+        "Projects": ["view"],
+        "PPD":      ["view", "approve"],
+        "Reports":  ["view"],
+        "Archive":  ["view"],
+    },
+    "gdso_head":  {
+        "Projects": ["view"],
+        "PPD":      ["view", "approve"],
+        "Reports":  ["view"],
+        "Archive":  ["view"],
+    },
+    "cfo":        {
+        "Projects": ["view"],
+        "PPD":      ["view", "approve"],
+        "Costing":  ["view"],
+        "Reports":  ["view"],
+        "Archive":  ["view"],
+        "Audit":    ["view"],
+    },
+    # Keep mgmt for legacy/backwards compat
     "mgmt":       {
         "Projects":     ["view"],
-        # WBS: Management Committee (Mktg Head, Sales, R&D, GDSO, Reg Head, CFO) approve or rework PPDs
-        "PPD":          ["view", "edit", "submit", "approve"],
-        "Formulation":  ["view"],
+        "PPD":          ["view", "approve"],
         "Reports":      ["view"],
-        "Costing":      ["view", "approve"],
+        "Costing":      ["view"],
         "Archive":      ["view"],
         "Audit":        ["view"],
     },
     "ceo":        {
         "Projects":     ["view"],
-        # WBS: CEO gives final approval (CEO Approved status)
+        # WBS: CEO gives final approval after all 6 mgmt committee members approve
         "PPD":          ["view", "approve"],
         "Reports":      ["view"],
         "Archive":      ["view"],
@@ -155,17 +181,28 @@ def _row_out(r: RolePermission) -> dict:
 
 
 async def _ensure_defaults(db: AsyncSession):
-    """Seed the default permission matrix if the table is empty."""
+    """Seed the default permission matrix. Also adds any new roles that are missing."""
     count_result = await db.execute(select(RolePermission))
-    if count_result.scalars().first() is not None:
-        return  # already seeded
+    existing_rows = count_result.scalars().all()
 
-    for role, modules in _DEFAULT.items():
-        # Give all modules to this role — denied modules get all-False
-        for module in MODULES:
-            perm = _make_perm_dict(role, module)
-            db.add(RolePermission(role=role, module=module, permissions=perm))
-    await db.commit()
+    if not existing_rows:
+        # First time — seed everything
+        for role, modules in _DEFAULT.items():
+            for module in MODULES:
+                perm = _make_perm_dict(role, module)
+                db.add(RolePermission(role=role, module=module, permissions=perm))
+        await db.commit()
+        return
+
+    # Table already has data — only seed roles that are completely missing
+    existing_roles = {r.role for r in existing_rows}
+    new_roles = [r for r in _DEFAULT if r not in existing_roles]
+    if new_roles:
+        for role in new_roles:
+            for module in MODULES:
+                perm = _make_perm_dict(role, module)
+                db.add(RolePermission(role=role, module=module, permissions=perm))
+        await db.commit()
 
 
 # ── GET /my — current user's permissions as flat dict ────────────────────────

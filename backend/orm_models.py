@@ -12,17 +12,25 @@ from database import Base
 import enum
 
 # ── PPD Status enum ───────────────────────────────────────────────────────────
-# Full workflow:
-#   Pending  → Rework (reviewer sends back)
-#   Pending  → ReviewerApproved (all initial reviewers approved; Source must still submit)
-#   ReviewerApproved → SubmittedForApproval (Source clicks "Submit for Approval")
-#   SubmittedForApproval → Approved (Management / final approver signs off)
+# Full 6-stage workflow:
+#
+#  Pending              → Rework | ReviewerApproved
+#  ReviewerApproved     → MgmtReview      (Source clicks Submit for Approval)
+#  MgmtReview           → Rework | MgmtApproved  (all mgmt committee approve individually)
+#  MgmtApproved         → FinalReview     (CFO + CEO assigned)
+#  FinalReview          → Rework | Approved (CFO + CEO both approve)
+#  Approved             = terminal
+#
+#  Rework is possible at any review stage; rework-done restores to the
+#  appropriate stage (Pending / MgmtReview / FinalReview).
 class PPDStatus(str, enum.Enum):
     Pending               = "Pending"
     Rework                = "Rework"
-    ReviewerApproved      = "ReviewerApproved"   # R&D+FD approved; awaiting Source submission
-    SubmittedForApproval  = "SubmittedForApproval"  # Source submitted to Management
-    Approved              = "Approved"
+    ReviewerApproved      = "ReviewerApproved"   # fd+pm done; waiting for Source to submit
+    MgmtReview            = "MgmtReview"         # submitted; mgmt committee reviewing
+    MgmtApproved          = "MgmtApproved"       # all mgmt approved; CFO+CEO assigned
+    FinalReview           = "FinalReview"         # CFO+CEO reviewing
+    Approved              = "Approved"            # fully approved
 
 # ── Enums ─────────────────────────────────────────────────────────────────────
 class TaskStatus(str, enum.Enum):
@@ -135,16 +143,21 @@ class PPDSubmission(Base):
     teams_involved      = Column(String(500), default="admin,source,pm,fd")
 
     # Full post-approval visibility — set at creation, applied when PPD is Approved
-    full_teams_involved = Column(String(500), default="admin,source,pm,fd,rd_head,marketing,regulatory,packaging,adl,pmsa,sa,mgmt,ceo,production")
+    full_teams_involved = Column(String(500), default="admin,source,pm,fd,rd_head,marketing_head,sales_head,gdso_head,regulatory,cfo,marketing,packaging,adl,pmsa,sa,ceo,production")
 
     # Owner / submitter info
     created_by          = Column(String(150))
     created_by_email    = Column(String(255))
     created_by_role     = Column(String(50))
 
-    # Review & approval state stored as JSON list of dicts
-    reviewers           = Column(JSON, default=list)
-    mgmt_approvals      = Column(JSON, default=list)
+    # Stage-by-stage approval state, each stored as JSON list of dicts:
+    # [{role, team_label, status, comment, updated_at}, ...]
+    reviewers           = Column(JSON, default=list)   # fd + pm (Stage 1)
+    mgmt_approvals      = Column(JSON, default=list)   # rd_head,marketing_head,sales_head,gdso_head,regulatory,cfo (Stage 3)
+    final_approvals     = Column(JSON, default=list)   # ceo (Stage 4)
+
+    # Track which stage a Rework came from, so rework-done restores to correct stage
+    rework_from_stage   = Column(String(30), nullable=True)  # "initial" | "mgmt" | "final"
 
     created_at          = Column(DateTime, server_default=func.now())
     updated_at          = Column(DateTime, server_default=func.now(), onupdate=func.now())

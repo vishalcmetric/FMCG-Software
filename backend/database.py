@@ -91,7 +91,7 @@ async def create_tables():
     await _migrate_columns()
 
 
-ALL_ROLES = "admin,source,pm,fd,rd_head,marketing,regulatory,packaging,adl,pmsa,sa,mgmt,ceo,production"
+ALL_ROLES = "admin,source,pm,fd,rd_head,marketing_head,sales_head,gdso_head,regulatory,cfo,marketing,packaging,adl,pmsa,sa,ceo,production"
 
 
 async def _migrate_columns() -> None:
@@ -118,6 +118,9 @@ async def _migrate_columns() -> None:
         ("ppd_comments",     "visible_to_roles",  "VARCHAR(500) NULL"),
         # Post-approval full visibility list
         ("ppd_submissions",  "full_teams_involved", "VARCHAR(500) NULL"),
+        # Multi-stage approval columns
+        ("ppd_submissions",  "final_approvals",   "JSON NULL"),
+        ("ppd_submissions",  "rework_from_stage", "VARCHAR(30) NULL"),
     ]
 
     try:
@@ -186,7 +189,7 @@ async def _migrate_columns() -> None:
             print(f"Warning: ppd_submissions reviewers backfill failed ({e})")
 
         # Backfill full_teams_involved for existing rows that don't have it set yet
-        _all_roles = "admin,source,pm,fd,rd_head,marketing,regulatory,packaging,adl,pmsa,sa,mgmt,ceo,production"
+        _all_roles = "admin,source,pm,fd,rd_head,marketing_head,sales_head,gdso_head,regulatory,cfo,marketing,packaging,adl,pmsa,sa,ceo,production"
         try:
             await cur.execute(
                 "UPDATE `ppd_submissions` SET `full_teams_involved` = %s "
