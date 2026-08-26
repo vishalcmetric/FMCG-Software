@@ -1,20 +1,38 @@
 """
-PPD (Product Development Plan) router — multi-stage approval workflow.
+PPD (Product Development Plan) router — 6-stage approval workflow.
 
-Status workflow:
-  Pending
-    → Rework           (reviewer sends back with comment)
-    → ReviewerApproved (ALL initial reviewers — fd/pm — approved)
+Stage 1 — Initial Review (fd + pm)
+  status: Pending / Rework
+  → When ALL fd+pm approve: status = ReviewerApproved
 
-  ReviewerApproved
-    → SubmittedForApproval  (Source Team explicitly clicks Submit for Approval)
+Stage 2 — Source Submission
+  status: ReviewerApproved
+  → Source Team clicks "Submit for Approval"
+  → assigns: rd_head, marketing_head, sales_head, gdso_head, regulatory, cfo tasks
+  → status = MgmtReview
 
-  SubmittedForApproval
-    → Approved              (Management / final approver signs off)
-    → Rework                (management sends back)
+Stage 3 — Management Committee Review (6 members)
+  rd_head, marketing_head, sales_head, gdso_head, regulatory, cfo
+  status: MgmtReview / Rework
+  → Each role approves INDEPENDENTLY (no cascading)
+  → When ALL six approve: status = MgmtApproved
+    → assigns ceo task
 
-Key rule: When initial reviewers (R&D/FD) approve, the PPD does NOT go to Management.
-It stays with the Source Team, who must explicitly submit it.
+Stage 4 — Final Approval (ceo only)
+  status: FinalReview / Rework
+  → CEO approves
+  → When approved: status = Approved, visibility expanded to ALL_ROLES
+
+Rework at any stage:
+  - Sets status = Rework
+  - Stores rework_from_stage = "initial" | "mgmt" | "final"
+  - Sends notification ONLY to the task owner (source team)
+  - rework-done resets status to the appropriate stage's pre-rework value
+
+Key invariants:
+  - No stage is skipped automatically
+  - One role's approval NEVER approves another role's task
+  - Management/CFO/CEO never get notifications until their stage is reached
 """
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
 from sqlalchemy import select, func
@@ -30,33 +48,63 @@ from datetime import datetime
 
 router = APIRouter(prefix="/api/ppd", tags=["ppd"])
 
-# Full team list — used for post-approval visibility
-ALL_ROLES = "admin,source,pm,fd,rd_head,marketing,regulatory,packaging,adl,pmsa,sa,mgmt,ceo,production"
+# ── Role constants ─────────────────────────────────────────────────────────────
 
-# Initial visibility: creator role + reviewer roles only (before Source submits to mgmt)
-INITIAL_VISIBLE_ROLES = {"admin", "source", "fd", "pm"}  # always visible from day 1
+# Full role list — used for post-approval visibility
+ALL_ROLES = "admin,source,pm,fd,rd_head,marketing_head,sales_head,gdso_head,regulatory,cfo,packaging,adl,pmsa,sa,ceo,production"
 
-# Initial reviewer roles — R&D/F&D (fd) and PM are assigned review tasks on creation
-INITIAL_REVIEWER_ROLES = ["fd", "pm"]
+# Stage 1: Initial review — fd + pm
+INITIAL_VISIBLE_ROLES  = {"admin", "source", "fd", "pm"}   # PPD visible from day 1
+INITIAL_REVIEWER_ROLES = ["fd", "pm"]                      # get tasks on creation
 
-# Roles that count as "initial reviewers" (fd+pm stage) — can Approve/Rework before submission
-REVIEWER_ROLES = {"admin", "fd", "pm"}
+# Stage 3: Management Committee — 6 members assigned when Source submits
+MGMT_ROLES = ["rd_head", "marketing_head", "sales_head", "gdso_head", "regulatory", "cfo"]
 
-# Management roles — assigned ONLY after Source submits for approval
-MGMT_REVIEWER_ROLES = {"rd_head", "mgmt", "ceo", "regulatory", "marketing", "sa"}
+# Stage 4: Final approver — CEO only (after ALL 6 mgmt members approve)
+FINAL_APPROVER_ROLES = ["ceo"]
 
-# Roles that are "task owners" (responsible for doing the work, not reviewing)
-TASK_OWNER_ROLES = {"source", "packaging", "adl", "pmsa", "production"}
+# Combined sets for permission checks
+ALL_REVIEWER_ROLES = set(INITIAL_REVIEWER_ROLES) | set(MGMT_ROLES) | set(FINAL_APPROVER_ROLES) | {"admin"}
+TASK_OWNER_ROLES   = {"source", "packaging", "adl", "pmsa", "production"}
 
-# Default reviewers list (R&D/F&D and PM)
+# Default Stage-1 reviewers (fd + pm)
 DEFAULT_REVIEWERS = [
-    {"role": "fd",  "team_label": "R&D / F&D Team",    "head_name": "", "status": "Pending", "comment": "", "updated_at": ""},
-    {"role": "pm",  "team_label": "Project Management", "head_name": "", "status": "Pending", "comment": "", "updated_at": ""},
+    {"role": "fd",  "team_label": "R&D / F&D Team",    "status": "Pending", "comment": "", "updated_at": ""},
+    {"role": "pm",  "team_label": "Project Management", "status": "Pending", "comment": "", "updated_at": ""},
 ]
+
+# Stage-3 Management Committee reviewer defaults (6 members)
+DEFAULT_MGMT_APPROVALS = [
+    {"role": "rd_head",       "team_label": "R&D Head",          "status": "Pending", "comment": "", "updated_at": ""},
+    {"role": "marketing_head","team_label": "Marketing Head",     "status": "Pending", "comment": "", "updated_at": ""},
+    {"role": "sales_head",    "team_label": "Sales Head",         "status": "Pending", "comment": "", "updated_at": ""},
+    {"role": "gdso_head",     "team_label": "GDSO Head",          "status": "Pending", "comment": "", "updated_at": ""},
+    {"role": "regulatory",    "team_label": "Regulatory Head",    "status": "Pending", "comment": "", "updated_at": ""},
+    {"role": "cfo",           "team_label": "CFO",                "status": "Pending", "comment": "", "updated_at": ""},
+]
+
+# Stage-4 Final approver defaults (CEO only)
+DEFAULT_FINAL_APPROVALS = [
+    {"role": "ceo", "team_label": "CEO",  "status": "Pending", "comment": "", "updated_at": ""},
+]
+
+# Map each stage name → the status PPD should restore to when rework is resolved
+REWORK_RESTORE_STATUS = {
+    "initial": "Pending",
+    "mgmt":    "MgmtReview",
+    "final":   "FinalReview",
+}
+
+# Teams that should be included in teams_involved at each stage
+TEAMS_AT_STAGE = {
+    "initial":  set(INITIAL_VISIBLE_ROLES),
+    "mgmt":     set(INITIAL_VISIBLE_ROLES) | set(MGMT_ROLES),
+    "final":    set(INITIAL_VISIBLE_ROLES) | set(MGMT_ROLES) | set(FINAL_APPROVER_ROLES),
+    "approved": set(ALL_ROLES.split(",")),
+}
 
 
 def _ist_now_iso() -> str:
-    """Return current IST time as ISO string."""
     return datetime.now(IST).isoformat()
 
 
@@ -82,6 +130,8 @@ def _ppd_out(p: PPDSubmission) -> dict:
         "created_by_role":      p.created_by_role,
         "reviewers":            p.reviewers or [],
         "mgmt_approvals":       p.mgmt_approvals or [],
+        "final_approvals":      p.final_approvals or [],
+        "rework_from_stage":    p.rework_from_stage or "",
         "created_at":           fmt_ist(p.created_at),
         "updated_at":           fmt_ist(p.updated_at),
     }
@@ -104,8 +154,12 @@ def _comment_out(c: PPDComment) -> dict:
 
 
 def _involved_roles(p: PPDSubmission) -> list[str]:
-    """Return the list of roles actively involved in this PPD."""
     return [r.strip() for r in (p.teams_involved or "admin").split(",") if r.strip()]
+
+
+def _teams_str(role_set: set) -> str:
+    """Sort and join a set of roles into a comma-separated string."""
+    return ",".join(sorted(role_set))
 
 
 # ── LIST ──────────────────────────────────────────────────────────────────────
@@ -118,21 +172,10 @@ async def list_ppds(
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Return PPDs visible to the current user.
-
-    Visibility rules:
-    - While Pending/Rework: only roles in teams_involved (creator + direct reviewers) can see it.
-    - After Approved: teams_involved expands to all relevant roles.
-    - admin always sees everything.
-    """
     role = current_user.get("role", "fd")
     stmt = select(PPDSubmission)
 
     if role != "admin":
-        # A PPD is visible when the user's role appears in teams_involved.
-        # For Pending/Rework PPDs, teams_involved is narrow (source+fd+pm only).
-        # For Approved PPDs, teams_involved is expanded to all roles.
         stmt = stmt.where(PPDSubmission.teams_involved.contains(role))
 
     if status != "all":
@@ -164,7 +207,6 @@ async def get_ppd(
     if not p:
         raise HTTPException(404, "PPD not found")
     role = current_user.get("role", "fd")
-    # Access follows teams_involved — narrow until Approved, full after
     if role != "admin" and role not in (p.teams_involved or "").split(","):
         raise HTTPException(403, "This PPD is not accessible to your role yet")
     return _ppd_out(p)
@@ -180,21 +222,17 @@ async def create_ppd(
 ):
     """
     Source Team (or admin) creates a PPD.
-    - Status starts as "Pending"
-    - teams_involved is NARROW (admin + source + fd + pm) until the PPD is Approved
-    - full_teams_involved is ALL_ROLES (expanded when PPD is Approved)
-    - Auto-tasks created for R&D/F&D (fd) and PM
-    - Notifications go only to directly involved roles
+    - Status: Pending
+    - Assigns fd + pm review tasks
+    - teams_involved: narrow (admin, source, fd, pm)
+    - Management / CFO / CEO get NO notification yet
     """
     role = current_user.get("role", "fd")
 
-    # Narrow initial visibility — only the creator's team + direct reviewers
-    initial_teams = "admin,source,fd,pm"
-    # Creator role always included
-    if role and role not in initial_teams.split(","):
-        initial_teams = f"{initial_teams},{role}"
+    initial_teams = set(INITIAL_VISIBLE_ROLES)
+    if role and role not in initial_teams:
+        initial_teams.add(role)
 
-    # Generate a global sequential ppd_id
     count_result = await db.execute(select(func.count(PPDSubmission.id)))
     seq = (count_result.scalar() or 0) + 1
     while True:
@@ -203,8 +241,6 @@ async def create_ppd(
         if not taken:
             break
         seq += 1
-
-    reviewers = list(DEFAULT_REVIEWERS)
 
     ppd = PPDSubmission(
         ppd_id=ppd_id,
@@ -219,18 +255,20 @@ async def create_ppd(
         key_benefits=body.key_benefits,
         status="Pending",
         ppd_version="v1.0",
-        teams_involved=initial_teams,          # narrow — only directly involved
-        full_teams_involved=ALL_ROLES,          # expanded after Approved
+        teams_involved=_teams_str(initial_teams),
+        full_teams_involved=ALL_ROLES,
         created_by=current_user.get("name", ""),
         created_by_email=current_user.get("sub", ""),
         created_by_role=role,
-        reviewers=reviewers,
+        reviewers=list(DEFAULT_REVIEWERS),
         mgmt_approvals=[],
+        final_approvals=[],
+        rework_from_stage=None,
     )
     db.add(ppd)
 
-    # Auto-assign review tasks to R&D/F&D and PM
-    for target_role in ["fd", "pm"]:
+    # Stage-1 tasks: fd + pm
+    for target_role in INITIAL_REVIEWER_ROLES:
         db.add(Task(
             title=f"Review PPD {ppd_id} — {body.project_name}",
             project_name=body.project_name,
@@ -242,21 +280,19 @@ async def create_ppd(
             due_label="Today",
         ))
 
-    notify_roles_list = list(set(initial_teams.split(",")) | {"fd", "pm"})
-
     db.add(AuditLog(
         user_name=current_user.get("name", ""),
         user_email=current_user.get("sub", ""),
         action="CREATE",
         action_label=f"created PPD {ppd_id}: {body.project_name}",
         entity=ppd_id,
-        involved_roles=initial_teams,
+        involved_roles=_teams_str(initial_teams),
         time_ago="just now",
     ))
 
     await notify_roles(
         db,
-        roles=notify_roles_list,
+        roles=list(initial_teams | {"fd", "pm"}),
         title=f"New PPD Created: {body.project_name}",
         message=(
             f"{current_user.get('name','User')} created PPD {ppd_id}: {body.project_name}. "
@@ -273,7 +309,7 @@ async def create_ppd(
     return _ppd_out(ppd)
 
 
-# ── UPDATE ────────────────────────────────────────────────────────────────────
+# ── UPDATE (content edits) ────────────────────────────────────────────────────
 
 @router.put("/{ppd_id}")
 async def update_ppd(
@@ -288,19 +324,10 @@ async def update_ppd(
         raise HTTPException(404, "PPD not found")
 
     role = current_user.get("role", "fd")
-    # Access follows teams_involved — narrow until Approved, full after
     if role != "admin" and role not in (p.teams_involved or "").split(","):
         raise HTTPException(403, "You are not assigned to this PPD")
 
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
-
-    if "status" in updates:
-        new_status = updates["status"]
-        # Only admin can freely set status via this endpoint
-        if new_status == "Approved" and role not in REVIEWER_ROLES | {"admin"}:
-            raise HTTPException(403, "Only reviewers or admin can approve a PPD")
-        if new_status == "Rework" and role not in REVIEWER_ROLES | {"admin"}:
-            raise HTTPException(403, "Only reviewers or admin can send a PPD for rework")
 
     # Bump version on content edits
     content_fields = {"objective", "key_benefits", "product_category", "target_consumer", "market_segment", "expected_launch"}
@@ -315,7 +342,8 @@ async def update_ppd(
         setattr(p, field, value)
 
     change_parts = []
-    if "status" in updates:    change_parts.append(f"status → {updates['status']}")
+    if "status" in updates:
+        change_parts.append(f"status → {updates['status']}")
     change_summary = ", ".join(change_parts) if change_parts else "content updated"
 
     db.add(AuditLog(
@@ -328,10 +356,9 @@ async def update_ppd(
         time_ago="just now",
     ))
 
-    target_roles = _involved_roles(p)
     await notify_roles(
         db,
-        roles=target_roles,
+        roles=_involved_roles(p),
         title=f"PPD Updated: {p.project_name}",
         message=f"{current_user.get('name','User')} updated {ppd_id} ({p.brand}) — {change_summary}.",
         action_type="ppd_updated",
@@ -344,7 +371,7 @@ async def update_ppd(
     return {"ok": True, "ppd_version": p.ppd_version}
 
 
-# ── REVIEWER STATUS UPDATE (Approve / Rework) ────────────────────────────────
+# ── STAGE 1: Initial Reviewer Status Update (fd / pm) ─────────────────────────
 
 @router.patch("/{ppd_id}/reviewers")
 async def update_reviewers(
@@ -354,9 +381,12 @@ async def update_reviewers(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Update reviewer status for a PPD.
-    body: { reviewers: [{role, team_label, head_name, status, comment}] }
-    Allowed statuses: Pending, Rework, Approved
+    fd / pm update their own review status.
+    body: { reviewers: [{role, status, comment}] }
+
+    - Only the caller's own entry is updated (no cascading).
+    - When ALL fd+pm entries are 'Approved': status → ReviewerApproved.
+    - Rework is sent via POST /rework instead.
     """
     result = await db.execute(select(PPDSubmission).where(PPDSubmission.ppd_id == ppd_id))
     p = result.scalars().first()
@@ -365,18 +395,18 @@ async def update_reviewers(
 
     role = current_user.get("role", "fd")
     new_reviewers = body.get("reviewers", [])
-    ALLOWED_REVIEW_STATUSES = {"Pending", "Rework", "Approved"}
+    ALLOWED = {"Pending", "Rework", "Approved"}
 
     if role == "admin":
         p.reviewers = copy.deepcopy(new_reviewers)
         flag_modified(p, "reviewers")
     else:
-        if role not in REVIEWER_ROLES:
-            raise HTTPException(403, "Your role cannot update reviewer status on this PPD")
+        if role not in set(INITIAL_REVIEWER_ROLES) | {"admin"}:
+            raise HTTPException(403, "Only initial reviewers (R&D/F&D, PM) can use this endpoint")
 
         current_reviewers = copy.deepcopy(p.reviewers or [])
-        my_index = next((i for i, r in enumerate(current_reviewers) if r.get("role") == role), None)
-        if my_index is None:
+        my_entry = next((r for r in current_reviewers if r.get("role") == role), None)
+        if my_entry is None:
             raise HTTPException(403, "Your role is not in the reviewer list for this PPD")
 
         new_status = None
@@ -385,34 +415,29 @@ async def update_reviewers(
                 for nr in new_reviewers:
                     if nr.get("role") == role:
                         ns = nr.get("status", r.get("status"))
-                        if ns not in ALLOWED_REVIEW_STATUSES:
-                            raise HTTPException(400, f"Invalid review status '{ns}'. Must be one of: Pending, Rework, Approved")
+                        if ns not in ALLOWED:
+                            raise HTTPException(400, f"Invalid status '{ns}'")
                         r["status"]     = ns
                         r["comment"]    = nr.get("comment", r.get("comment", ""))
                         r["updated_at"] = _ist_now_iso()
-                        new_status = r["status"]
+                        new_status = ns
                         break
 
         p.reviewers = current_reviewers
         flag_modified(p, "reviewers")
 
-        # Update PPD-level status to match reviewer decision
         if new_status == "Approved":
             all_approved = all(r.get("status") == "Approved" for r in current_reviewers)
             if all_approved:
-                # ALL initial reviewers (fd+pm) approved.
-                # Move to ReviewerApproved — NOT to Approved and NOT to mgmt yet.
-                # Source Team must explicitly "Submit for Approval" to involve management.
+                # ALL fd+pm approved → ReviewerApproved; Source must submit
                 p.status = "ReviewerApproved"
-                # teams_involved stays narrow (admin,source,fd,pm) — mgmt cannot see it
-                notify_list = list(INITIAL_VISIBLE_ROLES)
                 await notify_roles(
                     db,
-                    roles=notify_list,
+                    roles=list(INITIAL_VISIBLE_ROLES),
                     title=f"Initial Review Complete: {p.project_name}",
                     message=(
-                        f"All reviewers approved PPD {ppd_id}. "
-                        f"The Source Team can now click 'Submit for Approval' to send it to management."
+                        f"All initial reviewers approved PPD {ppd_id}. "
+                        f"Source Team: click 'Submit for Approval' to send to Management Committee."
                     ),
                     action_type="ppd_reviewed",
                     entity_id=ppd_id,
@@ -420,11 +445,12 @@ async def update_reviewers(
                     created_by=current_user.get("name", ""),
                 )
             else:
-                pending_roles = [r.get("role") for r in current_reviewers if r.get("status") != "Approved"]
-                if pending_roles:
+                # Notify the remaining pending reviewers
+                pending = [r.get("role") for r in current_reviewers if r.get("status") != "Approved"]
+                if pending:
                     await notify_roles(
                         db,
-                        roles=pending_roles,
+                        roles=pending,
                         title=f"PPD Review Reminder: {p.project_name}",
                         message=(
                             f"{current_user.get('name','User')} approved PPD {ppd_id}. "
@@ -440,17 +466,17 @@ async def update_reviewers(
         user_name=current_user.get("name", ""),
         user_email=current_user.get("sub", ""),
         action="UPDATE",
-        action_label=f"updated reviewers for PPD {ppd_id}",
+        action_label=f"updated Stage-1 reviewer status on PPD {ppd_id}",
         entity=ppd_id,
         involved_roles=p.teams_involved or "admin",
         time_ago="just now",
     ))
 
     await db.commit()
-    return {"ok": True, "reviewers": p.reviewers}
+    return {"ok": True, "reviewers": p.reviewers, "status": p.status}
 
 
-# ── SUBMIT FOR APPROVAL: Source Team sends to Management ──────────────────────
+# ── STAGE 2: Source Team submits to Management Committee ──────────────────────
 
 @router.post("/{ppd_id}/submit-for-approval")
 async def submit_for_approval(
@@ -459,19 +485,14 @@ async def submit_for_approval(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Source Team (or admin) explicitly submits a ReviewerApproved PPD to Management.
+    Source Team (or admin) explicitly submits a ReviewerApproved PPD.
 
-    This is a SEPARATE action from reviewer approval — it is the Source Team's
-    conscious decision to escalate.
-
-    Only allowed when:
-      - PPD status is "ReviewerApproved"
-      - Current user is Source Team or admin
-
-    On submission:
-      - PPD status → "SubmittedForApproval"
-      - teams_involved expanded to include management roles
-      - Management roles get review tasks + notifications
+    - PPD must be in 'ReviewerApproved' status
+    - Only source / admin can call this
+    - Assigns tasks to: rd_head, marketing_head, sales_head, gdso_head, regulatory, cfo
+    - Sends notifications ONLY to those six roles
+    - status → MgmtReview
+    - teams_involved expanded to include mgmt roles
     """
     result = await db.execute(select(PPDSubmission).where(PPDSubmission.ppd_id == ppd_id))
     p = result.scalars().first()
@@ -479,32 +500,30 @@ async def submit_for_approval(
         raise HTTPException(404, "PPD not found")
 
     role = current_user.get("role", "fd")
-
-    # Only source team (or admin) can submit
     if role not in ("source", "admin"):
-        raise HTTPException(403, "Only the Source Team or admin can submit a PPD for management approval")
+        raise HTTPException(403, "Only the Source Team or admin can submit for approval")
 
-    # PPD must be in ReviewerApproved state
     if p.status != "ReviewerApproved":
         raise HTTPException(
             400,
-            f"PPD must be in 'ReviewerApproved' status to submit for approval (current: {p.status}). "
+            f"PPD must be in 'ReviewerApproved' status (current: {p.status}). "
             f"Ensure all initial reviewers (R&D/F&D and PM) have approved first."
         )
 
-    # Management roles to assign
-    mgmt_roles_list = sorted(MGMT_REVIEWER_ROLES)  # rd_head, mgmt, ceo, regulatory, marketing, sa
+    # Expand teams_involved to Stage-3
+    current_teams = set((p.teams_involved or "").split(","))
+    expanded = current_teams | set(MGMT_ROLES)
+    p.teams_involved = _teams_str(expanded)
+    p.status = "MgmtReview"
 
-    # Expand teams_involved to include management
-    current_teams = set((p.teams_involved or "admin,source,fd,pm").split(","))
-    expanded_teams = current_teams | set(mgmt_roles_list)
-    p.teams_involved = ",".join(sorted(expanded_teams))
-    p.status = "SubmittedForApproval"
+    # Initialise mgmt_approvals with Pending for each role (fresh slate)
+    p.mgmt_approvals = list(DEFAULT_MGMT_APPROVALS)
+    flag_modified(p, "mgmt_approvals")
 
-    # Create management review tasks
-    for mgmt_role in mgmt_roles_list:
+    # Create review tasks for each mgmt role
+    for mgmt_role in MGMT_ROLES:
         db.add(Task(
-            title=f"Management Approval: PPD {ppd_id} — {p.project_name}",
+            title=f"Management Review: PPD {ppd_id} — {p.project_name}",
             project_name=p.project_name,
             ppd_id=ppd_id,
             assigned_role=mgmt_role,
@@ -518,20 +537,20 @@ async def submit_for_approval(
         user_name=current_user.get("name", ""),
         user_email=current_user.get("sub", ""),
         action="SUBMIT",
-        action_label=f"submitted PPD {ppd_id} for management approval",
+        action_label=f"submitted PPD {ppd_id} for Management Committee review",
         entity=ppd_id,
         involved_roles=p.teams_involved,
         time_ago="just now",
     ))
 
-    # Notify management roles
+    # Notify ONLY the mgmt committee (rd_head, marketing_head, sales_head, gdso_head, regulatory, cfo)
     await notify_roles(
         db,
-        roles=mgmt_roles_list,
-        title=f"PPD Submitted for Approval: {p.project_name}",
+        roles=MGMT_ROLES,
+        title=f"PPD Submitted for Your Review: {p.project_name}",
         message=(
-            f"{current_user.get('name','User')} (Source Team) has submitted PPD {ppd_id} "
-            f"({p.project_name}) for your review and approval."
+            f"{current_user.get('name','User')} (Source Team) submitted PPD {ppd_id} "
+            f"({p.project_name}) for management review. Please review and approve your assigned task."
         ),
         action_type="ppd_submitted",
         entity_id=ppd_id,
@@ -539,14 +558,12 @@ async def submit_for_approval(
         created_by=current_user.get("name", ""),
     )
 
-    # Also notify the initial team that submission happened
+    # Notify initial team that submission happened (no mgmt roles yet)
     await notify_roles(
         db,
         roles=list(INITIAL_VISIBLE_ROLES),
-        title=f"PPD Submitted to Management: {p.project_name}",
-        message=(
-            f"PPD {ppd_id} has been submitted to the Management Committee for final approval."
-        ),
+        title=f"PPD Sent to Management: {p.project_name}",
+        message=f"PPD {ppd_id} has been submitted to the Management Committee for review.",
         action_type="ppd_submitted",
         entity_id=ppd_id,
         entity_name=p.project_name,
@@ -554,27 +571,26 @@ async def submit_for_approval(
     )
 
     await db.commit()
-    return {
-        "ok": True,
-        "status": p.status,
-        "notified_roles": mgmt_roles_list,
-        "teams_involved": p.teams_involved,
-    }
+    return {"ok": True, "status": p.status, "notified_roles": MGMT_ROLES}
 
 
-# ── FINAL APPROVE: Management approves the submitted PPD ─────────────────────
+# ── STAGE 3: Management Committee per-role approval ───────────────────────────
 
-@router.post("/{ppd_id}/approve")
-async def approve_ppd(
+@router.patch("/{ppd_id}/mgmt-review")
+async def update_mgmt_review(
     ppd_id: str,
+    body: dict,
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Management (or admin) gives final approval to a SubmittedForApproval PPD.
-    - PPD status → "Approved"
-    - teams_involved expands to ALL_ROLES
-    - All teams notified
+    rd_head / marketing_head / sales_head / gdso_head / regulatory / cfo update their own mgmt_approval entry.
+    body: { status: "Approved" | "Pending", comment: "..." }
+
+    - Only the caller's own entry is updated — no cascading.
+    - Rework must go through POST /rework.
+    - When ALL six entries are 'Approved': status → MgmtApproved,
+      assigns ceo task, notifies CEO.
     """
     result = await db.execute(select(PPDSubmission).where(PPDSubmission.ppd_id == ppd_id))
     p = result.scalars().first()
@@ -583,53 +599,256 @@ async def approve_ppd(
 
     role = current_user.get("role", "fd")
 
-    # Admin or management roles can give final approval
-    allowed_final_approvers = {"admin"} | MGMT_REVIEWER_ROLES
-    if role not in allowed_final_approvers:
-        raise HTTPException(403, "Only Management or admin can give final approval")
+    if role != "admin" and role not in MGMT_ROLES:
+        raise HTTPException(403, "Only Management Committee members can update this review")
 
-    if p.status not in ("SubmittedForApproval", "ReviewerApproved"):
+    if p.status != "MgmtReview":
         raise HTTPException(
             400,
-            f"PPD must be submitted for approval first (current status: {p.status})"
+            f"PPD is not in Management Review stage (current: {p.status})"
         )
 
-    # Final approval — expand visibility to all teams
-    full_teams = p.full_teams_involved or ALL_ROLES
-    p.status = "Approved"
-    p.teams_involved = full_teams
+    new_status_val = (body.get("status") or "").strip()
+    comment_val    = (body.get("comment") or "").strip()
+    ALLOWED = {"Pending", "Approved"}
+
+    if new_status_val not in ALLOWED:
+        raise HTTPException(400, f"Use POST /rework to request rework. Allowed statuses here: {ALLOWED}")
+
+    current_mgmt = copy.deepcopy(p.mgmt_approvals or list(DEFAULT_MGMT_APPROVALS))
+
+    updated = False
+    for entry in current_mgmt:
+        if entry.get("role") == role or (role == "admin" and body.get("role") == entry.get("role")):
+            target_role = entry.get("role")
+            entry["status"]     = new_status_val
+            entry["comment"]    = comment_val
+            entry["updated_at"] = _ist_now_iso()
+            updated = True
+            break
+
+    if not updated and role != "admin":
+        raise HTTPException(403, "Your role is not in the Management Committee reviewer list")
+
+    p.mgmt_approvals = current_mgmt
+    flag_modified(p, "mgmt_approvals")
+
+    if new_status_val == "Approved":
+        all_mgmt_approved = all(e.get("status") == "Approved" for e in current_mgmt)
+        if all_mgmt_approved:
+            # ALL 6 mgmt approved → MgmtApproved; now assign CEO
+            p.status = "MgmtApproved"
+
+            # Expand teams_involved to include ceo
+            current_teams = set((p.teams_involved or "").split(","))
+            expanded = current_teams | set(FINAL_APPROVER_ROLES)
+            p.teams_involved = _teams_str(expanded)
+
+            # Initialise final_approvals
+            p.final_approvals = list(DEFAULT_FINAL_APPROVALS)
+            flag_modified(p, "final_approvals")
+
+            # Create task for CEO
+            for final_role in FINAL_APPROVER_ROLES:
+                db.add(Task(
+                    title=f"Final Approval: PPD {ppd_id} — {p.project_name}",
+                    project_name=p.project_name,
+                    ppd_id=ppd_id,
+                    assigned_role=final_role,
+                    type="ppd_final_approval",
+                    status="pending",
+                    priority="Critical",
+                    due_label="Today",
+                ))
+
+            # Notify ONLY CEO
+            await notify_roles(
+                db,
+                roles=FINAL_APPROVER_ROLES,
+                title=f"PPD Requires Your Final Approval: {p.project_name}",
+                message=(
+                    f"All 6 Management Committee members approved PPD {ppd_id}. "
+                    f"Your final CEO approval is required."
+                ),
+                action_type="ppd_final_review",
+                entity_id=ppd_id,
+                entity_name=p.project_name,
+                created_by=current_user.get("name", ""),
+            )
+
+            # Notify existing involved team that it advanced
+            await notify_roles(
+                db,
+                roles=list(TEAMS_AT_STAGE["mgmt"]),
+                title=f"Management Committee Approved: {p.project_name}",
+                message=(
+                    f"All Management Committee members approved PPD {ppd_id}. "
+                    f"CFO and CEO have been assigned for final approval."
+                ),
+                action_type="ppd_mgmt_approved",
+                entity_id=ppd_id,
+                entity_name=p.project_name,
+                created_by=current_user.get("name", ""),
+            )
+        else:
+            # Notify remaining pending mgmt reviewers
+            pending = [e.get("role") for e in current_mgmt if e.get("status") != "Approved"]
+            if pending:
+                await notify_roles(
+                    db,
+                    roles=pending,
+                    title=f"Management Review Reminder: {p.project_name}",
+                    message=(
+                        f"{current_user.get('name','User')} approved PPD {ppd_id}. "
+                        f"Your management review is still pending."
+                    ),
+                    action_type="ppd_review_turn",
+                    entity_id=ppd_id,
+                    entity_name=p.project_name,
+                    created_by=current_user.get("name", ""),
+                )
 
     db.add(AuditLog(
         user_name=current_user.get("name", ""),
         user_email=current_user.get("sub", ""),
-        action="APPROVE",
-        action_label=f"gave final approval to PPD {ppd_id}",
+        action="UPDATE",
+        action_label=f"updated Stage-3 mgmt review on PPD {ppd_id} ({role}: {new_status_val})",
         entity=ppd_id,
-        involved_roles=full_teams,
+        involved_roles=p.teams_involved or "admin",
         time_ago="just now",
     ))
 
-    await notify_roles(
-        db,
-        roles=full_teams.split(","),
-        title=f"PPD Approved: {p.project_name}",
-        message=(
-            f"{current_user.get('name','User')} has given final approval to PPD {ppd_id}. "
-            f"The PPD is now fully Approved and visible to all teams."
-        ),
-        action_type="ppd_approved",
-        entity_id=ppd_id,
-        entity_name=p.project_name,
-        created_by=current_user.get("name", ""),
-    )
+    await db.commit()
+    return {"ok": True, "mgmt_approvals": p.mgmt_approvals, "status": p.status}
+
+
+# ── STAGE 4: CFO / CEO Final Approval ────────────────────────────────────────
+
+@router.patch("/{ppd_id}/final-review")
+async def update_final_review(
+    ppd_id: str,
+    body: dict,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    CEO updates their final_approval entry.
+    body: { status: "Approved" | "Pending", comment: "..." }
+
+    - Only CEO (or admin) can call this.
+    - Rework must go through POST /rework.
+    - When CEO approves: status → Approved (terminal).
+      teams_involved expanded to ALL_ROLES.
+    """
+    result = await db.execute(select(PPDSubmission).where(PPDSubmission.ppd_id == ppd_id))
+    p = result.scalars().first()
+    if not p:
+        raise HTTPException(404, "PPD not found")
+
+    role = current_user.get("role", "fd")
+
+    if role != "admin" and role not in FINAL_APPROVER_ROLES:
+        raise HTTPException(403, "Only CEO can give final approval")
+
+    if p.status not in ("FinalReview", "MgmtApproved"):
+        raise HTTPException(
+            400,
+            f"PPD is not in Final Review stage (current: {p.status})"
+        )
+
+    # Auto-promote to FinalReview if still MgmtApproved (first time CFO/CEO acts)
+    if p.status == "MgmtApproved":
+        p.status = "FinalReview"
+
+    new_status_val = (body.get("status") or "").strip()
+    comment_val    = (body.get("comment") or "").strip()
+    ALLOWED = {"Pending", "Approved"}
+
+    if new_status_val not in ALLOWED:
+        raise HTTPException(400, f"Use POST /rework to request rework. Allowed statuses here: {ALLOWED}")
+
+    current_final = copy.deepcopy(p.final_approvals or list(DEFAULT_FINAL_APPROVALS))
+
+    updated = False
+    for entry in current_final:
+        if entry.get("role") == role:
+            entry["status"]     = new_status_val
+            entry["comment"]    = comment_val
+            entry["updated_at"] = _ist_now_iso()
+            updated = True
+            break
+
+    if not updated and role != "admin":
+        raise HTTPException(403, "Your role is not in the Final Approver list")
+
+    p.final_approvals = current_final
+    flag_modified(p, "final_approvals")
+
+    if new_status_val == "Approved":
+        all_final_approved = all(e.get("status") == "Approved" for e in current_final)
+        if all_final_approved:
+            # CEO approved → fully Approved, expand visibility
+            full_teams = p.full_teams_involved or ALL_ROLES
+            p.status = "Approved"
+            p.teams_involved = full_teams
+
+            db.add(AuditLog(
+                user_name=current_user.get("name", ""),
+                user_email=current_user.get("sub", ""),
+                action="APPROVE",
+                action_label=f"final approval complete on PPD {ppd_id}",
+                entity=ppd_id,
+                involved_roles=full_teams,
+                time_ago="just now",
+            ))
+
+            await notify_roles(
+                db,
+                roles=full_teams.split(","),
+                title=f"PPD Fully Approved: {p.project_name}",
+                message=(
+                    f"PPD {ppd_id} ({p.project_name}) has received final approval from the CEO. "
+                    f"It is now visible to all teams."
+                ),
+                action_type="ppd_approved",
+                entity_id=ppd_id,
+                entity_name=p.project_name,
+                created_by=current_user.get("name", ""),
+            )
+        else:
+            # Notify the remaining pending final approver
+            pending = [e.get("role") for e in current_final if e.get("status") != "Approved"]
+            if pending:
+                await notify_roles(
+                    db,
+                    roles=pending,
+                    title=f"Final Approval Reminder: {p.project_name}",
+                    message=(
+                        f"{current_user.get('name','User')} approved PPD {ppd_id}. "
+                        f"Your final approval is still pending."
+                    ),
+                    action_type="ppd_review_turn",
+                    entity_id=ppd_id,
+                    entity_name=p.project_name,
+                    created_by=current_user.get("name", ""),
+                )
+
+    if p.status != "Approved":
+        db.add(AuditLog(
+            user_name=current_user.get("name", ""),
+            user_email=current_user.get("sub", ""),
+            action="UPDATE",
+            action_label=f"updated Stage-4 final review on PPD {ppd_id} ({role}: {new_status_val})",
+            entity=ppd_id,
+            involved_roles=p.teams_involved or "admin",
+            time_ago="just now",
+        ))
 
     await db.commit()
-    return {"ok": True, "status": p.status}
+    return {"ok": True, "final_approvals": p.final_approvals, "status": p.status}
 
 
-
-
-# ── REWORK: Reviewer sends rework request ─────────────────────────────────────
+# ── REWORK: Any reviewer sends PPD back for corrections ───────────────────────
 
 @router.post("/{ppd_id}/rework")
 async def request_rework(
@@ -639,11 +858,12 @@ async def request_rework(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Reviewer requests rework on a PPD.
-    body: { comment: "...", notify_roles: ["source", "fd"] (optional override) }
-    - PPD status set to "Rework"
-    - Rework comment stored, visible only to involved roles
-    - Notification sent only to task owners / involved parties
+    Any reviewer at any stage sends PPD back for rework.
+    body: { comment: "..." }
+
+    - Stores rework_from_stage so rework-done knows where to restore.
+    - Notification goes ONLY to source team + task owners.
+    - No other stage is notified.
     """
     result = await db.execute(select(PPDSubmission).where(PPDSubmission.ppd_id == ppd_id))
     p = result.scalars().first()
@@ -651,49 +871,46 @@ async def request_rework(
         raise HTTPException(404, "PPD not found")
 
     role = current_user.get("role", "fd")
-    # Both initial reviewers (fd/pm) and management reviewers can request rework
-    all_reviewer_roles = REVIEWER_ROLES | MGMT_REVIEWER_ROLES
-    if role not in all_reviewer_roles and role != "admin":
-        raise HTTPException(403, "Only reviewers or admin can request rework on a PPD")
+    if role not in ALL_REVIEWER_ROLES:
+        raise HTTPException(403, "Only reviewers can request rework")
 
     rework_comment = (body.get("comment") or "").strip()
     if not rework_comment:
         raise HTTPException(400, "A rework comment explaining what needs to be fixed is required")
 
-    # Determine who should receive the rework notification
-    # By default: the PPD creator (source team) + any task owners assigned to this PPD
-    involved = _involved_roles(p)
-    # Focus notification on task owners and the creator
-    task_result = await db.execute(
-        select(Task).where(Task.ppd_id == ppd_id, Task.status.in_(["pending", "rework"]))
-    )
-    active_tasks = task_result.scalars().all()
-    task_owner_roles = list({t.assigned_role for t in active_tasks if t.assigned_role})
-    # Always include creator role
-    if p.created_by_role and p.created_by_role not in task_owner_roles:
-        task_owner_roles.append(p.created_by_role)
-    # Include "source" always
-    if "source" not in task_owner_roles:
-        task_owner_roles.append("source")
-    # If explicit override provided
-    if body.get("notify_roles"):
-        task_owner_roles = [r for r in body["notify_roles"] if r in involved]
-
-    # Set PPD status
+    # Determine which stage we're coming from
+    stage_map = {
+        "Pending":      "initial",
+        "ReviewerApproved": "initial",
+        "MgmtReview":   "mgmt",
+        "MgmtApproved": "mgmt",
+        "FinalReview":  "final",
+    }
+    from_stage = stage_map.get(p.status, "initial")
+    p.rework_from_stage = from_stage
     p.status = "Rework"
 
-    # Update reviewer entry
-    current_reviewers = copy.deepcopy(p.reviewers or [])
-    my_index = next((i for i, r in enumerate(current_reviewers) if r.get("role") == role), None)
-    if my_index is not None:
-        current_reviewers[my_index]["status"]     = "Rework"
-        current_reviewers[my_index]["comment"]    = rework_comment
-        current_reviewers[my_index]["updated_at"] = _ist_now_iso()
-        p.reviewers = current_reviewers
-        flag_modified(p, "reviewers")
+    # Update the relevant reviewer list entry
+    if from_stage == "initial":
+        current_list = copy.deepcopy(p.reviewers or [])
+        list_name = "reviewers"
+    elif from_stage == "mgmt":
+        current_list = copy.deepcopy(p.mgmt_approvals or [])
+        list_name = "mgmt_approvals"
+    else:  # final
+        current_list = copy.deepcopy(p.final_approvals or [])
+        list_name = "final_approvals"
 
-    # Store rework comment — visible only to involved roles
-    visible_roles_str = ",".join(set(task_owner_roles + [role]))
+    idx = next((i for i, r in enumerate(current_list) if r.get("role") == role), None)
+    if idx is not None:
+        current_list[idx]["status"]     = "Rework"
+        current_list[idx]["comment"]    = rework_comment
+        current_list[idx]["updated_at"] = _ist_now_iso()
+        setattr(p, list_name, current_list)
+        flag_modified(p, list_name)
+
+    # Store comment visible only to source team + current reviewer
+    visible_roles_str = ",".join({role, "source", "admin"})
     comment_obj = PPDComment(
         ppd_id=ppd_id,
         user_name=current_user.get("name", ""),
@@ -709,19 +926,19 @@ async def request_rework(
         user_name=current_user.get("name", ""),
         user_email=current_user.get("sub", ""),
         action="REWORK",
-        action_label=f"requested rework on PPD {ppd_id}: {rework_comment[:80]}",
+        action_label=f"requested rework on PPD {ppd_id} (from {from_stage} stage): {rework_comment[:80]}",
         entity=ppd_id,
-        involved_roles=",".join(task_owner_roles),
+        involved_roles="source,admin",
         time_ago="just now",
     ))
 
-    # Notify ONLY the relevant task owners
+    # Notify ONLY source team
     await notify_roles(
         db,
-        roles=task_owner_roles,
-        title=f"🔁 Rework Required: {p.project_name}",
+        roles=["source"],
+        title=f"Rework Required: {p.project_name}",
         message=(
-            f"{current_user.get('name','User')} ({role.upper()}) has sent PPD {ppd_id} for rework. "
+            f"{current_user.get('name','User')} ({role.upper()}) sent PPD {ppd_id} for rework. "
             f"Reason: {rework_comment}"
         ),
         action_type="ppd_rework",
@@ -735,12 +952,12 @@ async def request_rework(
     return {
         "ok": True,
         "status": p.status,
+        "rework_from_stage": from_stage,
         "comment_id": comment_obj.id,
-        "notified_roles": task_owner_roles,
     }
 
 
-# ── REWORK DONE: Task owner confirms rework completed ─────────────────────────
+# ── REWORK DONE: Source Team resubmits after fixing ───────────────────────────
 
 @router.post("/{ppd_id}/rework-done")
 async def confirm_rework_done(
@@ -750,11 +967,12 @@ async def confirm_rework_done(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Task owner confirms rework is completed and resubmits for reviewer.
-    body: { reply_comment: "Changes completed — ..." }
-    - Adds a rework_done comment (visible to reviewer + task owner)
-    - Sets PPD status back to "Pending"
-    - Notifies the original reviewer(s)
+    Source Team (or task owner) confirms rework is done and resubmits.
+    body: { reply_comment: "Changes completed: ..." }
+
+    - Restores status to the appropriate stage (Pending / MgmtReview / FinalReview)
+    - Resets the Rework entry for the reviewer who sent rework back to Pending
+    - Notifies the original reviewer(s) who sent the rework
     """
     result = await db.execute(select(PPDSubmission).where(PPDSubmission.ppd_id == ppd_id))
     p = result.scalars().first()
@@ -765,19 +983,45 @@ async def confirm_rework_done(
         raise HTTPException(400, f"PPD is not in Rework status (current: {p.status})")
 
     role = current_user.get("role", "fd")
-    involved = _involved_roles(p)
-    if role not in involved and role != "admin":
+    if role not in (p.teams_involved or "").split(",") and role != "admin":
         raise HTTPException(403, "You are not assigned to this PPD")
 
     reply_comment = (body.get("reply_comment") or "").strip()
     if not reply_comment:
         raise HTTPException(400, "A reply comment confirming the changes is required")
 
-    # Find who sent the rework (reviewer roles)
-    reviewer_roles_for_notif = [r.get("role") for r in (p.reviewers or []) if r.get("status") == "Rework"]
-    if not reviewer_roles_for_notif:
-        # Fallback: notify all reviewer roles
-        reviewer_roles_for_notif = list(REVIEWER_ROLES & set(involved))
+    from_stage = p.rework_from_stage or "initial"
+    restore_status = REWORK_RESTORE_STATUS.get(from_stage, "Pending")
+
+    # Determine the reviewer list for this stage
+    if from_stage == "initial":
+        current_list = copy.deepcopy(p.reviewers or [])
+        list_name = "reviewers"
+    elif from_stage == "mgmt":
+        current_list = copy.deepcopy(p.mgmt_approvals or [])
+        list_name = "mgmt_approvals"
+    else:
+        current_list = copy.deepcopy(p.final_approvals or [])
+        list_name = "final_approvals"
+
+    # Find who sent the rework
+    rework_roles = [e.get("role") for e in current_list if e.get("status") == "Rework"]
+    if not rework_roles:
+        # Fallback: notify all reviewers at this stage
+        if from_stage == "initial":
+            rework_roles = list(INITIAL_REVIEWER_ROLES)
+        elif from_stage == "mgmt":
+            rework_roles = list(MGMT_ROLES)
+        else:
+            rework_roles = list(FINAL_APPROVER_ROLES)
+
+    # Reset "Rework" entries back to "Pending"
+    for entry in current_list:
+        if entry.get("status") == "Rework":
+            entry["status"]     = "Pending"
+            entry["updated_at"] = _ist_now_iso()
+    setattr(p, list_name, current_list)
+    flag_modified(p, list_name)
 
     # Mark all open rework comments as resolved
     rework_comments_result = await db.execute(
@@ -790,17 +1034,7 @@ async def confirm_rework_done(
     for rc in rework_comments_result.scalars().all():
         rc.rework_resolved = True
 
-    # Restore reviewer status to Pending for a fresh review
-    current_reviewers = copy.deepcopy(p.reviewers or [])
-    for r in current_reviewers:
-        if r.get("status") == "Rework":
-            r["status"]     = "Pending"
-            r["updated_at"] = _ist_now_iso()
-    p.reviewers = current_reviewers
-    flag_modified(p, "reviewers")
-
-    # Store reply comment — visible to reviewer + task owner
-    visible_roles_str = ",".join(set(reviewer_roles_for_notif + [role]))
+    # Store reply comment visible to reviewer + task owner
     reply_obj = PPDComment(
         ppd_id=ppd_id,
         user_name=current_user.get("name", ""),
@@ -808,30 +1042,30 @@ async def confirm_rework_done(
         comment=reply_comment,
         action_tag="rework_done",
         rework_resolved=True,
-        visible_to_roles=visible_roles_str,
+        visible_to_roles=",".join(set(rework_roles + [role, "admin"])),
     )
     db.add(reply_obj)
 
-    # Reset PPD status to Pending for re-review
-    p.status = "Pending"
+    # Restore status
+    p.status = restore_status
+    p.rework_from_stage = None
 
     db.add(AuditLog(
         user_name=current_user.get("name", ""),
         user_email=current_user.get("sub", ""),
         action="REWORK_DONE",
-        action_label=f"confirmed rework completed on PPD {ppd_id}",
+        action_label=f"confirmed rework done on PPD {ppd_id}, restored to {restore_status}",
         entity=ppd_id,
-        involved_roles=",".join(reviewer_roles_for_notif + [role]),
+        involved_roles=",".join(rework_roles + [role]),
         time_ago="just now",
     ))
 
-    # Notify the reviewer(s) that rework is done
     await notify_roles(
         db,
-        roles=reviewer_roles_for_notif,
-        title=f"✅ Rework Completed: {p.project_name}",
+        roles=rework_roles,
+        title=f"Rework Completed: {p.project_name}",
         message=(
-            f"{current_user.get('name','User')} confirmed rework is done on PPD {ppd_id}. "
+            f"{current_user.get('name','User')} completed the rework on PPD {ppd_id}. "
             f"Please review and approve. Note: {reply_comment}"
         ),
         action_type="ppd_rework_done",
@@ -845,7 +1079,8 @@ async def confirm_rework_done(
     return {
         "ok": True,
         "status": p.status,
-        "notified_reviewers": reviewer_roles_for_notif,
+        "restored_to_stage": from_stage,
+        "notified_reviewers": rework_roles,
     }
 
 
@@ -865,7 +1100,6 @@ async def list_comments(
     all_comments = result.scalars().all()
     visible = []
     for c in all_comments:
-        # If visible_to_roles is NULL/empty, everyone can see it
         if not c.visible_to_roles:
             visible.append(_comment_out(c))
         elif role == "admin" or role in c.visible_to_roles.split(","):
@@ -886,21 +1120,11 @@ async def add_comment(
         raise HTTPException(404, "PPD not found")
 
     role = current_user.get("role", "fd")
-    # Access follows teams_involved — narrow until Approved, full after
     if role != "admin" and role not in (p.teams_involved or "").split(","):
         raise HTTPException(403, "You are not assigned to this PPD")
 
-    # Validate action_tag
-    ALLOWED_TAGS = {"comment", "rework", "approve", "rework_done", "rework_reply"}
+    ALLOWED_TAGS = {"comment", "rework_done", "rework_reply"}
     action_tag = body.action_tag if body.action_tag in ALLOWED_TAGS else "comment"
-
-    # Rework action via comment is not allowed — use POST /rework instead
-    if action_tag == "rework" and role not in REVIEWER_ROLES | {"admin"}:
-        raise HTTPException(403, "Only reviewers can post a rework action")
-
-    # Approve action: update PPD status
-    if action_tag == "approve" and role in REVIEWER_ROLES | {"admin"}:
-        p.status = "Approved"
 
     comment = PPDComment(
         ppd_id=ppd_id,
@@ -911,16 +1135,15 @@ async def add_comment(
         attachment_url=body.attachment_url or None,
         attachment_name=body.attachment_name or None,
         rework_resolved=False,
-        visible_to_roles=None,  # General comments are visible to all
+        visible_to_roles=None,
     )
     db.add(comment)
 
-    target_roles = _involved_roles(p)
     await notify_roles(
         db,
-        roles=target_roles,
+        roles=_involved_roles(p),
         title=f"New Comment on PPD: {p.project_name}",
-        message=f"{current_user.get('name','User')} ({role}) posted a {action_tag} on {ppd_id}."
+        message=f"{current_user.get('name','User')} ({role}) commented on {ppd_id}."
                + (f" [Attachment: {body.attachment_name}]" if body.attachment_name else ""),
         action_type="ppd_comment",
         entity_id=ppd_id,
@@ -946,14 +1169,13 @@ async def upload_attachment(
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Upload a file attachment for a PPD comment."""
     result = await db.execute(select(PPDSubmission).where(PPDSubmission.ppd_id == ppd_id))
     if not result.scalars().first():
         raise HTTPException(404, "PPD not found")
 
     ext = os.path.splitext(file.filename or "")[1].lower()
     if ext not in ALLOWED_EXTENSIONS:
-        raise HTTPException(400, f"File type '{ext}' not allowed. Allowed: {', '.join(ALLOWED_EXTENSIONS)}")
+        raise HTTPException(400, f"File type '{ext}' not allowed.")
 
     contents = await file.read()
     if len(contents) > MAX_FILE_SIZE:
@@ -967,8 +1189,7 @@ async def upload_attachment(
     async with aiofiles.open(save_path, "wb") as f:
         await f.write(contents)
 
-    url = f"/uploads/ppd/{ppd_id}/{unique_name}"
-    return {"ok": True, "url": url, "filename": file.filename, "size": len(contents)}
+    return {"ok": True, "url": f"/uploads/ppd/{ppd_id}/{unique_name}", "filename": file.filename, "size": len(contents)}
 
 
 # ── DELETE (admin only) ───────────────────────────────────────────────────────
@@ -1023,17 +1244,17 @@ async def get_my_tasks(
     """Return all pending/rework tasks assigned to the current user's role."""
     role = current_user.get("role", "fd")
     stmt = select(Task).where(Task.status.in_(["pending", "rework"]))
-    if role not in ("admin", "mgmt", "ceo"):
+    if role not in ("admin",):
         stmt = stmt.where(Task.assigned_role == role)
     stmt = stmt.order_by(Task.id.desc()).limit(50)
     result = await db.execute(stmt)
-    tasks = result.scalars().all()
     return [
         {
             "id":            t.id,
             "title":         t.title,
             "project_name":  t.project_name,
             "project_id":    t.project_id,
+            "ppd_id":        t.ppd_id,
             "task_id":       t.id,
             "task_type":     t.type,
             "assigned_role": t.assigned_role,
@@ -1042,7 +1263,7 @@ async def get_my_tasks(
             "priority":      t.priority,
             "due_label":     t.due_label,
         }
-        for t in tasks
+        for t in result.scalars().all()
     ]
 
 
@@ -1053,13 +1274,13 @@ async def update_task_status(
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Update status of a task by ID. Only Pending, Rework, Approved allowed."""
+    """Update status of a task. Allowed: pending, rework, approved."""
     new_status = (body.get("status") or "").strip()
-    ALLOWED_TASK_STATUSES = {"pending", "rework", "approved"}
+    ALLOWED = {"pending", "rework", "approved"}
     if not new_status:
         raise HTTPException(400, "status is required")
-    if new_status not in ALLOWED_TASK_STATUSES:
-        raise HTTPException(400, f"Invalid status '{new_status}'. Must be one of: {', '.join(ALLOWED_TASK_STATUSES)}")
+    if new_status not in ALLOWED:
+        raise HTTPException(400, f"Invalid status '{new_status}'")
 
     result = await db.execute(select(Task).where(Task.id == task_id))
     task = result.scalars().first()
@@ -1067,7 +1288,7 @@ async def update_task_status(
         raise HTTPException(404, "Task not found")
 
     role = current_user.get("role", "fd")
-    if role not in ("admin", "mgmt", "ceo") and task.assigned_role != role:
+    if role != "admin" and task.assigned_role != role:
         raise HTTPException(403, "You are not assigned to this task")
 
     task.status = new_status

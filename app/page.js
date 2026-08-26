@@ -28,27 +28,30 @@ import {
 
 /* -------------------- ROLES & MENU CONFIG -------------------- */
 const ROLES = {
-  admin:      { label: 'System Administrator',          color: 'bg-purple-600',  desc: 'Full system access, user & config management' },
-  source:     { label: 'Source Team',                   color: 'bg-blue-600',    desc: 'Creates PPDs, initiates new product requests' },
-  pm:         { label: 'Project Management',            color: 'bg-cyan-600',    desc: 'Reviews PPDs, assigns teams, tracks project lifecycle' },
-  fd:         { label: 'R&D / F&D Team',                color: 'bg-emerald-600', desc: 'Formulation development, lab book, sensory trials' },
-  rd_head:    { label: 'R&D Head',                      color: 'bg-emerald-800', desc: 'Approves formulations, oversees R&D pipeline' },
-  marketing:  { label: 'Marketing Team',                color: 'bg-pink-600',    desc: 'PPD review, artwork briefs, brand approvals' },
-  regulatory: { label: 'Regulatory Team',               color: 'bg-red-600',     desc: 'Regulatory compliance, ingredient checks, FSSAI' },
-  packaging:  { label: 'Packaging Team',                color: 'bg-amber-600',   desc: 'Costing feasibility, artwork, SFG/PKG BOM' },
-  adl:        { label: 'ADL Lab Team',                  color: 'bg-indigo-600',  desc: 'Analytical & Development Lab — stability, testing' },
-  pmsa:       { label: 'PM & SA Team',                  color: 'bg-teal-600',    desc: 'Product Management & Scientific Affairs sensory eval' },
-  sa:         { label: 'Scientific Affairs',            color: 'bg-sky-600',     desc: 'Claim substantiation, clinical evidence, regulatory docs' },
-  mgmt:       { label: 'Management Committee',          color: 'bg-slate-800',   desc: 'Marketing Head, Sales, R&D, GDSO, Regulatory Head, CFO' },
-  ceo:        { label: 'CEO',                           color: 'bg-black',       desc: 'Final approval authority for PPDs and major decisions' },
-  production: { label: 'Production / Plant Trial',      color: 'bg-orange-600',  desc: 'Pilot trials, BOM, MFC, stability batch reports' },
+  admin:          { label: 'System Administrator',    color: 'bg-purple-600',  desc: 'Full system access, user & config management' },
+  source:         { label: 'Source Team',             color: 'bg-blue-600',    desc: 'Creates PPDs, initiates new product requests' },
+  pm:             { label: 'Project Management',      color: 'bg-cyan-600',    desc: 'Reviews PPDs, assigns teams, tracks project lifecycle' },
+  fd:             { label: 'R&D / F&D Team',          color: 'bg-emerald-600', desc: 'Formulation development, lab book, sensory trials' },
+  rd_head:        { label: 'R&D Head',                color: 'bg-emerald-800', desc: 'Approves formulations, oversees R&D pipeline — Stage 3 reviewer' },
+  marketing_head: { label: 'Marketing Head',          color: 'bg-pink-700',    desc: 'Marketing strategy, PPD review — Stage 3 reviewer' },
+  sales_head:     { label: 'Sales Head',              color: 'bg-rose-600',    desc: 'Sales feasibility, market readiness — Stage 3 reviewer' },
+  gdso_head:      { label: 'GDSO Head',               color: 'bg-violet-700',  desc: 'Global Demand & Supply Operations — Stage 3 reviewer' },
+  regulatory:     { label: 'Regulatory Head',         color: 'bg-red-600',     desc: 'Regulatory compliance, FSSAI, ingredient checks — Stage 3 reviewer' },
+  cfo:            { label: 'CFO',                     color: 'bg-slate-700',   desc: 'Financial feasibility review — Stage 3 reviewer' },
+  marketing:      { label: 'Marketing Team',          color: 'bg-pink-500',    desc: 'PPD review, artwork briefs, brand approvals' },
+  packaging:      { label: 'Packaging Team',          color: 'bg-amber-600',   desc: 'Costing feasibility, artwork, SFG/PKG BOM' },
+  adl:            { label: 'ADL Lab Team',            color: 'bg-indigo-600',  desc: 'Analytical & Development Lab — stability, testing' },
+  pmsa:           { label: 'PM & SA Team',            color: 'bg-teal-600',    desc: 'Product Management & Scientific Affairs sensory eval' },
+  sa:             { label: 'Scientific Affairs',      color: 'bg-sky-600',     desc: 'Claim substantiation, clinical evidence, regulatory docs' },
+  ceo:            { label: 'CEO',                     color: 'bg-black',       desc: 'Final approval authority — Stage 4 (terminal)' },
+  production:     { label: 'Production / Plant Trial',color: 'bg-orange-600',  desc: 'Pilot trials, BOM, MFC, stability batch reports' },
 }
 
 // WBS-aligned menu — what each role needs access to per documented workflow
 const MENU = [
   { key: 'dashboard',    label: 'Dashboard',             icon: LayoutDashboard, roles: 'all' },
-  // PPD: Source creates, PM assigns, Functional reviews, Mgmt/CEO approves
-  { key: 'ppd',         label: 'PPD Management',        icon: FileText,        roles: ['admin','source','pm','fd','rd_head','marketing','regulatory','packaging','sa','adl','pmsa','mgmt','ceo'] },
+  // PPD: Source creates, PM assigns, Functional reviews, Mgmt approves, CEO final
+  { key: 'ppd',         label: 'PPD Management',        icon: FileText,        roles: ['admin','source','pm','fd','rd_head','marketing_head','sales_head','gdso_head','regulatory','cfo','marketing','packaging','sa','adl','pmsa','ceo'] },
   // Formulation: F&D team + R&D Head (after PPD CEO-approved)
   { key: 'formulation', label: 'Formulation Dev.',      icon: FlaskConical,    roles: ['admin','fd','rd_head','adl'] },
   // Lab Book: F&D team, ADL lab, R&D Head
@@ -1068,20 +1071,23 @@ const _REVIEWER_OPT = [{ v:'approved', l:'Approve', cls:'text-emerald-700 border
 const _TASK_OWNER_OPT = [{ v:'pending', l:'Mark Pending', cls:'text-slate-700 border-slate-300 hover:bg-slate-50' }, { v:'approved', l:'Mark Done', cls:'text-emerald-700 border-emerald-300 hover:bg-emerald-50' }]
 
 const ROLE_TASK_STATUSES = {
-  source:     _TASK_OWNER_OPT,
-  pm:         _REVIEWER_OPT,
-  fd:         _REVIEWER_OPT,
-  rd_head:    _REVIEWER_OPT,
-  marketing:  _REVIEWER_OPT,
-  regulatory: _REVIEWER_OPT,
-  packaging:  _TASK_OWNER_OPT,
-  adl:        _TASK_OWNER_OPT,
-  pmsa:       _TASK_OWNER_OPT,
-  sa:         _REVIEWER_OPT,
-  mgmt:       _REVIEWER_OPT,
-  ceo:        _REVIEWER_OPT,
-  production: _TASK_OWNER_OPT,
-  admin:      [..._REVIEWER_OPT, ...[ { v:'pending', l:'Reset to Pending', cls:'text-slate-700 border-slate-300 hover:bg-slate-50' }]],
+  source:         _TASK_OWNER_OPT,
+  pm:             _REVIEWER_OPT,
+  fd:             _REVIEWER_OPT,
+  rd_head:        _REVIEWER_OPT,
+  marketing_head: _REVIEWER_OPT,
+  sales_head:     _REVIEWER_OPT,
+  gdso_head:      _REVIEWER_OPT,
+  regulatory:     _REVIEWER_OPT,
+  cfo:            _REVIEWER_OPT,
+  marketing:      _REVIEWER_OPT,
+  packaging:      _TASK_OWNER_OPT,
+  adl:            _TASK_OWNER_OPT,
+  pmsa:           _TASK_OWNER_OPT,
+  sa:             _REVIEWER_OPT,
+  ceo:            _REVIEWER_OPT,
+  production:     _TASK_OWNER_OPT,
+  admin:          [..._REVIEWER_OPT, ...[ { v:'pending', l:'Reset to Pending', cls:'text-slate-700 border-slate-300 hover:bg-slate-50' }]],
 }
 
 const TASK_STATUS_BADGE = {
@@ -1591,7 +1597,7 @@ function FALLBACK_DASHBOARD(role) {
 
 const BRANDS       = ['Complan','Sugar Free','Nycil','Glucon-D','Everyuth','Nutralite','Sugarlite']
 const PRIORITIES   = ['Low','Medium','High','Critical']
-const ALL_ROLE_KEYS = ['source','pm','fd','rd_head','marketing','regulatory','packaging','adl','pmsa','sa','mgmt','ceo','production']
+const ALL_ROLE_KEYS = ['source','pm','fd','rd_head','marketing_head','sales_head','gdso_head','regulatory','cfo','marketing','packaging','adl','pmsa','sa','ceo','production']
 
 function _ProjectsViewRemoved({ setView, user, token, can }) {
   const [projects, setProjects] = useState([])
@@ -2147,22 +2153,24 @@ function _ProjectsViewRemoved({ setView, user, token, can }) {
 
 /* -------------------- PPD -------------------- */
 const PPD_STATUS_COLORS = {
-  'Pending':               'bg-slate-200 text-slate-800',
-  'Rework':                'bg-amber-100 text-amber-800',
-  'ReviewerApproved':      'bg-blue-100 text-blue-800',
-  'SubmittedForApproval':  'bg-purple-100 text-purple-800',
-  'Approved':              'bg-emerald-100 text-emerald-800',
+  'Pending':          'bg-slate-200 text-slate-800',
+  'Rework':           'bg-amber-100 text-amber-800',
+  'ReviewerApproved': 'bg-blue-100 text-blue-800',
+  'MgmtReview':       'bg-violet-100 text-violet-800',
+  'MgmtApproved':     'bg-indigo-100 text-indigo-800',
+  'FinalReview':      'bg-orange-100 text-orange-800',
+  'Approved':         'bg-emerald-100 text-emerald-800',
 }
 const PPD_STATUS_LABELS = {
-  'Pending':               'Pending',
-  'Rework':                'Rework',
-  'ReviewerApproved':      'Reviewer Approved',
-  'SubmittedForApproval':  'Submitted for Approval',
-  'Approved':              'Approved',
+  'Pending':          'Pending',
+  'Rework':           'Rework',
+  'ReviewerApproved': 'Reviewer Approved',
+  'MgmtReview':       'Management Review',
+  'MgmtApproved':     'Management Approved',
+  'FinalReview':      'Final Review (CEO)',
+  'Approved':         'Approved',
 }
 const PPD_STATUSES = Object.keys(PPD_STATUS_COLORS)
-// Reviewer statuses for the initial review stage
-const REVIEWER_STATUSES = ['Pending','Rework','Approved']
 
 /** Top-level PPD list (role-filtered from API) */
 function PPDView({ user, token, can }) {
@@ -2451,19 +2459,23 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
   const [submittingApproval, setSubmittingApproval] = useState(false)
   // Final approve loading state (management)
   const [finalApproving, setFinalApproving] = useState(false)
+  // Mgmt review loading state
+  const [mgmtApproving, setMgmtApproving] = useState(false)
 
   const isAdmin    = user?.role === 'admin'
   const isSource   = user?.role === 'source'
   const isPM       = user?.role === 'pm'
   const myRole     = user?.role || 'fd'
 
-  // Initial reviewer roles — fd and pm only (before Source submission)
+  // Stage role sets
   const INITIAL_REVIEWER_ROLES_FE = new Set(['fd','pm'])
-  // Management reviewer roles — see PPD only after SubmittedForApproval
-  const MGMT_REVIEWER_ROLES_FE = new Set(['rd_head','mgmt','ceo','regulatory','marketing','sa'])
-  // Admin can act as any role
+  const MGMT_REVIEWER_ROLES_FE    = new Set(['rd_head','marketing_head','sales_head','gdso_head','regulatory','cfo'])
+  const FINAL_APPROVER_ROLES_FE   = new Set(['ceo'])
+
+  // Role flags
   const isInitialReviewer = isAdmin || INITIAL_REVIEWER_ROLES_FE.has(myRole)
   const isMgmtReviewer    = isAdmin || MGMT_REVIEWER_ROLES_FE.has(myRole)
+  const isFinalApprover   = isAdmin || FINAL_APPROVER_ROLES_FE.has(myRole)
 
   // Task owner roles — do the work, confirm rework
   const TASK_OWNER_ROLES_FE = new Set(['source','packaging','adl','pmsa','production'])
@@ -2534,12 +2546,28 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
     finally { setSubmittingApproval(false) }
   }
 
+  const handleMgmtApprove = async () => {
+    setMgmtApproving(true)
+    try {
+      await apiCall(`/api/ppd/${ppd.ppd_id}/mgmt-review`, {
+        method: 'PATCH', token,
+        body: { status: 'Approved', comment: '' }
+      })
+      await refreshPpd()
+      toast.success('Management review approved!')
+    } catch (err) { toast.error(err.message) }
+    finally { setMgmtApproving(false) }
+  }
+
   const handleFinalApprove = async () => {
     setFinalApproving(true)
     try {
-      await apiCall(`/api/ppd/${ppd.ppd_id}/approve`, { method: 'POST', token })
+      await apiCall(`/api/ppd/${ppd.ppd_id}/final-review`, {
+        method: 'PATCH', token,
+        body: { status: 'Approved', comment: '' }
+      })
       await refreshPpd()
-      toast.success('PPD fully Approved!')
+      toast.success('Final approval submitted!')
     } catch (err) { toast.error(err.message) }
     finally { setFinalApproving(false) }
   }
@@ -2634,9 +2662,20 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
   const isPending        = ppd.status === 'Pending'
   const isApproved       = ppd.status === 'Approved'
   const isRework         = ppd.status === 'Rework'
-  const isReviewerApproved    = ppd.status === 'ReviewerApproved'
-  const isSubmittedForApproval = ppd.status === 'SubmittedForApproval'
+  const isReviewerApproved = ppd.status === 'ReviewerApproved'
+  const isMgmtReview     = ppd.status === 'MgmtReview'
+  const isMgmtApproved   = ppd.status === 'MgmtApproved'
+  const isFinalReview    = ppd.status === 'FinalReview'
   const isFullyDone      = isApproved
+
+  const mgmtApprovals  = ppd.mgmt_approvals  || []
+  const finalApprovals = ppd.final_approvals || []
+  const mgmtApprovedCount  = mgmtApprovals.filter(r => r.status === 'Approved').length
+  const finalApprovedCount = finalApprovals.filter(r => r.status === 'Approved').length
+
+  // My reviewer entry depending on my stage
+  const myMgmtEntry   = mgmtApprovals.find(r => r.role === myRole)
+  const myFinalEntry  = finalApprovals.find(r => r.role === myRole)
 
   const wfSteps = [
     {
@@ -2645,35 +2684,51 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
       st: 'done',
     },
     {
-      s: '2. Initial Review (R&D / F&D + PM)',
-      d: isRework
-        ? `⚠ ${reworkCount} reviewer(s) requested rework — task owner to fix and resubmit`
-        : isReviewerApproved || isSubmittedForApproval || isApproved
+      s: '2. Initial Review (R&D/F&D + PM)',
+      d: isRework && ppd.rework_from_stage === 'initial'
+        ? `⚠ Rework requested — task owner to fix and resubmit`
+        : (isReviewerApproved || isMgmtReview || isMgmtApproved || isFinalReview || isApproved)
         ? `✓ All ${reviewers.length} initial reviewers approved`
-        : `${approvedCount}/${reviewers.length} reviewers approved — R&D/F&D and PM review`,
-      st: (isReviewerApproved || isSubmittedForApproval || isApproved) ? 'done' : (isPending || isRework) ? 'active' : 'pending',
+        : `${approvedCount}/${reviewers.length} reviewers approved`,
+      st: (isReviewerApproved || isMgmtReview || isMgmtApproved || isFinalReview || isApproved) ? 'done'
+        : (isPending || (isRework && ppd.rework_from_stage === 'initial')) ? 'active' : 'pending',
     },
     {
       s: '3. Source Team Submits for Approval',
-      d: isSubmittedForApproval || isApproved
+      d: (isMgmtReview || isMgmtApproved || isFinalReview || isApproved)
         ? '✓ Source Team submitted PPD to Management Committee'
         : isReviewerApproved
-        ? '👆 Source Team must now click "Submit for Approval" to escalate to Management'
-        : 'After initial review is complete, Source Team submits to Management',
-      st: (isSubmittedForApproval || isApproved) ? 'done' : isReviewerApproved ? 'active' : 'pending',
+        ? '👆 Source Team must click "Submit for Approval" to escalate to Management'
+        : 'After initial review, Source Team submits to Management',
+      st: (isMgmtReview || isMgmtApproved || isFinalReview || isApproved) ? 'done' : isReviewerApproved ? 'active' : 'pending',
     },
     {
-      s: '4. Management Review',
-      d: isApproved
-        ? '✓ Management approved the PPD'
-        : isSubmittedForApproval
-        ? 'Management Committee is reviewing — they can Approve or send Rework'
-        : 'Management Committee will be notified only after Source Team submission',
-      st: isApproved ? 'done' : isSubmittedForApproval ? 'active' : 'pending',
+      s: '4. Management Committee Review (R&D Head, Marketing Head, Sales Head, GDSO Head, Regulatory Head, CFO)',
+      d: isRework && ppd.rework_from_stage === 'mgmt'
+        ? `⚠ Rework requested — task owner to fix and resubmit`
+        : (isMgmtApproved || isFinalReview || isApproved)
+        ? `✓ All ${mgmtApprovals.length} management reviewers approved`
+        : isMgmtReview
+        ? `${mgmtApprovedCount}/${mgmtApprovals.length} management approvals — reviewing`
+        : 'Management Committee notified only after Source Team submits',
+      st: (isMgmtApproved || isFinalReview || isApproved) ? 'done'
+        : (isMgmtReview || (isRework && ppd.rework_from_stage === 'mgmt')) ? 'active' : 'pending',
     },
     {
-      s: '5. Fully Approved',
-      d: isApproved ? '✓ PPD fully Approved — moving to execution phase' : 'Final approval by Management',
+      s: '5. Final Approval (CEO)',
+      d: isRework && ppd.rework_from_stage === 'final'
+        ? `⚠ Rework requested — task owner to fix and resubmit`
+        : isApproved
+        ? `✓ CEO approved`
+        : (isFinalReview || isMgmtApproved)
+        ? `CEO reviewing — awaiting final approval`
+        : 'CEO is notified only after all 6 management committee members approve',
+      st: isApproved ? 'done'
+        : (isFinalReview || isMgmtApproved || (isRework && ppd.rework_from_stage === 'final')) ? 'active' : 'pending',
+    },
+    {
+      s: '6. Fully Approved',
+      d: isApproved ? '✓ PPD fully Approved — moving to execution phase' : 'Final approval by CEO',
       st: isApproved ? 'done' : 'pending',
     },
   ]
@@ -2702,25 +2757,34 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
           </div>
         </div>
         <div className="flex gap-2 shrink-0 flex-wrap">
-          {/* Approved banner */}
+          {/* Status banners */}
           {isApproved && (
             <Badge className="bg-emerald-600 text-white px-3 py-1 text-xs gap-1.5 shadow-sm">
               <CheckCircle2 className="h-4 w-4" /> Approved
             </Badge>
           )}
-          {/* ReviewerApproved banner + Source Team Submit button */}
           {isReviewerApproved && (
             <Badge className="bg-blue-600 text-white px-3 py-1 text-xs gap-1.5 shadow-sm">
               <CheckCircle2 className="h-4 w-4" /> Reviewer Approved
             </Badge>
           )}
-          {/* SubmittedForApproval banner */}
-          {isSubmittedForApproval && (
-            <Badge className="bg-purple-600 text-white px-3 py-1 text-xs gap-1.5 shadow-sm">
-              <Send className="h-4 w-4" /> Submitted for Approval
+          {isMgmtReview && (
+            <Badge className="bg-violet-600 text-white px-3 py-1 text-xs gap-1.5 shadow-sm">
+              <Clock className="h-4 w-4" /> Management Review
             </Badge>
           )}
-          {/* Source Team: Submit for Approval — only when ReviewerApproved */}
+          {isMgmtApproved && (
+            <Badge className="bg-indigo-600 text-white px-3 py-1 text-xs gap-1.5 shadow-sm">
+              <CheckCircle2 className="h-4 w-4" /> Management Approved
+            </Badge>
+          )}
+          {isFinalReview && (
+            <Badge className="bg-orange-600 text-white px-3 py-1 text-xs gap-1.5 shadow-sm">
+              <Clock className="h-4 w-4" /> Final Review (CEO)
+            </Badge>
+          )}
+
+          {/* Stage 2: Source Team — Submit for Approval (only when ReviewerApproved) */}
           {(isAdmin || isSource) && isReviewerApproved && (
             <Button size="sm" className="gap-1 bg-purple-600 hover:bg-purple-700 text-white"
               onClick={() => setSubmitApprovalOpen(true)} disabled={submittingApproval}>
@@ -2728,8 +2792,9 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
               Submit for Approval
             </Button>
           )}
-          {/* Initial Reviewer (fd/pm): Approve — only in Pending/Rework */}
-          {isInitialReviewer && (isPending || isRework) && (
+
+          {/* Stage 1: fd/pm — Approve in Pending or Rework@initial */}
+          {isInitialReviewer && !isMgmtReviewer && !isFinalApprover && (isPending || (isRework && ppd.rework_from_stage === 'initial')) && (
             <Button size="sm" className="gap-1 bg-emerald-600 hover:bg-emerald-700 text-white" onClick={async () => {
               setSaving(true)
               try {
@@ -2738,7 +2803,7 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
                   body: { reviewers: reviewers.map(r => r.role === myRole ? { ...r, status: 'Approved' } : r) }
                 })
                 await refreshPpd()
-                toast.success('Approved! Waiting for other reviewers or Source Team submission.')
+                toast.success('Approved! Waiting for other reviewers.')
               } catch (err) { toast.error(err.message) }
               finally { setSaving(false) }
             }} disabled={saving}>
@@ -2746,28 +2811,69 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
               Approve
             </Button>
           )}
-          {/* Initial Reviewer (fd/pm): Request Rework — only in Pending/Rework */}
-          {isInitialReviewer && (isPending || isRework) && (
+          {/* Stage 1: fd/pm — Request Rework */}
+          {isInitialReviewer && !isMgmtReviewer && !isFinalApprover && (isPending || (isRework && ppd.rework_from_stage === 'initial')) && (
             <Button size="sm" variant="outline" className="gap-1 border-amber-400 text-amber-700 hover:bg-amber-50"
               onClick={() => setReworkOpen(true)} disabled={saving}>
               <AlertCircle className="h-4 w-4 mr-1"/>Request Rework
             </Button>
           )}
-          {/* Management: Final Approve — only in SubmittedForApproval */}
-          {isMgmtReviewer && isSubmittedForApproval && (
+
+          {/* Stage 3: Management Committee — Approve */}
+          {isMgmtReviewer && !isFinalApprover && (isMgmtReview || (isRework && ppd.rework_from_stage === 'mgmt')) && (
             <Button size="sm" className="gap-1 bg-emerald-700 hover:bg-emerald-800 text-white"
+              onClick={handleMgmtApprove} disabled={mgmtApproving}>
+              {mgmtApproving ? <RefreshCw className="h-4 w-4 animate-spin mr-1"/> : <CheckCircle2 className="h-4 w-4 mr-1"/>}
+              Approve
+            </Button>
+          )}
+          {/* Stage 3: Management Committee — Request Rework */}
+          {isMgmtReviewer && !isFinalApprover && (isMgmtReview || (isRework && ppd.rework_from_stage === 'mgmt')) && (
+            <Button size="sm" variant="outline" className="gap-1 border-amber-400 text-amber-700 hover:bg-amber-50"
+              onClick={() => setReworkOpen(true)} disabled={mgmtApproving}>
+              <AlertCircle className="h-4 w-4 mr-1"/>Request Rework
+            </Button>
+          )}
+
+          {/* Stage 4: CFO/CEO — Final Approve */}
+          {isFinalApprover && (isFinalReview || isMgmtApproved) && (
+            <Button size="sm" className="gap-1 bg-emerald-800 hover:bg-emerald-900 text-white"
               onClick={handleFinalApprove} disabled={finalApproving}>
               {finalApproving ? <RefreshCw className="h-4 w-4 animate-spin mr-1"/> : <CheckCircle2 className="h-4 w-4 mr-1"/>}
               Final Approve
             </Button>
           )}
-          {/* Management: Rework — only in SubmittedForApproval */}
-          {isMgmtReviewer && isSubmittedForApproval && (
+          {/* Stage 4: CFO/CEO — Request Rework */}
+          {isFinalApprover && (isFinalReview || isMgmtApproved) && (
             <Button size="sm" variant="outline" className="gap-1 border-amber-400 text-amber-700 hover:bg-amber-50"
               onClick={() => setReworkOpen(true)} disabled={finalApproving}>
               <AlertCircle className="h-4 w-4 mr-1"/>Request Rework
             </Button>
           )}
+
+          {/* Admin override — acts on whichever stage is currently active */}
+          {isAdmin && (isPending || isMgmtReview || isMgmtApproved || isFinalReview) && (
+            <Button size="sm" className="gap-1 bg-slate-700 hover:bg-slate-800 text-white" onClick={async () => {
+              setSaving(true)
+              try {
+                if (isPending) {
+                  const allApproved = reviewers.map(r => ({ ...r, status: 'Approved', updated_at: new Date().toISOString() }))
+                  await apiCall(`/api/ppd/${ppd.ppd_id}/reviewers`, { method: 'PATCH', token, body: { reviewers: allApproved } })
+                } else if (isMgmtReview) {
+                  await apiCall(`/api/ppd/${ppd.ppd_id}/mgmt-review`, { method: 'PATCH', token, body: { status: 'Approved', comment: 'Admin override' } })
+                } else {
+                  await apiCall(`/api/ppd/${ppd.ppd_id}/final-review`, { method: 'PATCH', token, body: { status: 'Approved', comment: 'Admin override' } })
+                }
+                await refreshPpd()
+                toast.success('Admin override approved.')
+              } catch (err) { toast.error(err.message) }
+              finally { setSaving(false) }
+            }} disabled={saving}>
+              {saving ? <RefreshCw className="h-4 w-4 animate-spin mr-1"/> : <CheckCircle2 className="h-4 w-4 mr-1"/>}
+              Admin Approve
+            </Button>
+          )}
+
           {/* Task owner: Mark Rework Done — only when status is Rework */}
           {isTaskOwner && isRework && (
             <Button size="sm" className="gap-1 bg-blue-600 hover:bg-blue-700 text-white"
@@ -2889,8 +2995,9 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
             <p className="text-sm"><strong>PPD:</strong> {ppd.ppd_id} — {ppd.project_name}</p>
             <p className="text-sm text-emerald-700 font-medium">✓ Initial reviewers (R&amp;D/F&amp;D + PM) have all approved</p>
             <p className="text-xs text-muted-foreground bg-purple-50 border border-purple-200 rounded p-2 mt-2">
-              🔔 The following teams will be assigned review tasks and notified:
-              R&amp;D Head, Marketing, Regulatory, Management Committee, CEO, Scientific Affairs.
+              🔔 The following 6 members will be assigned review tasks and notified:
+              R&amp;D Head, Marketing Head, Sales Head, GDSO Head, Regulatory Head, CFO.
+              After all 6 approve, the CEO will be assigned for final approval.
             </p>
           </div>
           <DialogFooter>
@@ -3001,88 +3108,178 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
         </TabsContent>
 
         {/* ── REVIEWERS TAB ── */}
-        <TabsContent value="reviewers">
+        <TabsContent value="reviewers" className="space-y-4">
+
+          {/* Stage 1: Initial Reviewers (fd + pm) */}
           <Card>
-            <CardHeader>
-              <CardTitle>Review Status</CardTitle>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base flex items-center gap-2">
+                <span className="text-xs px-2 py-0.5 rounded bg-slate-200 text-slate-700 font-mono">Stage 1</span>
+                Initial Review — R&amp;D/F&amp;D + PM
+              </CardTitle>
               <CardDescription>
-                {isApproved
-                  ? `✓ All ${reviewers.length} reviewers approved this PPD.`
-                  : isRework
-                  ? '⚠ Rework requested — see rework comments below. Task owner should fix and submit.'
-                  : `${approvedCount}/${reviewers.length} reviewers approved. Use the Approve / Request Rework buttons at the top.`}
+                {(isReviewerApproved || isMgmtReview || isMgmtApproved || isFinalReview || isApproved)
+                  ? `✓ ${approvedCount}/${reviewers.length} approved — initial review complete`
+                  : isRework && ppd.rework_from_stage === 'initial'
+                  ? '⚠ Rework requested — task owner to fix and resubmit'
+                  : `${approvedCount}/${reviewers.length} approved`}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-2">
-              {reviewers.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-8">No reviewers assigned yet.</p>
-              ) : (
-                reviewers.map((r, i) => {
-                  const isApprovedRow = r.status === 'Approved'
-                  const isReworkRow   = r.status === 'Rework'
-                  const isMyRow       = r.role === myRole
-
-                  return (
-                    <div key={i} className={`flex items-center justify-between p-3 border rounded-lg gap-4
-                      ${isApprovedRow
-                        ? 'border-emerald-200 bg-emerald-50'
-                        : isReworkRow
-                          ? 'border-amber-200 bg-amber-50'
-                          : isMyRow
-                            ? 'border-blue-300 bg-blue-50 ring-1 ring-blue-300'
-                            : 'border-slate-200 bg-white'}`}>
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium text-sm">{r.team_label}</span>
-                          {isMyRow && !isApprovedRow && (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-600 text-white font-medium">
-                              Your Review
-                            </span>
-                          )}
+              {reviewers.length === 0
+                ? <p className="text-sm text-muted-foreground text-center py-4">No reviewers assigned yet.</p>
+                : reviewers.map((r, i) => {
+                    const isApprovedRow = r.status === 'Approved'
+                    const isReworkRow   = r.status === 'Rework'
+                    const isMyRow       = r.role === myRole && isInitialReviewer
+                    return (
+                      <div key={i} className={`flex items-center justify-between p-3 border rounded-lg gap-4
+                        ${isApprovedRow ? 'border-emerald-200 bg-emerald-50'
+                          : isReworkRow ? 'border-amber-200 bg-amber-50'
+                          : isMyRow ? 'border-blue-300 bg-blue-50 ring-1 ring-blue-300'
+                          : 'border-slate-200 bg-white'}`}>
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium text-sm">{r.team_label}</span>
+                            {isMyRow && !isApprovedRow && <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-600 text-white font-medium">Your Review</span>}
+                          </div>
+                          {r.comment && <div className="text-xs text-muted-foreground mt-1 italic">"{r.comment}"</div>}
+                          {r.updated_at && <div className="text-xs text-muted-foreground">{relTime(r.updated_at)}</div>}
                         </div>
-                        {r.comment && <div className="text-xs text-muted-foreground mt-1 italic">"{r.comment}"</div>}
-                        {r.updated_at && <div className="text-xs text-muted-foreground">{relTime(r.updated_at)}</div>}
+                        <Badge variant={isApprovedRow ? 'default' : isReworkRow ? 'destructive' : 'outline'} className={isApprovedRow ? 'bg-emerald-600' : ''}>{r.status}</Badge>
                       </div>
-                      <Badge
-                        variant={isApprovedRow ? 'default' : isReworkRow ? 'destructive' : 'outline'}
-                        className={isApprovedRow ? 'bg-emerald-600' : ''}>
-                        {r.status}
-                      </Badge>
-                    </div>
-                  )
-                })
-              )}
-              {isRework && (
-                <div className="mt-2 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800 flex items-center gap-2">
-                  <AlertCircle className="h-4 w-4 shrink-0" />
-                  Rework requested. See the Comments tab for the reviewer's instructions.
-                  {isTaskOwner && <strong className="ml-1">Use the "Submit Rework Done" button above when ready.</strong>}
-                </div>
-              )}
+                    )
+                  })
+              }
               {isReviewerApproved && (
                 <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800 flex items-center gap-2">
                   <CheckCircle2 className="h-4 w-4 shrink-0" />
-                  All initial reviewers (R&amp;D/F&amp;D + PM) approved. &nbsp;
-                  {(isAdmin || isSource)
-                    ? <strong>Click "Submit for Approval" to send to Management Committee.</strong>
-                    : <span>Waiting for Source Team to submit for management approval.</span>}
+                  All initial reviewers approved. &nbsp;
+                  {(isAdmin || isSource) ? <strong>Click "Submit for Approval" to send to Management.</strong> : <span>Waiting for Source Team to submit.</span>}
                 </div>
               )}
-              {isSubmittedForApproval && (
-                <div className="mt-2 p-3 bg-purple-50 border border-purple-200 rounded-lg text-sm text-purple-800 flex items-center gap-2">
-                  <Send className="h-4 w-4 shrink-0" />
-                  Submitted to Management Committee for final approval.
-                  {isMgmtReviewer && <strong className="ml-1">Use "Final Approve" to approve or "Request Rework" to send back.</strong>}
-                </div>
-              )}
-              {isApproved && (
-                <div className="mt-2 p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-sm text-emerald-800 flex items-center gap-2">
-                  <CheckCircle2 className="h-4 w-4 shrink-0" />
-                  PPD fully <strong>Approved</strong> by Management Committee.
+              {isRework && ppd.rework_from_stage === 'initial' && (
+                <div className="mt-2 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800 flex items-center gap-2">
+                  <AlertCircle className="h-4 w-4 shrink-0" />
+                  Rework requested. See Comments tab for instructions.
+                  {isTaskOwner && <strong className="ml-1">Use "Submit Rework Done" above when ready.</strong>}
                 </div>
               )}
             </CardContent>
           </Card>
+
+          {/* Stage 3: Management Committee (shown once submitted) */}
+          {(isMgmtReview || isMgmtApproved || isFinalReview || isApproved || (isRework && ppd.rework_from_stage === 'mgmt')) && (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <span className="text-xs px-2 py-0.5 rounded bg-violet-200 text-violet-800 font-mono">Stage 3</span>
+                  Management Committee Review
+                </CardTitle>
+                <CardDescription>
+                  {(isMgmtApproved || isFinalReview || isApproved)
+                    ? `✓ ${mgmtApprovedCount}/${mgmtApprovals.length} approved — management review complete`
+                    : isRework && ppd.rework_from_stage === 'mgmt'
+                    ? '⚠ Rework requested — task owner to fix and resubmit'
+                    : `${mgmtApprovedCount}/${mgmtApprovals.length} approved — all four must approve`}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {mgmtApprovals.length === 0
+                  ? <p className="text-sm text-muted-foreground text-center py-4">Management review not started yet.</p>
+                  : mgmtApprovals.map((r, i) => {
+                      const isApprovedRow = r.status === 'Approved'
+                      const isReworkRow   = r.status === 'Rework'
+                      const isMyRow       = r.role === myRole && isMgmtReviewer
+                      return (
+                        <div key={i} className={`flex items-center justify-between p-3 border rounded-lg gap-4
+                          ${isApprovedRow ? 'border-emerald-200 bg-emerald-50'
+                            : isReworkRow ? 'border-amber-200 bg-amber-50'
+                            : isMyRow ? 'border-violet-300 bg-violet-50 ring-1 ring-violet-300'
+                            : 'border-slate-200 bg-white'}`}>
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium text-sm">{r.team_label}</span>
+                              {isMyRow && !isApprovedRow && <span className="text-[10px] px-1.5 py-0.5 rounded bg-violet-600 text-white font-medium">Your Review</span>}
+                            </div>
+                            {r.comment && <div className="text-xs text-muted-foreground mt-1 italic">"{r.comment}"</div>}
+                            {r.updated_at && <div className="text-xs text-muted-foreground">{relTime(r.updated_at)}</div>}
+                          </div>
+                          <Badge variant={isApprovedRow ? 'default' : isReworkRow ? 'destructive' : 'outline'} className={isApprovedRow ? 'bg-emerald-600' : ''}>{r.status}</Badge>
+                        </div>
+                      )
+                    })
+                }
+                {isRework && ppd.rework_from_stage === 'mgmt' && (
+                  <div className="mt-2 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800 flex items-center gap-2">
+                    <AlertCircle className="h-4 w-4 shrink-0" />
+                    Rework requested by Management Committee. See Comments tab.
+                    {isTaskOwner && <strong className="ml-1">Use "Submit Rework Done" above when ready.</strong>}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Stage 4: Final Approvers — CFO + CEO (shown once mgmt approved) */}
+          {(isMgmtApproved || isFinalReview || isApproved || (isRework && ppd.rework_from_stage === 'final')) && (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <span className="text-xs px-2 py-0.5 rounded bg-orange-200 text-orange-800 font-mono">Stage 4</span>
+                  Final Approval — CEO
+                </CardTitle>
+                <CardDescription>
+                  {isApproved
+                    ? `✓ CEO approved — PPD fully approved`
+                    : isRework && ppd.rework_from_stage === 'final'
+                    ? '⚠ Rework requested — task owner to fix and resubmit'
+                    : `CEO review pending`}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {finalApprovals.length === 0
+                  ? <p className="text-sm text-muted-foreground text-center py-4">Final review not started yet.</p>
+                  : finalApprovals.map((r, i) => {
+                      const isApprovedRow = r.status === 'Approved'
+                      const isReworkRow   = r.status === 'Rework'
+                      const isMyRow       = r.role === myRole && isFinalApprover
+                      return (
+                        <div key={i} className={`flex items-center justify-between p-3 border rounded-lg gap-4
+                          ${isApprovedRow ? 'border-emerald-200 bg-emerald-50'
+                            : isReworkRow ? 'border-amber-200 bg-amber-50'
+                            : isMyRow ? 'border-orange-300 bg-orange-50 ring-1 ring-orange-300'
+                            : 'border-slate-200 bg-white'}`}>
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium text-sm">{r.team_label}</span>
+                              {isMyRow && !isApprovedRow && <span className="text-[10px] px-1.5 py-0.5 rounded bg-orange-600 text-white font-medium">Your Review</span>}
+                            </div>
+                            {r.comment && <div className="text-xs text-muted-foreground mt-1 italic">"{r.comment}"</div>}
+                            {r.updated_at && <div className="text-xs text-muted-foreground">{relTime(r.updated_at)}</div>}
+                          </div>
+                          <Badge variant={isApprovedRow ? 'default' : isReworkRow ? 'destructive' : 'outline'} className={isApprovedRow ? 'bg-emerald-600' : ''}>{r.status}</Badge>
+                        </div>
+                      )
+                    })
+                }
+                {isApproved && (
+                  <div className="mt-2 p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-sm text-emerald-800 flex items-center gap-2">
+                    <CheckCircle2 className="h-4 w-4 shrink-0" />
+                    PPD fully <strong>Approved</strong> by CEO.
+                  </div>
+                )}
+                {isRework && ppd.rework_from_stage === 'final' && (
+                  <div className="mt-2 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800 flex items-center gap-2">
+                    <AlertCircle className="h-4 w-4 shrink-0" />
+                    Rework requested by CFO/CEO. See Comments tab.
+                    {isTaskOwner && <strong className="ml-1">Use "Submit Rework Done" above when ready.</strong>}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
         </TabsContent>
 
         {/* ── COMMENTS TAB ── */}
