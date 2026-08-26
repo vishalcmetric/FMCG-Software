@@ -132,6 +132,11 @@ async def _migrate_columns() -> None:
         ("formulas",         "method_of_preparation",   "TEXT NULL"),
         ("formulas",         "observation",             "TEXT NULL"),
         ("formulas",         "conclusion",              "TEXT NULL"),
+        # Formula approval workflow columns
+        ("formulas",         "approval_status",         "VARCHAR(20) NULL"),
+        ("formulas",         "approval_comment",        "TEXT NULL"),
+        ("formulas",         "approved_by",             "VARCHAR(150) NULL"),
+        ("formulas",         "approved_at",             "DATETIME NULL"),
     ]
 
     try:

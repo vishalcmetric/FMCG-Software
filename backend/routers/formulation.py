@@ -12,7 +12,7 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_db, fmt_ist
 from auth import get_current_user
-from models import FormulaCreate, FormulaUpdate, FormulaCommentCreate
+from models import FormulaCreate, FormulaUpdate, FormulaCommentCreate, FormulaApprovalDecision
 from orm_models import Formula, FormulaComment, PPDSubmission, AuditLog
 from notify import notify_roles
 from datetime import datetime, timezone
@@ -44,6 +44,10 @@ def _formula_out(f: Formula) -> dict:
         "observation":           f.observation,
         "conclusion":            f.conclusion,
         "ingredients":           f.ingredients or [],
+        "approval_status":       f.approval_status,
+        "approval_comment":      f.approval_comment,
+        "approved_by":           f.approved_by,
+        "approved_at":           fmt_ist(f.approved_at),
         "created_by":            f.created_by,
         "created_by_role":       f.created_by_role,
         "created_at":            fmt_ist(f.created_at),
@@ -351,7 +355,8 @@ async def send_for_approval(
 ):
     """
     fd / admin marks a formula ready for R&D Head review.
-    - Updates status to 'In Testing' (if still Draft)
+    - Sets approval_status = 'pending_approval'
+    - Advances status Draft → In Testing
     - Notifies rd_head
     """
     role = current_user.get("role", "fd")
@@ -363,11 +368,17 @@ async def send_for_approval(
     if not f:
         raise HTTPException(404, "Formula not found")
 
-    # Advance status from Draft → In Testing so rd_head knows it's ready
+    if f.approval_status == "pending_approval":
+        raise HTTPException(400, "Formula is already pending approval")
+
+    # Advance status Draft → In Testing; set approval workflow flag
     if f.status == "Draft":
         f.status = "In Testing"
+    f.approval_status = "pending_approval"
+    f.approval_comment = None
+    f.approved_by = None
+    f.approved_at = None
 
-    from orm_models import AuditLog
     db.add(AuditLog(
         user_name=current_user.get("name", ""),
         user_email=current_user.get("sub", ""),
@@ -384,7 +395,7 @@ async def send_for_approval(
         title=f"Formula Requires Your Approval: {formula_id}",
         message=(
             f"{current_user.get('name','User')} (F&D) has submitted formula {formula_id} "
-            f"({f.project_name}) for your approval. Please review and approve."
+            f"({f.project_name}) for your approval. Please review and approve or reject."
         ),
         action_type="formula_approval",
         entity_id=f.ppd_id or formula_id,
@@ -393,4 +404,97 @@ async def send_for_approval(
     )
 
     await db.commit()
-    return {"ok": True, "formula_id": formula_id, "status": f.status, "notified": ["rd_head"]}
+    return {"ok": True, "formula_id": formula_id, "status": f.status,
+            "approval_status": f.approval_status, "notified": ["rd_head"]}
+
+
+# ── Approve / Reject (rd_head) ────────────────────────────────────────────────
+
+@router.post("/{formula_id}/review", status_code=200)
+async def review_formula(
+    formula_id: str,
+    body: FormulaApprovalDecision,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    rd_head (or admin) approves or rejects a formula that was sent for approval.
+    decision must be "approved" or "rejected".
+    - "approved"  → status becomes "Recommended", approval_status = "approved"
+    - "rejected"  → status stays as-is (or can be set back to Draft), approval_status = "rejected"
+    """
+    role = current_user.get("role", "fd")
+    if role not in ("admin", "rd_head"):
+        raise HTTPException(403, "Only rd_head or admin can approve/reject a formula")
+
+    if body.decision not in ("approved", "rejected"):
+        raise HTTPException(400, "decision must be 'approved' or 'rejected'")
+
+    result = await db.execute(select(Formula).where(Formula.formula_id == formula_id))
+    f = result.scalars().first()
+    if not f:
+        raise HTTPException(404, "Formula not found")
+
+    if f.approval_status not in ("pending_approval", None):
+        # Allow re-review only if it was previously reviewed (admin override scenario)
+        pass  # proceed anyway — rd_head can always change decision
+
+    from datetime import datetime, timezone
+    f.approval_status  = body.decision          # "approved" | "rejected"
+    f.approval_comment = body.comment or ""
+    f.approved_by      = current_user.get("name", "")
+    f.approved_at      = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    if body.decision == "approved":
+        f.status = "Recommended"
+        action_label = f"approved formula {formula_id} → Recommended"
+        notif_title  = f"Formula Approved ✓: {formula_id}"
+        notif_msg    = (
+            f"{current_user.get('name','R&D Head')} approved formula {formula_id} "
+            f"({f.project_name}). Status is now Recommended."
+            + (f" Comment: {body.comment}" if body.comment else "")
+        )
+    else:
+        f.status = "Draft"          # send back for rework
+        action_label = f"rejected formula {formula_id} → back to Draft"
+        notif_title  = f"Formula Rejected: {formula_id}"
+        notif_msg    = (
+            f"{current_user.get('name','R&D Head')} rejected formula {formula_id} "
+            f"({f.project_name}). It has been returned to Draft for rework."
+            + (f" Reason: {body.comment}" if body.comment else "")
+        )
+
+    # Get PPD teams to notify the fd who submitted it + all stakeholders
+    ppd_result = await db.execute(select(PPDSubmission).where(PPDSubmission.ppd_id == f.ppd_id))
+    ppd = ppd_result.scalars().first()
+    teams = (ppd.teams_involved if ppd else ALL_ROLES) or ALL_ROLES
+
+    db.add(AuditLog(
+        user_name=current_user.get("name", ""),
+        user_email=current_user.get("sub", ""),
+        action="APPROVE" if body.decision == "approved" else "REJECT",
+        action_label=action_label,
+        entity=formula_id,
+        involved_roles=teams,
+        time_ago="just now",
+    ))
+
+    await notify_roles(
+        db,
+        roles=teams.split(","),
+        title=notif_title,
+        message=notif_msg,
+        action_type="info",
+        entity_id=f.ppd_id or formula_id,
+        entity_name=f.project_name or formula_id,
+        created_by=current_user.get("name", ""),
+    )
+
+    await db.commit()
+    return {
+        "ok": True,
+        "formula_id":     formula_id,
+        "status":         f.status,
+        "approval_status": f.approval_status,
+        "approved_by":    f.approved_by,
+    }

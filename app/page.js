@@ -100,6 +100,10 @@ const STATUS_COLORS = {
 }
 
 /* -------------------- API CONFIG -------------------- */
+// API_BASE: used only for window.open() PDF downloads, static file links, and health check.
+// All JSON API calls via apiCall() use relative paths (/api/...) so they flow through
+// the Next.js proxy (app/api/[[...path]]/route.js) which forwards to the FastAPI backend.
+// This fixes "Failed to fetch" when the app is accessed from any machine/network.
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL || 'https://fmcg-software.onrender.com').replace(/\/$/, '')
 
 async function apiCall(path, { method = 'GET', body, token } = {}) {
@@ -111,7 +115,9 @@ async function apiCall(path, { method = 'GET', body, token } = {}) {
     },
     ...(body ? { body: JSON.stringify(body) } : {}),
   }
-  const res = await fetch(`${API_BASE}${path}`, opts)
+  // Use relative path so requests go through Next.js proxy → FastAPI backend.
+  // path is already like "/api/formulation" so this resolves on the same host.
+  const res = await fetch(path, opts)
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }))
     throw new Error(err.detail || 'Request failed')
@@ -2596,7 +2602,7 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
     try {
       const fd = new FormData()
       fd.append('file', file)
-      const res = await fetch(`${API_BASE}/api/ppd/${ppd.ppd_id}/upload`, {
+      const res = await fetch(`/api/ppd/${ppd.ppd_id}/upload`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
         body: fd,
@@ -3657,13 +3663,44 @@ function FormulationView({ user, token, can }) {
   const handleSendApproval = async () => {
     setSendingApproval(true)
     try {
-      await apiCall(`/api/formulation/${selected.formula_id}/send-for-approval`, {
+      const result = await apiCall(`/api/formulation/${selected.formula_id}/send-for-approval`, {
         method: 'POST', token
       })
       toast.success('Sent to R&D Head for approval — they have been notified')
+      // Update selected so the button state reflects the new status immediately
+      setSelected(s => ({
+        ...s,
+        status: result.status || s.status,
+        approval_status: result.approval_status || 'pending_approval',
+      }))
       fetchFormulas()
     } catch (err) { toast.error(err.message) }
     finally { setSendingApproval(false) }
+  }
+
+  // ── rd_head review (approve / reject) ──
+  const [reviewComment, setReviewComment] = useState('')
+  const [reviewing, setReviewing] = useState(false)
+  const handleReview = async (decision) => {
+    setReviewing(true)
+    try {
+      const result = await apiCall(`/api/formulation/${selected.formula_id}/review`, {
+        method: 'POST', token,
+        body: { decision, comment: reviewComment.trim() || undefined }
+      })
+      toast.success(decision === 'approved' ? 'Formula approved — marked as Recommended' : 'Formula rejected — returned to Draft')
+      setSelected(s => ({
+        ...s,
+        status: result.status,
+        approval_status: result.approval_status,
+        approved_by: result.approved_by,
+        approval_comment: reviewComment.trim(),
+      }))
+      setEditForm(f => ({ ...f, status: result.status }))
+      setReviewComment('')
+      fetchFormulas()
+    } catch (err) { toast.error(err.message) }
+    finally { setReviewing(false) }
   }
 
   // ── save edit ──
@@ -3830,11 +3867,13 @@ function FormulationView({ user, token, can }) {
                 <TableRow>
                   <TableHead className="w-8"></TableHead>
                   <TableHead className="w-36">Formula ID</TableHead>
+                  <TableHead className="w-32">PPD ID</TableHead>
                   <TableHead>Project</TableHead>
                   <TableHead>Version</TableHead>
                   <TableHead>Trial No.</TableHead>
                   <TableHead>Batch No.</TableHead>
                   <TableHead>Status</TableHead>
+                  <TableHead>Approval</TableHead>
                   <TableHead>Trial Taken By</TableHead>
                   <TableHead>Updated</TableHead>
                   <TableHead className="w-10"></TableHead>
@@ -3852,12 +3891,25 @@ function FormulationView({ user, token, can }) {
                       />
                     </TableCell>
                     <TableCell className="font-mono text-xs font-semibold" onClick={() => openDetail(f)}>{f.formula_id}</TableCell>
+                    <TableCell className="font-mono text-xs text-muted-foreground" onClick={() => openDetail(f)}>{f.ppd_id||'—'}</TableCell>
                     <TableCell className="text-sm max-w-[150px] truncate" onClick={() => openDetail(f)}>{f.project_name}</TableCell>
                     <TableCell onClick={() => openDetail(f)}><Badge variant="outline" className="font-mono text-xs">{f.version}</Badge></TableCell>
-                    <TableCell className="text-xs" onClick={() => openDetail(f)}>{f.trial_no||'—'}</TableCell>
+                    <TableCell className="text-xs font-medium" onClick={() => openDetail(f)}>{f.trial_no||'—'}</TableCell>
                     <TableCell className="text-xs text-muted-foreground" onClick={() => openDetail(f)}>{f.batch_no||'—'}</TableCell>
                     <TableCell onClick={() => openDetail(f)}>
                       <span className={`text-xs px-2 py-0.5 rounded-md font-medium ${FORMULA_STATUS_COLORS[f.status]||'bg-slate-100'}`}>{f.status}</span>
+                    </TableCell>
+                    <TableCell onClick={() => openDetail(f)}>
+                      {f.approval_status === 'pending_approval' && (
+                        <span className="text-xs px-2 py-0.5 rounded-md font-medium bg-amber-100 text-amber-700">Pending Review</span>
+                      )}
+                      {f.approval_status === 'approved' && (
+                        <span className="text-xs px-2 py-0.5 rounded-md font-medium bg-green-100 text-green-700">Approved</span>
+                      )}
+                      {f.approval_status === 'rejected' && (
+                        <span className="text-xs px-2 py-0.5 rounded-md font-medium bg-red-100 text-red-700">Rejected</span>
+                      )}
+                      {!f.approval_status && <span className="text-xs text-muted-foreground">—</span>}
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground max-w-[120px] truncate" onClick={() => openDetail(f)}>{f.trial_taken_by||'—'}</TableCell>
                     <TableCell className="text-xs text-muted-foreground whitespace-nowrap" onClick={() => openDetail(f)}>{relTime(f.updated_at)}</TableCell>
@@ -4171,6 +4223,7 @@ function FormulationView({ user, token, can }) {
 
               {/* Status tab */}
               <TabsContent value="status" className="space-y-4 pt-2">
+                {/* Formula status selector (canEdit) */}
                 <div className="space-y-2">
                   <Label>Formula Status</Label>
                   {canEdit
@@ -4186,7 +4239,69 @@ function FormulationView({ user, token, can }) {
                       </Select>
                     : <div className="py-2"><span className={`text-xs px-2 py-1 rounded-md font-medium ${FORMULA_STATUS_COLORS[editForm.status]||'bg-slate-100'}`}>{editForm.status}</span></div>}
                 </div>
-                <div className="grid grid-cols-2 gap-4 pt-2">
+
+                {/* Approval status banner */}
+                {selected.approval_status && (
+                  <div className={`rounded-lg border p-3 flex flex-col gap-1 ${
+                    selected.approval_status === 'pending_approval' ? 'bg-amber-50 border-amber-200' :
+                    selected.approval_status === 'approved'         ? 'bg-green-50 border-green-200' :
+                                                                      'bg-red-50 border-red-200'
+                  }`}>
+                    <div className="flex items-center gap-2">
+                      <span className={`text-xs font-semibold uppercase tracking-wide ${
+                        selected.approval_status === 'pending_approval' ? 'text-amber-700' :
+                        selected.approval_status === 'approved'         ? 'text-green-700' :
+                                                                          'text-red-700'
+                      }`}>
+                        {selected.approval_status === 'pending_approval' && '⏳ Pending R&D Head Review'}
+                        {selected.approval_status === 'approved'         && '✓ Approved by R&D Head'}
+                        {selected.approval_status === 'rejected'         && '✗ Rejected by R&D Head'}
+                      </span>
+                    </div>
+                    {selected.approved_by && (
+                      <p className="text-xs text-muted-foreground">By: {selected.approved_by}{selected.approved_at ? ` · ${new Date(selected.approved_at).toLocaleString()}` : ''}</p>
+                    )}
+                    {selected.approval_comment && (
+                      <p className="text-sm mt-1 italic">"{selected.approval_comment}"</p>
+                    )}
+                  </div>
+                )}
+
+                {/* rd_head / admin — approve or reject panel */}
+                {(user?.role === 'rd_head' || user?.role === 'admin') && selected.approval_status === 'pending_approval' && (
+                  <div className="rounded-lg border border-slate-200 p-4 space-y-3 bg-slate-50">
+                    <p className="text-sm font-semibold text-slate-700">R&D Head Review</p>
+                    <p className="text-xs text-muted-foreground">This formula has been submitted for your approval. Add an optional comment and approve or reject.</p>
+                    <Textarea
+                      rows={2}
+                      value={reviewComment}
+                      onChange={e => setReviewComment(e.target.value)}
+                      placeholder="Optional: add a remark or reason for your decision..."
+                    />
+                    <div className="flex gap-2 justify-end">
+                      <Button
+                        variant="outline"
+                        className="border-red-300 text-red-700 hover:bg-red-50 gap-1.5"
+                        disabled={reviewing}
+                        onClick={() => handleReview('rejected')}
+                      >
+                        {reviewing ? <RefreshCw className="h-4 w-4 animate-spin"/> : <XCircle className="h-4 w-4"/>}
+                        Reject
+                      </Button>
+                      <Button
+                        className="bg-green-600 hover:bg-green-700 text-white gap-1.5"
+                        disabled={reviewing}
+                        onClick={() => handleReview('approved')}
+                      >
+                        {reviewing ? <RefreshCw className="h-4 w-4 animate-spin"/> : <CheckCircle2 className="h-4 w-4"/>}
+                        Approve
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Quick summary grid */}
+                <div className="grid grid-cols-2 gap-4 pt-1">
                   {[
                     { label:'Trial No.',    value: selected.trial_no       },
                     { label:'Batch No.',    value: selected.batch_no       },
@@ -4245,8 +4360,10 @@ function FormulationView({ user, token, can }) {
                   {saving && <RefreshCw className="h-4 w-4 animate-spin mr-2"/>}Save Changes
                 </Button>
               )}
-              {/* Send for Approval — fd / admin only */}
-              {(user?.role === 'fd' || user?.role === 'admin') && selected?.status !== 'Recommended' && (
+              {/* Send for Approval — fd / admin only, only when not already sent/approved/rejected */}
+              {(user?.role === 'fd' || user?.role === 'admin')
+                && !['Recommended', 'Rejected'].includes(selected?.status)
+                && selected?.approval_status !== 'pending_approval' && (
                 <Button
                   className="bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5"
                   onClick={handleSendApproval}
@@ -4255,6 +4372,21 @@ function FormulationView({ user, token, can }) {
                   {sendingApproval ? <RefreshCw className="h-4 w-4 animate-spin"/> : <Send className="h-4 w-4"/>}
                   Send for Approval
                 </Button>
+              )}
+              {/* rd_head quick-action buttons also available in footer when pending */}
+              {(user?.role === 'rd_head' || user?.role === 'admin') && selected?.approval_status === 'pending_approval' && (
+                <>
+                  <Button variant="outline" className="border-red-300 text-red-700 hover:bg-red-50 gap-1.5"
+                    disabled={reviewing} onClick={() => { setActiveTab('status'); handleReview('rejected') }}>
+                    {reviewing ? <RefreshCw className="h-4 w-4 animate-spin"/> : <XCircle className="h-4 w-4"/>}
+                    Reject
+                  </Button>
+                  <Button className="bg-green-600 hover:bg-green-700 text-white gap-1.5"
+                    disabled={reviewing} onClick={() => { setActiveTab('status'); handleReview('approved') }}>
+                    {reviewing ? <RefreshCw className="h-4 w-4 animate-spin"/> : <CheckCircle2 className="h-4 w-4"/>}
+                    Approve
+                  </Button>
+                </>
               )}
             </DialogFooter>
           </DialogContent>

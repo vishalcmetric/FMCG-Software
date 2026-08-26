@@ -156,6 +156,10 @@ class FormulaUpdate(BaseModel):
 class FormulaCommentCreate(BaseModel):
     comment: str
 
+class FormulaApprovalDecision(BaseModel):
+    decision:  str            # "approved" | "rejected"
+    comment:   Optional[str] = None
+
 # ── Tasks ─────────────────────────────────────────────────────────────────────
 class TaskCreate(BaseModel):
     title: str
