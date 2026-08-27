@@ -227,6 +227,46 @@ async def review_report(
     return {"ok": True, "report_id": report_id, "status": rpt.status}
 
 
+# ── DELETE (admin only) ───────────────────────────────────────────────────────
+
+@router.delete("/{report_id}", status_code=200)
+async def delete_report(
+    report_id: str,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession   = Depends(get_db),
+):
+    if current_user.get("role") != "admin":
+        raise HTTPException(403, "Only admin can delete reports")
+
+    res = await db.execute(select(PilotReport).where(PilotReport.report_id == report_id))
+    rpt = res.scalars().first()
+    if not rpt:
+        raise HTTPException(404, "Report not found")
+
+    # Remove file from disk if it exists
+    if rpt.file_url:
+        rel = rpt.file_url.lstrip("/")
+        abs_path = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", rel))
+        if os.path.isfile(abs_path):
+            try:
+                os.remove(abs_path)
+            except Exception:
+                pass
+
+    db.add(AuditLog(
+        user_name=current_user.get("name", ""),
+        user_email=current_user.get("sub", ""),
+        action="DELETE",
+        action_label=f"deleted pilot report {report_id}",
+        entity=report_id,
+        involved_roles="admin",
+        time_ago="just now",
+    ))
+    await db.delete(rpt)
+    await db.commit()
+    return {"ok": True}
+
+
 # ── SUBMIT FOR PROJECT CLOSURE (rd_head → notifies pm) ───────────────────────
 
 @router.post("/submit-for-closure", status_code=200)

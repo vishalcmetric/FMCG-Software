@@ -5882,6 +5882,7 @@ function ReportsView({ user, token }) {
 
 /* -------------------- PILOT TRIAL -------------------- */
 function PilotTrialView({ user, token }) {
+  const isAdmin   = user?.role === 'admin'
   const canReview = ['admin','rd_head'].includes(user?.role)
   const canClose  = ['admin','rd_head'].includes(user?.role)
 
@@ -5946,6 +5947,15 @@ function PilotTrialView({ user, token }) {
       setClosureNotes('')
     } catch(e) { toast.error(e.message) }
     finally { setSubmittingClosure(false) }
+  }
+
+  const handleDelete = async (reportId) => {
+    if (!confirm(`Delete report ${reportId}? This cannot be undone.`)) return
+    try {
+      await apiCall(`/api/pilot-reports/${reportId}`, { method: 'DELETE', token })
+      toast.success('Report deleted')
+      load()
+    } catch(e) { toast.error(e.message) }
   }
 
   const statusBadge = (s) => {
@@ -6017,7 +6027,7 @@ function PilotTrialView({ user, token }) {
                   <TableHead>Submitted By</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Comment</TableHead>
-                  {canReview && <TableHead>Actions</TableHead>}
+                  <TableHead>Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -6047,18 +6057,17 @@ function PilotTrialView({ user, token }) {
                       </span>
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground max-w-[140px] truncate">{r.review_comment || '—'}</TableCell>
-                    {canReview && (
-                      <TableCell>
-                        {r.status === 'Pending' && (
-                          <div className="flex gap-1 items-center">
+                    <TableCell>
+                      <div className="flex gap-1 items-center flex-wrap">
+                        {canReview && r.status === 'Pending' && (
+                          <>
                             <Input
-                              className="h-6 text-xs w-28"
-                              placeholder="Comment (opt.)"
+                              className="h-6 text-xs w-24"
+                              placeholder="Comment"
                               value={reviewing === r.report_id ? reviewComment : ''}
                               onChange={e => { setReviewing(r.report_id); setReviewComment(e.target.value) }}
                             />
                             <Button size="sm" className="h-6 text-xs bg-emerald-600 hover:bg-emerald-700 px-2"
-                              disabled={reviewing === r.report_id && false}
                               onClick={() => handleReview(r.report_id, 'approved')}>
                               <CheckCircle2 className="h-3 w-3"/>
                             </Button>
@@ -6066,13 +6075,20 @@ function PilotTrialView({ user, token }) {
                               onClick={() => handleReview(r.report_id, 'rejected')}>
                               <XCircle className="h-3 w-3"/>
                             </Button>
-                          </div>
+                          </>
                         )}
-                        {r.status !== 'Pending' && (
-                          <span className="text-xs text-muted-foreground">{r.reviewed_by || '—'}</span>
+                        {canReview && r.status !== 'Pending' && (
+                          <span className="text-xs text-muted-foreground mr-1">{r.reviewed_by || '—'}</span>
                         )}
-                      </TableCell>
-                    )}
+                        {isAdmin && (
+                          <Button size="sm" variant="outline"
+                            className="h-6 text-xs border-red-300 text-red-600 hover:bg-red-50 px-2"
+                            onClick={() => handleDelete(r.report_id)}>
+                            <Trash2 className="h-3 w-3"/>
+                          </Button>
+                        )}
+                      </div>
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>

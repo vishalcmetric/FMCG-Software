@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_db, fmt_ist
 from auth import get_current_user
 from models import FormulaCreate, FormulaUpdate, FormulaCommentCreate, FormulaApprovalDecision
-from orm_models import Formula, FormulaComment, PPDSubmission, AuditLog
+from orm_models import Formula, FormulaComment, PPDSubmission, AuditLog, LabExperiment, SensoryEvaluation, CostingRecord
 from notify import notify_roles
 from datetime import datetime, timezone
 
@@ -273,12 +273,33 @@ async def delete_formula(
     if not f:
         raise HTTPException(404, "Formula not found")
 
+    # Cascade-delete all related records that reference this formula_id
+    for comment in (await db.execute(
+        select(FormulaComment).where(FormulaComment.formula_id == formula_id)
+    )).scalars().all():
+        await db.delete(comment)
+
+    for exp in (await db.execute(
+        select(LabExperiment).where(LabExperiment.formula_id == formula_id)
+    )).scalars().all():
+        await db.delete(exp)
+
+    for se in (await db.execute(
+        select(SensoryEvaluation).where(SensoryEvaluation.formula_id == formula_id)
+    )).scalars().all():
+        await db.delete(se)
+
+    for cr in (await db.execute(
+        select(CostingRecord).where(CostingRecord.formula_id == formula_id)
+    )).scalars().all():
+        await db.delete(cr)
+
     await db.delete(f)
     db.add(AuditLog(
         user_name=current_user.get("name", ""),
         user_email=current_user.get("sub", ""),
         action="DELETE",
-        action_label=f"deleted formula {formula_id}",
+        action_label=f"deleted formula {formula_id} and all related records (comments, lab experiments, sensory evaluations, costing records)",
         entity=formula_id,
         involved_roles="admin",
         time_ago="just now",
