@@ -43,9 +43,12 @@ async def _build_stats(db: AsyncSession, role: str, user_email: str) -> list[Sta
         ]))
     )).scalar() or 0
 
+    # Only count tasks whose PPD still exists (avoids orphaned tasks from deleted PPDs)
+    existing_ppd_ids = select(PPDSubmission.ppd_id)
     pending_approvals = (await db.execute(
         _role_task(select(func.count()).select_from(Task))
         .where(Task.status == "pending")
+        .where(Task.ppd_id.in_(existing_ppd_ids))
     )).scalar() or 0
 
     under_review = (await db.execute(
@@ -59,10 +62,10 @@ async def _build_stats(db: AsyncSession, role: str, user_email: str) -> list[Sta
     )).scalar() or 0
 
     return [
-        StatCard(label="Active PPDs",       value=active_ppds,      change="+3", icon="FileText",    color="from-emerald-500 to-emerald-700"),
-        StatCard(label="Pending Approvals", value=pending_approvals, change="+2", icon="FileCheck2",  color="from-orange-500 to-orange-700"),
-        StatCard(label="Under Review",      value=under_review,      change="-1", icon="FlaskConical", color="from-blue-500 to-blue-700"),
-        StatCard(label="Approved PPDs",     value=approved,          change="+5", icon="CheckCircle2", color="from-purple-500 to-purple-700"),
+        StatCard(label="Active PPDs",       value=active_ppds,      change="", icon="FileText",    color="from-emerald-500 to-emerald-700"),
+        StatCard(label="Pending Approvals", value=pending_approvals, change="", icon="FileCheck2",  color="from-orange-500 to-orange-700"),
+        StatCard(label="Under Review",      value=under_review,      change="", icon="FlaskConical", color="from-blue-500 to-blue-700"),
+        StatCard(label="Approved PPDs",     value=approved,          change="", icon="CheckCircle2", color="from-purple-500 to-purple-700"),
     ]
 
 
@@ -91,7 +94,12 @@ async def _build_ppds(db: AsyncSession, role: str) -> list[dict]:
 
 
 async def _build_tasks(db: AsyncSession, role: str, user_email: str) -> list[PendingTask]:
-    stmt = select(Task).where(Task.status.not_in(["approved"]))
+    existing_ppd_ids = select(PPDSubmission.ppd_id)
+    stmt = (
+        select(Task)
+        .where(Task.status.not_in(["approved"]))
+        .where(Task.ppd_id.in_(existing_ppd_ids))   # skip orphaned tasks
+    )
     if role not in _FULL_ROLES:
         stmt = stmt.where(Task.assigned_role == role)
     stmt = stmt.order_by(Task.due_date).limit(20)

@@ -98,6 +98,20 @@ async def run_seed():
         return {"ok": False, "error": str(e), "traceback": traceback.format_exc()}
 
 
+@app.post("/api/cleanup-orphans")
+async def cleanup_orphan_tasks():
+    """Delete tasks/notifications whose PPD no longer exists."""
+    from database import AsyncSessionLocal
+    from sqlalchemy import text
+    async with AsyncSessionLocal() as db:
+        r = await db.execute(text(
+            "DELETE FROM tasks WHERE ppd_id IS NOT NULL "
+            "AND ppd_id NOT IN (SELECT ppd_id FROM ppd_submissions)"
+        ))
+        await db.commit()
+        return {"ok": True, "deleted_tasks": r.rowcount}
+
+
 @app.post("/api/clear-data")
 async def clear_all_data():
     """
