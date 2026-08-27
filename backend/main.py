@@ -23,6 +23,7 @@ from routers.masterconfig import router as masterconfig_router
 from routers.reports import router as reports_router
 from routers.artwork import router as artwork_router
 from routers.reports_pdf import router as reports_pdf_router
+from routers.pilot_reports import router as pilot_reports_router
 
 settings = get_settings()
 
@@ -74,6 +75,7 @@ app.include_router(masterconfig_router)
 app.include_router(reports_router)
 app.include_router(artwork_router)
 app.include_router(permissions_router)
+app.include_router(pilot_reports_router)
 
 @app.get("/")
 async def root():

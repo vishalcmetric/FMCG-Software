@@ -30,7 +30,8 @@ class PPDStatus(str, enum.Enum):
     MgmtReview            = "MgmtReview"         # submitted; mgmt committee reviewing
     MgmtApproved          = "MgmtApproved"       # all mgmt approved; CFO+CEO assigned
     FinalReview           = "FinalReview"         # CFO+CEO reviewing
-    Approved              = "Approved"            # fully approved
+    Approved              = "Approved"            # CEO approved — pm can now close
+    Completed             = "Completed"           # pm closed the project
 
 # ── Enums ─────────────────────────────────────────────────────────────────────
 class TaskStatus(str, enum.Enum):
@@ -454,3 +455,29 @@ class MasterConfig(Base):
     created_at = Column(DateTime, server_default=func.now())
 
     __table_args__ = (Index("ix_master_type_key", "config_type", "key"),)
+
+
+# ── Pilot Reports (uploaded by production/packaging/regulatory/sa) ────────────
+class PilotReport(Base):
+    __tablename__ = "pilot_reports"
+
+    id              = Column(Integer, primary_key=True, autoincrement=True)
+    report_id       = Column(String(40), unique=True, nullable=False, index=True)
+    ppd_id          = Column(String(50), nullable=False, index=True)
+    project_name    = Column(String(255))
+    report_type     = Column(String(100))          # e.g. "Stability", "QC", "Regulatory"
+    file_name       = Column(String(255))
+    file_url        = Column(String(500))
+    notes           = Column(Text, nullable=True)
+    # Workflow
+    status          = Column(String(30), default="Pending")  # Pending | Approved | Rejected
+    review_comment  = Column(Text, nullable=True)
+    reviewed_by     = Column(String(150), nullable=True)
+    reviewed_at     = Column(DateTime, nullable=True)
+    # Creator
+    created_by      = Column(String(150))
+    created_by_role = Column(String(50))
+    created_at      = Column(DateTime, server_default=func.now())
+    updated_at      = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (Index("ix_pilot_report_ppd", "ppd_id"),)

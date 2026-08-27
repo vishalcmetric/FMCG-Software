@@ -55,6 +55,8 @@ const MENU = [
   { key: 'labbook',     label: 'E-Lab Notebook',        icon: Notebook,        roles: ['admin','fd','rd_head','adl'] },
   // Plant Trials: Production team, Packaging, R&D Head
   { key: 'plant',       label: 'Plant Trials',          icon: Factory,         roles: ['admin','production','rd_head','packaging','fd'] },
+  // Pilot Trial: report upload + review + closure (new module)
+  { key: 'pilot_trial', label: 'Pilot Trial',           icon: ClipboardList,   roles: ['admin','production','packaging','regulatory','sa','rd_head','pm'] },
   // Regulatory: Regulatory team reviews FD docs, R&D Head oversees
   { key: 'regulatory',  label: 'Regulatory',            icon: ShieldCheck,     roles: ['admin','regulatory','rd_head','sa'] },
   // Sensory: PM&SA team, ADL lab, R&D Head
@@ -1041,6 +1043,7 @@ function ViewRouter({ view, setView, user, token, userPerms, can }) {
     case 'formulation':  return guard('Formulation', <div className={p}><FormulationView user={user} token={token} can={can} /></div>)
     case 'labbook':      return guard('Lab Notebook',<div className={p}><LabBookView user={user} token={token} can={can} /></div>)
     case 'plant':        return guard('Plant Trials',<div className={p}><PlantTrialsView user={user} token={token} can={can} /></div>)
+    case 'pilot_trial':  return guard('Pilot Trial', <div className={p}><PilotTrialView  user={user} token={token} /></div>)
     case 'regulatory':   return guard('Regulatory',  <div className={p}><RegulatoryView user={user} token={token} can={can} /></div>)
     case 'sensory':      return guard('Sensory',     <div className={p}><SensoryView user={user} token={token} can={can} /></div>)
     case 'costing':      return guard('Costing',     <div className={p}><CostingView user={user} token={token} can={can} /></div>)
@@ -2163,6 +2166,7 @@ const PPD_STATUS_COLORS = {
   'MgmtApproved':     'bg-indigo-100 text-indigo-800',
   'FinalReview':      'bg-orange-100 text-orange-800',
   'Approved':         'bg-emerald-100 text-emerald-800',
+  'Completed':        'bg-green-600 text-white',
 }
 const PPD_STATUS_LABELS = {
   'Pending':          'Pending',
@@ -2171,7 +2175,8 @@ const PPD_STATUS_LABELS = {
   'MgmtReview':       'Management Review',
   'MgmtApproved':     'Management Approved',
   'FinalReview':      'Final Review (CEO)',
-  'Approved':         'Approved',
+  'Approved':         'Approved ✓',
+  'Completed':        'Completed 🎉',
 }
 const PPD_STATUSES = Object.keys(PPD_STATUS_COLORS)
 
@@ -2181,6 +2186,7 @@ function PPDView({ user, token, can }) {
   const [loading, setLoading]         = useState(true)
   const [q, setQ]                     = useState('')
   const [statusFilter, setStatus]     = useState('all')
+  const [closingPpd, setClosingPpd]   = useState(null)
 
   // Create PPD dialog
   const [createOpen, setCreateOpen]   = useState(false)
@@ -2226,6 +2232,26 @@ function PPDView({ user, token, can }) {
   }
 
   const openCreate = () => setCreateOpen(true)
+
+  // ── Close Project (pm / admin — only when Approved) ──
+  const handleCloseProject = async (e, ppdId) => {
+    e.stopPropagation()
+    if (!confirm(`Close project ${ppdId}? This will mark it as Completed.`)) return
+    setClosingPpd(ppdId)
+    try {
+      const fd = new FormData()
+      fd.append('ppd_id', ppdId)
+      const res = await fetch('/api/pilot-reports/close-project', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: fd,
+      })
+      if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.detail || 'Failed') }
+      toast.success('Project closed — marked as Completed')
+      fetchPPDs()
+    } catch (err) { toast.error(err.message) }
+    finally { setClosingPpd(null) }
+  }
 
   const relTime = (iso) => {
     if (!iso) return '—'
@@ -2349,7 +2375,18 @@ function PPDView({ user, token, can }) {
                       </div>
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground whitespace-nowrap">{relTime(p.updated_at)}</TableCell>
-                    <TableCell><ChevronRight className="h-4 w-4 text-muted-foreground" /></TableCell>
+                    <TableCell onClick={e => e.stopPropagation()}>
+                      {(user?.role === 'pm' || user?.role === 'admin') && p.status === 'Approved' && (
+                        <Button size="sm" variant="outline"
+                          className="text-xs border-emerald-400 text-emerald-700 hover:bg-emerald-50 h-7 px-2 whitespace-nowrap"
+                          disabled={closingPpd === p.ppd_id}
+                          onClick={e => handleCloseProject(e, p.ppd_id)}>
+                          {closingPpd === p.ppd_id ? <RefreshCw className="h-3 w-3 animate-spin"/> : <CheckCircle2 className="h-3 w-3 mr-1"/>}
+                          Close Project
+                        </Button>
+                      )}
+                      {p.status !== 'Approved' && <ChevronRight className="h-4 w-4 text-muted-foreground" />}
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -5814,6 +5851,321 @@ function ReportsView({ token }) {
     </div>
   )
 }
+
+/* -------------------- PILOT TRIAL -------------------- */
+function PilotTrialView({ user, token }) {
+  const UPLOAD_ROLES = ['admin','production','packaging','regulatory','sa']
+  const canUpload = UPLOAD_ROLES.includes(user?.role)
+  const canReview = ['admin','rd_head'].includes(user?.role)
+  const canClose  = ['admin','rd_head'].includes(user?.role)
+  const isPm      = ['admin','pm'].includes(user?.role)
+
+  const [reports, setReports]       = useState([])
+  const [ppds, setPpds]             = useState([])
+  const [loading, setLoading]       = useState(true)
+  const [ppdFilter, setPpdFilter]   = useState('all')
+  const [uploadOpen, setUploadOpen] = useState(false)
+  const [uploading, setUploading]   = useState(false)
+  const [uploadForm, setUploadForm] = useState({ ppd_id: '', report_type: 'Stability', notes: '' })
+  const [uploadFile, setUploadFile] = useState(null)
+  const [reviewing, setReviewing]   = useState(null)
+  const [reviewComment, setReviewComment] = useState('')
+  const [closureOpen, setClosureOpen] = useState(false)
+  const [closurePpd, setClosurePpd]   = useState('')
+  const [closureNotes, setClosureNotes] = useState('')
+  const [submittingClosure, setSubmittingClosure] = useState(false)
+
+  const REPORT_TYPES = ['Stability','QC Analysis','Regulatory Compliance','Production Trial','Batch Report','Safety Data','Other']
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const [rData, pData] = await Promise.all([
+        apiCall(`/api/pilot-reports${ppdFilter !== 'all' ? `?ppd_id=${ppdFilter}` : ''}`, { token }),
+        apiCall('/api/ppd', { token }),
+      ])
+      setReports(Array.isArray(rData) ? rData : [])
+      setPpds(Array.isArray(pData) ? pData : [])
+    } catch(e) { toast.error('Failed to load reports') }
+    finally { setLoading(false) }
+  }, [token, ppdFilter])
+
+  useEffect(() => { load() }, [load])
+
+  // Upload report
+  const handleUpload = async () => {
+    if (!uploadForm.ppd_id) return toast.error('Select a PPD')
+    if (!uploadFile) return toast.error('Select a file to upload')
+    setUploading(true)
+    try {
+      const fd = new FormData()
+      fd.append('ppd_id', uploadForm.ppd_id)
+      fd.append('report_type', uploadForm.report_type)
+      fd.append('notes', uploadForm.notes)
+      fd.append('file', uploadFile)
+      const res = await fetch('/api/pilot-reports', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: fd,
+      })
+      if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.detail || 'Upload failed') }
+      toast.success('Report submitted — R&D Head has been notified')
+      setUploadOpen(false)
+      setUploadForm({ ppd_id: '', report_type: 'Stability', notes: '' })
+      setUploadFile(null)
+      load()
+    } catch(e) { toast.error(e.message) }
+    finally { setUploading(false) }
+  }
+
+  // Review (rd_head)
+  const handleReview = async (reportId, decision) => {
+    setReviewing(reportId)
+    try {
+      await apiCall(`/api/pilot-reports/${reportId}/review`, {
+        method: 'POST', token,
+        body: { decision, comment: reviewComment.trim() || undefined }
+      })
+      toast.success(`Report ${decision}`)
+      setReviewComment('')
+      load()
+    } catch(e) { toast.error(e.message) }
+    finally { setReviewing(null) }
+  }
+
+  // Submit for closure (rd_head)
+  const handleSubmitClosure = async () => {
+    if (!closurePpd) return toast.error('Select a PPD')
+    setSubmittingClosure(true)
+    try {
+      const fd = new FormData()
+      fd.append('ppd_id', closurePpd)
+      fd.append('notes', closureNotes)
+      const res = await fetch('/api/pilot-reports/submit-for-closure', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: fd,
+      })
+      if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.detail || 'Failed') }
+      toast.success('Project closure request sent to Project Management')
+      setClosureOpen(false)
+      setClosurePpd('')
+      setClosureNotes('')
+    } catch(e) { toast.error(e.message) }
+    finally { setSubmittingClosure(false) }
+  }
+
+  const statusBadge = (s) => {
+    if (s === 'approved') return 'bg-emerald-100 text-emerald-700'
+    if (s === 'rejected') return 'bg-red-100 text-red-700'
+    return 'bg-amber-100 text-amber-700'
+  }
+
+  const pending   = reports.filter(r => r.status === 'Pending').length
+  const approved  = reports.filter(r => r.status === 'approved').length
+  const rejected  = reports.filter(r => r.status === 'rejected').length
+
+  return (
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold">Pilot Trial Reports</h1>
+          <p className="text-muted-foreground text-sm">Upload, review, and manage pilot trial reports for all PPDs</p>
+        </div>
+        <div className="flex gap-2 flex-wrap">
+          <Button variant="outline" size="sm" onClick={load}><RefreshCw className="h-4 w-4 mr-1"/>Refresh</Button>
+          {canUpload && (
+            <Button onClick={() => setUploadOpen(true)}><Upload className="h-4 w-4 mr-2"/>Upload Report</Button>
+          )}
+          {canClose && (
+            <Button variant="outline" className="border-violet-400 text-violet-700 hover:bg-violet-50"
+              onClick={() => setClosureOpen(true)}>
+              <Send className="h-4 w-4 mr-2"/>Submit for Project Closure
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {/* Stats */}
+      <div className="grid grid-cols-3 gap-3">
+        {[{l:'Pending Review',v:pending,c:'text-amber-600'},{l:'Approved',v:approved,c:'text-emerald-600'},{l:'Rejected',v:rejected,c:'text-red-600'}].map(s=>(
+          <Card key={s.l}><CardContent className="p-4 text-center"><div className={`text-2xl font-bold ${s.c}`}>{s.v}</div><div className="text-xs text-muted-foreground mt-0.5">{s.l}</div></CardContent></Card>
+        ))}
+      </div>
+
+      {/* PPD Filter */}
+      <div className="flex gap-3 items-center">
+        <Select value={ppdFilter} onValueChange={setPpdFilter}>
+          <SelectTrigger className="w-64"><SelectValue placeholder="All PPDs"/></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All PPDs</SelectItem>
+            {ppds.map(p=><SelectItem key={p.ppd_id} value={p.ppd_id}>{p.ppd_id} — {p.project_name}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* Reports Table */}
+      <Card>
+        <CardContent className="p-0">
+          {loading ? (
+            <div className="space-y-2 p-4">{[1,2,3].map(i=><div key={i} className="h-10 bg-slate-100 rounded animate-pulse"/>)}</div>
+          ) : reports.length === 0 ? (
+            <div className="text-center py-14 text-muted-foreground">
+              <ClipboardList className="h-10 w-10 mx-auto mb-3 opacity-30"/>
+              <p className="font-medium">No reports yet</p>
+              {canUpload && <p className="text-sm">Upload a report using the button above</p>}
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Report ID</TableHead>
+                  <TableHead>PPD / Project</TableHead>
+                  <TableHead>Type</TableHead>
+                  <TableHead>File</TableHead>
+                  <TableHead>Submitted By</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Comment</TableHead>
+                  {canReview && <TableHead>Actions</TableHead>}
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {reports.map(r => (
+                  <TableRow key={r.report_id}>
+                    <TableCell className="font-mono text-xs">{r.report_id}</TableCell>
+                    <TableCell>
+                      <div className="font-medium text-sm">{r.project_name}</div>
+                      <div className="text-xs text-muted-foreground font-mono">{r.ppd_id}</div>
+                    </TableCell>
+                    <TableCell className="text-sm">{r.report_type}</TableCell>
+                    <TableCell>
+                      {r.file_url ? (
+                        <a href={r.file_url} target="_blank" rel="noreferrer"
+                          className="text-xs text-blue-600 hover:underline flex items-center gap-1">
+                          <Paperclip className="h-3 w-3"/>{r.file_name || 'Download'}
+                        </a>
+                      ) : <span className="text-xs text-muted-foreground">—</span>}
+                    </TableCell>
+                    <TableCell className="text-sm">
+                      <div>{r.created_by}</div>
+                      <div className="text-xs text-muted-foreground">{r.created_by_role}</div>
+                    </TableCell>
+                    <TableCell>
+                      <span className={`text-xs px-2 py-0.5 rounded-md font-medium capitalize ${statusBadge(r.status)}`}>
+                        {r.status}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground max-w-[140px] truncate">{r.review_comment || '—'}</TableCell>
+                    {canReview && (
+                      <TableCell>
+                        {r.status === 'Pending' && (
+                          <div className="flex gap-1 items-center">
+                            <Input
+                              className="h-6 text-xs w-28"
+                              placeholder="Comment (opt.)"
+                              value={reviewing === r.report_id ? reviewComment : ''}
+                              onChange={e => { setReviewing(r.report_id); setReviewComment(e.target.value) }}
+                            />
+                            <Button size="sm" className="h-6 text-xs bg-emerald-600 hover:bg-emerald-700 px-2"
+                              disabled={reviewing === r.report_id && false}
+                              onClick={() => handleReview(r.report_id, 'approved')}>
+                              <CheckCircle2 className="h-3 w-3"/>
+                            </Button>
+                            <Button size="sm" variant="outline" className="h-6 text-xs border-red-300 text-red-600 px-2"
+                              onClick={() => handleReview(r.report_id, 'rejected')}>
+                              <XCircle className="h-3 w-3"/>
+                            </Button>
+                          </div>
+                        )}
+                        {r.status !== 'Pending' && (
+                          <span className="text-xs text-muted-foreground">{r.reviewed_by || '—'}</span>
+                        )}
+                      </TableCell>
+                    )}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Upload Dialog */}
+      <Dialog open={uploadOpen} onOpenChange={setUploadOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Upload Pilot Trial Report</DialogTitle>
+            <DialogDescription>R&D Head will be notified for review upon submission.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label>PPD <span className="text-red-500">*</span></Label>
+              <Select value={uploadForm.ppd_id} onValueChange={v=>setUploadForm(f=>({...f,ppd_id:v}))}>
+                <SelectTrigger><SelectValue placeholder="Select PPD"/></SelectTrigger>
+                <SelectContent>{ppds.map(p=><SelectItem key={p.ppd_id} value={p.ppd_id}>{p.ppd_id} — {p.project_name}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Report Type</Label>
+              <Select value={uploadForm.report_type} onValueChange={v=>setUploadForm(f=>({...f,report_type:v}))}>
+                <SelectTrigger><SelectValue/></SelectTrigger>
+                <SelectContent>{REPORT_TYPES.map(t=><SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>File <span className="text-red-500">*</span></Label>
+              <Input type="file" onChange={e=>setUploadFile(e.target.files?.[0]||null)}
+                accept=".pdf,.doc,.docx,.xlsx,.xls,.csv,.txt,.jpg,.jpeg,.png"/>
+            </div>
+            <div>
+              <Label>Notes</Label>
+              <Textarea rows={2} value={uploadForm.notes} onChange={e=>setUploadForm(f=>({...f,notes:e.target.value}))} placeholder="Any additional notes..."/>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={()=>setUploadOpen(false)}>Cancel</Button>
+            <Button onClick={handleUpload} disabled={uploading}>
+              {uploading ? <RefreshCw className="h-4 w-4 animate-spin mr-2"/> : <Upload className="h-4 w-4 mr-2"/>}
+              Submit Report
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Submit for Closure Dialog (rd_head) */}
+      <Dialog open={closureOpen} onOpenChange={setClosureOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Submit for Project Closure</DialogTitle>
+            <DialogDescription>Project Management team will be notified to close the project.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label>PPD <span className="text-red-500">*</span></Label>
+              <Select value={closurePpd} onValueChange={setClosurePpd}>
+                <SelectTrigger><SelectValue placeholder="Select PPD"/></SelectTrigger>
+                <SelectContent>{ppds.map(p=><SelectItem key={p.ppd_id} value={p.ppd_id}>{p.ppd_id} — {p.project_name}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Notes</Label>
+              <Textarea rows={2} value={closureNotes} onChange={e=>setClosureNotes(e.target.value)} placeholder="Closure notes, summary of pilot trial outcome..."/>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={()=>setClosureOpen(false)}>Cancel</Button>
+            <Button className="bg-violet-600 hover:bg-violet-700" onClick={handleSubmitClosure} disabled={submittingClosure}>
+              {submittingClosure ? <RefreshCw className="h-4 w-4 animate-spin mr-2"/> : <Send className="h-4 w-4 mr-2"/>}
+              Submit for Closure
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
+}
+
 
 /* -------------------- ARCHIVE -------------------- */
 function ArchiveView({ token }) {
