@@ -6014,7 +6014,7 @@ function PilotTrialView({ user, token }) {
             <div className="text-center py-14 text-muted-foreground">
               <ClipboardList className="h-10 w-10 mx-auto mb-3 opacity-30"/>
               <p className="font-medium">No reports yet</p>
-              {canUpload && <p className="text-sm">Upload a report using the button above</p>}
+              {false && <p className="text-sm">Upload a report using the button above</p>}
             </div>
           ) : (
             <Table>
