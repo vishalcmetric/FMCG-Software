@@ -5701,22 +5701,32 @@ function MasterDataView({ user, token }) {
 
 /* -------------------- REPORTS -------------------- */
 function ReportsView({ user, token }) {
-  const [summary, setSummary] = useState(null)
-  const [loading, setLoading] = useState(true)
-
-  // ── Upload section state (production/packaging/regulatory/sa) ──
   const UPLOAD_ROLES = ['production','packaging','regulatory','sa','admin']
   const canUpload = UPLOAD_ROLES.includes(user?.role)
   const [ppds, setPpds]             = useState([])
+  const [reports, setReports]       = useState([])
+  const [loading, setLoading]       = useState(true)
+  const [ppdFilter, setPpdFilter]   = useState('all')
   const [uploadOpen, setUploadOpen] = useState(false)
   const [uploading, setUploading]   = useState(false)
   const [uploadForm, setUploadForm] = useState({ ppd_id:'', report_type:'Stability', notes:'' })
   const [uploadFile, setUploadFile] = useState(null)
   const REPORT_TYPES = ['Stability','QC Analysis','Regulatory Compliance','Production Trial','Batch Report','Safety Data','Other']
 
-  useEffect(() => {
-    if (canUpload) apiCall('/api/ppd', { token }).then(d => setPpds(Array.isArray(d) ? d : [])).catch(()=>{})
-  }, [token, canUpload])
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const [rData, pData] = await Promise.all([
+        apiCall(`/api/pilot-reports${ppdFilter !== 'all' ? `?ppd_id=${ppdFilter}` : ''}`, { token }),
+        apiCall('/api/ppd', { token }),
+      ])
+      setReports(Array.isArray(rData) ? rData : [])
+      setPpds(Array.isArray(pData) ? pData : [])
+    } catch { toast.error('Failed to load reports') }
+    finally { setLoading(false) }
+  }, [token, ppdFilter])
+
+  useEffect(() => { load() }, [load])
 
   const handleUpload = async () => {
     if (!uploadForm.ppd_id) return toast.error('Select a PPD')
@@ -5736,166 +5746,105 @@ function ReportsView({ user, token }) {
       setUploadOpen(false)
       setUploadForm({ ppd_id:'', report_type:'Stability', notes:'' })
       setUploadFile(null)
+      load()
     } catch(e) { toast.error(e.message) }
     finally { setUploading(false) }
   }
 
-  useEffect(() => {
-    apiCall('/api/reports/summary', { token })
-      .then(d => setSummary(d))
-      .catch(() => setSummary(null))
-      .finally(() => setLoading(false))
-  }, [token])
-
-  const StatBox = ({ label, value, color = 'text-foreground' }) => (
-    <div className="bg-slate-50 rounded-lg p-4 border text-center">
-      <div className={`text-3xl font-bold ${color}`}>{value ?? '—'}</div>
-      <div className="text-xs text-muted-foreground mt-1">{label}</div>
-    </div>
-  )
-
-  const BarRow = ({ label, value, max, color = 'bg-primary' }) => {
-    const pct = max > 0 ? Math.round((value / max) * 100) : 0
-    return (
-      <div className="flex items-center gap-3 text-sm">
-        <span className="w-40 shrink-0 text-muted-foreground truncate">{label}</span>
-        <div className="flex-1 bg-slate-100 rounded-full h-2">
-          <div className={`h-2 rounded-full ${color}`} style={{ width: `${pct}%` }} />
-        </div>
-        <span className="w-8 text-right font-semibold tabular-nums">{value}</span>
-      </div>
-    )
-  }
-
-  if (loading) return (
-    <div className="space-y-4">
-      <div><h1 className="text-2xl font-bold">Reports & Analytics</h1></div>
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {[1,2,3,4].map(i => <Card key={i}><CardContent className="h-20 animate-pulse bg-slate-100 rounded"/></Card>)}
-      </div>
-    </div>
-  )
-
-  const maxBrand = Math.max(...(summary?.by_brand || []).map(b => b.count), 1)
-  const maxStatus = Math.max(...Object.values(summary?.by_status || {}), 1)
-
-  const statusColors = {
-    'Draft': 'bg-slate-400', 'PPD Review': 'bg-blue-400', 'Formulation': 'bg-emerald-400',
-    'Plant Trial': 'bg-orange-400', 'Regulatory Review': 'bg-red-400',
-    'CEO Approval': 'bg-purple-400', 'Completed': 'bg-green-600', 'Archived': 'bg-gray-400',
-  }
+  const statusBadge = s => s==='approved'?'bg-emerald-100 text-emerald-700':s==='rejected'?'bg-red-100 text-red-700':'bg-amber-100 text-amber-700'
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
+      {/* Header */}
       <div className="flex items-center justify-between">
-        <div><h1 className="text-2xl font-bold">Reports & Analytics</h1><p className="text-muted-foreground text-sm">Live platform metrics — refreshed on load</p></div>
+        <div>
+          <h1 className="text-2xl font-bold">Reports</h1>
+          <p className="text-muted-foreground text-sm">Pilot trial reports submitted for R&D Head review</p>
+        </div>
         <div className="flex gap-2">
           {canUpload && (
             <Button onClick={() => setUploadOpen(true)}><Upload className="h-4 w-4 mr-2"/>Upload Report</Button>
           )}
-          <Button variant="outline" onClick={() => { setLoading(true); apiCall('/api/reports/summary', { token }).then(setSummary).finally(() => setLoading(false)) }}>
-            <RefreshCw className="h-4 w-4 mr-2"/>Refresh
-          </Button>
+          <Button variant="outline" size="sm" onClick={load}><RefreshCw className="h-4 w-4 mr-1"/>Refresh</Button>
         </div>
       </div>
 
-      {/* KPI row */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <StatBox label="Total Projects" value={summary?.total_projects} color="text-foreground" />
-        <StatBox label="Active Projects" value={summary?.active_projects} color="text-emerald-600" />
-        <StatBox label="Completed" value={summary?.completed_projects} color="text-blue-600" />
-        <StatBox label="Activity (30d)" value={summary?.recent_activity_30d} color="text-purple-600" />
-      </div>
+      {/* PPD filter */}
+      <Select value={ppdFilter} onValueChange={setPpdFilter}>
+        <SelectTrigger className="w-64"><SelectValue placeholder="All PPDs"/></SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">All PPDs</SelectItem>
+          {ppds.map(p=><SelectItem key={p.ppd_id} value={p.ppd_id}>{p.ppd_id} — {p.project_name}</SelectItem>)}
+        </SelectContent>
+      </Select>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Projects by Status */}
-        <Card>
-          <CardHeader><CardTitle>Projects by Status</CardTitle></CardHeader>
-          <CardContent className="space-y-2">
-            {Object.entries(summary?.by_status || {}).sort((a,b) => b[1]-a[1]).map(([st, cnt]) => (
-              <BarRow key={st} label={st} value={cnt} max={maxStatus} color={statusColors[st] || 'bg-slate-400'} />
-            ))}
-            {!Object.keys(summary?.by_status || {}).length && <p className="text-sm text-muted-foreground py-4 text-center">No data yet</p>}
-          </CardContent>
-        </Card>
-
-        {/* Projects by Brand */}
-        <Card>
-          <CardHeader><CardTitle>Projects by Brand</CardTitle></CardHeader>
-          <CardContent className="space-y-2">
-            {(summary?.by_brand || []).map(b => (
-              <BarRow key={b.brand} label={b.brand || 'Unknown'} value={b.count} max={maxBrand} color="bg-primary" />
-            ))}
-            {!(summary?.by_brand || []).length && <p className="text-sm text-muted-foreground py-4 text-center">No data yet</p>}
-          </CardContent>
-        </Card>
-
-        {/* Formulas by Status */}
-        <Card>
-          <CardHeader><CardTitle>Formulation Pipeline</CardTitle></CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-              {Object.entries(summary?.formulas_by_status || {}).map(([s, v]) => (
-                <div key={s} className="p-3 border rounded-lg text-center">
-                  <div className="text-xl font-bold">{v}</div>
-                  <div className="text-xs text-muted-foreground mt-0.5">{s}</div>
-                </div>
-              ))}
-              {!Object.keys(summary?.formulas_by_status || {}).length && <p className="text-sm text-muted-foreground col-span-3 py-4 text-center">No formulas yet</p>}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Module summaries */}
-        <Card>
-          <CardHeader><CardTitle>Module Status Summary</CardTitle></CardHeader>
-          <CardContent className="space-y-4">
-            {[
-              { label: 'Regulatory Checks', data: summary?.regulatory_by_status, colors: { Approved: 'text-emerald-600', Pending: 'text-slate-600', 'Under Review': 'text-orange-600', 'Rework Required': 'text-red-600' } },
-              { label: 'Plant Trials', data: summary?.trials_by_status, colors: { Completed: 'text-emerald-600', 'In Progress': 'text-blue-600', Scheduled: 'text-slate-600', Failed: 'text-red-600' } },
-              { label: 'Sensory Evaluations', data: summary?.sensory_by_status, colors: { Pass: 'text-emerald-600', Fail: 'text-red-600', Pending: 'text-slate-600' } },
-            ].map(({ label, data, colors }) => (
-              <div key={label}>
-                <div className="text-sm font-semibold mb-1">{label}</div>
-                <div className="flex flex-wrap gap-2">
-                  {Object.entries(data || {}).map(([s, v]) => (
-                    <span key={s} className={`text-sm font-medium ${colors[s] || 'text-slate-600'}`}>
-                      {s}: <span className="font-bold">{v}</span>
-                    </span>
-                  ))}
-                  {!Object.keys(data || {}).length && <span className="text-xs text-muted-foreground">No data</span>}
-                </div>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Export buttons */}
+      {/* Reports table */}
       <Card>
-        <CardHeader><CardTitle>Export Reports</CardTitle><CardDescription>Download platform data for offline analysis</CardDescription></CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            {[
-              { t: 'Projects CSV', d: 'All project records', action: () => window.open(`${API_BASE}/api/projects`, '_blank') },
-              { t: 'Audit Log CSV', d: 'Complete audit trail', action: () => toast.info('Export from Audit Logs page') },
-              { t: 'Pipeline Summary', d: 'Current stage distribution', action: () => toast.info('Use browser Print for PDF export') },
-            ].map(r => (
-              <div key={r.t} className="flex items-center justify-between p-4 border rounded-lg">
-                <div><div className="font-medium text-sm">{r.t}</div><div className="text-xs text-muted-foreground">{r.d}</div></div>
-                <Button size="sm" variant="outline" onClick={r.action}><Download className="h-3 w-3 mr-1"/>Export</Button>
-              </div>
-            ))}
-          </div>
+        <CardContent className="p-0">
+          {loading ? (
+            <div className="space-y-2 p-4">{[1,2,3].map(i=><div key={i} className="h-10 bg-slate-100 rounded animate-pulse"/>)}</div>
+          ) : reports.length === 0 ? (
+            <div className="text-center py-14 text-muted-foreground">
+              <ClipboardList className="h-10 w-10 mx-auto mb-3 opacity-30"/>
+              <p className="font-medium">No reports yet</p>
+              {canUpload && <p className="text-sm">Upload a report using the button above</p>}
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Report ID</TableHead>
+                  <TableHead>PPD / Project</TableHead>
+                  <TableHead>Type</TableHead>
+                  <TableHead>File</TableHead>
+                  <TableHead>Submitted By</TableHead>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Review Comment</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {reports.map(r => (
+                  <TableRow key={r.report_id}>
+                    <TableCell className="font-mono text-xs">{r.report_id}</TableCell>
+                    <TableCell>
+                      <div className="font-medium text-sm">{r.project_name}</div>
+                      <div className="text-xs text-muted-foreground font-mono">{r.ppd_id}</div>
+                    </TableCell>
+                    <TableCell className="text-sm">{r.report_type}</TableCell>
+                    <TableCell>
+                      {r.file_url
+                        ? <a href={r.file_url} target="_blank" rel="noreferrer" className="text-xs text-blue-600 hover:underline flex items-center gap-1"><Paperclip className="h-3 w-3"/>{r.file_name||'Download'}</a>
+                        : <span className="text-xs text-muted-foreground">—</span>}
+                    </TableCell>
+                    <TableCell className="text-sm">
+                      <div>{r.created_by}</div>
+                      <div className="text-xs text-muted-foreground">{r.created_by_role}</div>
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                      {r.created_at ? new Date(r.created_at).toLocaleDateString('en-IN') : '—'}
+                    </TableCell>
+                    <TableCell>
+                      <span className={`text-xs px-2 py-0.5 rounded-md font-medium capitalize ${statusBadge(r.status)}`}>{r.status}</span>
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground max-w-[160px] truncate">{r.review_comment||'—'}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
         </CardContent>
+        {reports.length > 0 && (
+          <div className="px-4 py-2 border-t text-xs text-muted-foreground">{reports.length} report{reports.length!==1?'s':''} shown</div>
+        )}
       </Card>
 
-      {/* ── Upload Report Dialog (production/packaging/regulatory/sa) ── */}
+      {/* Upload Dialog */}
       {canUpload && (
         <Dialog open={uploadOpen} onOpenChange={setUploadOpen}>
           <DialogContent className="max-w-md">
             <DialogHeader>
-              <DialogTitle>Upload Pilot Trial Report</DialogTitle>
+              <DialogTitle>Upload Report</DialogTitle>
               <DialogDescription>R&D Head will be notified for review upon submission.</DialogDescription>
             </DialogHeader>
             <div className="space-y-3">
