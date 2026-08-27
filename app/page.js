@@ -3074,8 +3074,8 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
             </CardHeader>
             <CardContent className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>Project ID</Label>
-                <p className="text-sm font-mono py-2 text-muted-foreground">{ppd.project_id}</p>
+                <Label>PPD ID</Label>
+                <p className="text-sm font-mono py-2 text-muted-foreground">{ppd.ppd_id}</p>
               </div>
               <div className="space-y-2">
                 <Label>Brand</Label>
