@@ -41,7 +41,7 @@ const ROLES = {
   packaging:      { label: 'Packaging Team',          color: 'bg-amber-600',   desc: 'Costing feasibility, artwork, SFG/PKG BOM' },
   sa:             { label: 'Scientific Affairs',      color: 'bg-sky-600',     desc: 'Claim substantiation, clinical evidence, regulatory docs' },
   ceo:            { label: 'CEO',                     color: 'bg-black',       desc: 'Final approval authority — Stage 4 (terminal)' },
-  production:     { label: 'Production / Plant Trial',color: 'bg-orange-600',  desc: 'Pilot trials, BOM, MFC, stability batch reports' },
+  production:     { label: 'Production Team',color: 'bg-orange-600',  desc: 'Pilot trials, BOM, MFC, stability batch reports' },
 }
 
 // WBS-aligned menu — what each role needs access to per documented workflow
