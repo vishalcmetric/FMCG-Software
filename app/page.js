@@ -56,7 +56,7 @@ const MENU = [
   // Plant Trials: Production team, Packaging, R&D Head
   { key: 'plant',       label: 'Plant Trials',          icon: Factory,         roles: ['admin','production','rd_head','packaging','fd'] },
   // Pilot Trial: report upload + review + closure (new module)
-  { key: 'pilot_trial', label: 'Pilot Trial',           icon: ClipboardList,   roles: ['admin','production','packaging','regulatory','sa','rd_head','pm'] },
+  { key: 'pilot_trial', label: 'Pilot Trial',           icon: ClipboardList,   roles: ['admin','rd_head','pm'] },
   // Regulatory: Regulatory team reviews FD docs, R&D Head oversees
   { key: 'regulatory',  label: 'Regulatory',            icon: ShieldCheck,     roles: ['admin','regulatory','rd_head','sa'] },
   // Sensory: PM&SA team, ADL lab, R&D Head
@@ -1043,14 +1043,14 @@ function ViewRouter({ view, setView, user, token, userPerms, can }) {
     case 'formulation':  return guard('Formulation', <div className={p}><FormulationView user={user} token={token} can={can} /></div>)
     case 'labbook':      return guard('Lab Notebook',<div className={p}><LabBookView user={user} token={token} can={can} /></div>)
     case 'plant':        return guard('Plant Trials',<div className={p}><PlantTrialsView user={user} token={token} can={can} /></div>)
-    case 'pilot_trial':  return guard('Pilot Trial', <div className={p}><PilotTrialView  user={user} token={token} /></div>)
+    case 'pilot_trial':  return guard('Pilot Trial', <div className={p}><PilotTrialView user={user} token={token} /></div>)
     case 'regulatory':   return guard('Regulatory',  <div className={p}><RegulatoryView user={user} token={token} can={can} /></div>)
     case 'sensory':      return guard('Sensory',     <div className={p}><SensoryView user={user} token={token} can={can} /></div>)
     case 'costing':      return guard('Costing',     <div className={p}><CostingView user={user} token={token} can={can} /></div>)
     case 'claim':        return guard('Claim',       <div className={p}><ClaimView user={user} token={token} can={can} /></div>)
     case 'artwork':      return guard('Artwork',     <div className={p}><ArtworkView user={user} token={token} can={can} /></div>)
     case 'master':       return guard('Master Data', <div className={p}><MasterDataView user={user} token={token} can={can} /></div>)
-    case 'reports':      return guard('Reports',     <div className={p}><ReportsView token={token} /></div>)
+    case 'reports':      return guard('Reports',     <div className={p}><ReportsView user={user} token={token} /></div>)
     case 'archive':      return guard('Archive',     <div className={p}><ArchiveView token={token} /></div>)
     case 'admin_users':  return <div className={p}><UsersAdmin token={token} /></div>
     case 'admin_roles':  return <div className={p}><RolesAdmin token={token} /></div>
@@ -5700,9 +5700,45 @@ function MasterDataView({ user, token }) {
 }
 
 /* -------------------- REPORTS -------------------- */
-function ReportsView({ token }) {
+function ReportsView({ user, token }) {
   const [summary, setSummary] = useState(null)
   const [loading, setLoading] = useState(true)
+
+  // ── Upload section state (production/packaging/regulatory/sa) ──
+  const UPLOAD_ROLES = ['production','packaging','regulatory','sa','admin']
+  const canUpload = UPLOAD_ROLES.includes(user?.role)
+  const [ppds, setPpds]             = useState([])
+  const [uploadOpen, setUploadOpen] = useState(false)
+  const [uploading, setUploading]   = useState(false)
+  const [uploadForm, setUploadForm] = useState({ ppd_id:'', report_type:'Stability', notes:'' })
+  const [uploadFile, setUploadFile] = useState(null)
+  const REPORT_TYPES = ['Stability','QC Analysis','Regulatory Compliance','Production Trial','Batch Report','Safety Data','Other']
+
+  useEffect(() => {
+    if (canUpload) apiCall('/api/ppd', { token }).then(d => setPpds(Array.isArray(d) ? d : [])).catch(()=>{})
+  }, [token, canUpload])
+
+  const handleUpload = async () => {
+    if (!uploadForm.ppd_id) return toast.error('Select a PPD')
+    if (!uploadFile) return toast.error('Select a file to upload')
+    setUploading(true)
+    try {
+      const fd = new FormData()
+      fd.append('ppd_id', uploadForm.ppd_id)
+      fd.append('report_type', uploadForm.report_type)
+      fd.append('notes', uploadForm.notes)
+      fd.append('file', uploadFile)
+      const res = await fetch('/api/pilot-reports', {
+        method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd,
+      })
+      if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.detail || 'Upload failed') }
+      toast.success('Report submitted — R&D Head has been notified')
+      setUploadOpen(false)
+      setUploadForm({ ppd_id:'', report_type:'Stability', notes:'' })
+      setUploadFile(null)
+    } catch(e) { toast.error(e.message) }
+    finally { setUploading(false) }
+  }
 
   useEffect(() => {
     apiCall('/api/reports/summary', { token })
@@ -5753,9 +5789,14 @@ function ReportsView({ token }) {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div><h1 className="text-2xl font-bold">Reports & Analytics</h1><p className="text-muted-foreground text-sm">Live platform metrics — refreshed on load</p></div>
-        <Button variant="outline" onClick={() => { setLoading(true); apiCall('/api/reports/summary', { token }).then(setSummary).finally(() => setLoading(false)) }}>
-          <RefreshCw className="h-4 w-4 mr-2"/>Refresh
-        </Button>
+        <div className="flex gap-2">
+          {canUpload && (
+            <Button onClick={() => setUploadOpen(true)}><Upload className="h-4 w-4 mr-2"/>Upload Report</Button>
+          )}
+          <Button variant="outline" onClick={() => { setLoading(true); apiCall('/api/reports/summary', { token }).then(setSummary).finally(() => setLoading(false)) }}>
+            <RefreshCw className="h-4 w-4 mr-2"/>Refresh
+          </Button>
+        </div>
       </div>
 
       {/* KPI row */}
@@ -5848,34 +5889,69 @@ function ReportsView({ token }) {
           </div>
         </CardContent>
       </Card>
+
+      {/* ── Upload Report Dialog (production/packaging/regulatory/sa) ── */}
+      {canUpload && (
+        <Dialog open={uploadOpen} onOpenChange={setUploadOpen}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Upload Pilot Trial Report</DialogTitle>
+              <DialogDescription>R&D Head will be notified for review upon submission.</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3">
+              <div>
+                <Label>PPD <span className="text-red-500">*</span></Label>
+                <Select value={uploadForm.ppd_id} onValueChange={v=>setUploadForm(f=>({...f,ppd_id:v}))}>
+                  <SelectTrigger><SelectValue placeholder="Select PPD"/></SelectTrigger>
+                  <SelectContent>{ppds.map(p=><SelectItem key={p.ppd_id} value={p.ppd_id}>{p.ppd_id} — {p.project_name}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Report Type</Label>
+                <Select value={uploadForm.report_type} onValueChange={v=>setUploadForm(f=>({...f,report_type:v}))}>
+                  <SelectTrigger><SelectValue/></SelectTrigger>
+                  <SelectContent>{REPORT_TYPES.map(t=><SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>File <span className="text-red-500">*</span></Label>
+                <Input type="file" onChange={e=>setUploadFile(e.target.files?.[0]||null)}
+                  accept=".pdf,.doc,.docx,.xlsx,.xls,.csv,.txt,.jpg,.jpeg,.png"/>
+              </div>
+              <div>
+                <Label>Notes</Label>
+                <Textarea rows={2} value={uploadForm.notes} onChange={e=>setUploadForm(f=>({...f,notes:e.target.value}))} placeholder="Any additional notes..."/>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={()=>setUploadOpen(false)}>Cancel</Button>
+              <Button onClick={handleUpload} disabled={uploading}>
+                {uploading ? <RefreshCw className="h-4 w-4 animate-spin mr-2"/> : <Upload className="h-4 w-4 mr-2"/>}
+                Submit Report
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   )
 }
 
 /* -------------------- PILOT TRIAL -------------------- */
 function PilotTrialView({ user, token }) {
-  const UPLOAD_ROLES = ['admin','production','packaging','regulatory','sa']
-  const canUpload = UPLOAD_ROLES.includes(user?.role)
   const canReview = ['admin','rd_head'].includes(user?.role)
   const canClose  = ['admin','rd_head'].includes(user?.role)
-  const isPm      = ['admin','pm'].includes(user?.role)
 
   const [reports, setReports]       = useState([])
   const [ppds, setPpds]             = useState([])
   const [loading, setLoading]       = useState(true)
   const [ppdFilter, setPpdFilter]   = useState('all')
-  const [uploadOpen, setUploadOpen] = useState(false)
-  const [uploading, setUploading]   = useState(false)
-  const [uploadForm, setUploadForm] = useState({ ppd_id: '', report_type: 'Stability', notes: '' })
-  const [uploadFile, setUploadFile] = useState(null)
   const [reviewing, setReviewing]   = useState(null)
   const [reviewComment, setReviewComment] = useState('')
   const [closureOpen, setClosureOpen] = useState(false)
   const [closurePpd, setClosurePpd]   = useState('')
   const [closureNotes, setClosureNotes] = useState('')
   const [submittingClosure, setSubmittingClosure] = useState(false)
-
-  const REPORT_TYPES = ['Stability','QC Analysis','Regulatory Compliance','Production Trial','Batch Report','Safety Data','Other']
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -5891,32 +5967,6 @@ function PilotTrialView({ user, token }) {
   }, [token, ppdFilter])
 
   useEffect(() => { load() }, [load])
-
-  // Upload report
-  const handleUpload = async () => {
-    if (!uploadForm.ppd_id) return toast.error('Select a PPD')
-    if (!uploadFile) return toast.error('Select a file to upload')
-    setUploading(true)
-    try {
-      const fd = new FormData()
-      fd.append('ppd_id', uploadForm.ppd_id)
-      fd.append('report_type', uploadForm.report_type)
-      fd.append('notes', uploadForm.notes)
-      fd.append('file', uploadFile)
-      const res = await fetch('/api/pilot-reports', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-        body: fd,
-      })
-      if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.detail || 'Upload failed') }
-      toast.success('Report submitted — R&D Head has been notified')
-      setUploadOpen(false)
-      setUploadForm({ ppd_id: '', report_type: 'Stability', notes: '' })
-      setUploadFile(null)
-      load()
-    } catch(e) { toast.error(e.message) }
-    finally { setUploading(false) }
-  }
 
   // Review (rd_head)
   const handleReview = async (reportId, decision) => {
@@ -5975,9 +6025,6 @@ function PilotTrialView({ user, token }) {
         </div>
         <div className="flex gap-2 flex-wrap">
           <Button variant="outline" size="sm" onClick={load}><RefreshCw className="h-4 w-4 mr-1"/>Refresh</Button>
-          {canUpload && (
-            <Button onClick={() => setUploadOpen(true)}><Upload className="h-4 w-4 mr-2"/>Upload Report</Button>
-          )}
           {canClose && (
             <Button variant="outline" className="border-violet-400 text-violet-700 hover:bg-violet-50"
               onClick={() => setClosureOpen(true)}>
@@ -6090,48 +6137,6 @@ function PilotTrialView({ user, token }) {
           )}
         </CardContent>
       </Card>
-
-      {/* Upload Dialog */}
-      <Dialog open={uploadOpen} onOpenChange={setUploadOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Upload Pilot Trial Report</DialogTitle>
-            <DialogDescription>R&D Head will be notified for review upon submission.</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div>
-              <Label>PPD <span className="text-red-500">*</span></Label>
-              <Select value={uploadForm.ppd_id} onValueChange={v=>setUploadForm(f=>({...f,ppd_id:v}))}>
-                <SelectTrigger><SelectValue placeholder="Select PPD"/></SelectTrigger>
-                <SelectContent>{ppds.map(p=><SelectItem key={p.ppd_id} value={p.ppd_id}>{p.ppd_id} — {p.project_name}</SelectItem>)}</SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label>Report Type</Label>
-              <Select value={uploadForm.report_type} onValueChange={v=>setUploadForm(f=>({...f,report_type:v}))}>
-                <SelectTrigger><SelectValue/></SelectTrigger>
-                <SelectContent>{REPORT_TYPES.map(t=><SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label>File <span className="text-red-500">*</span></Label>
-              <Input type="file" onChange={e=>setUploadFile(e.target.files?.[0]||null)}
-                accept=".pdf,.doc,.docx,.xlsx,.xls,.csv,.txt,.jpg,.jpeg,.png"/>
-            </div>
-            <div>
-              <Label>Notes</Label>
-              <Textarea rows={2} value={uploadForm.notes} onChange={e=>setUploadForm(f=>({...f,notes:e.target.value}))} placeholder="Any additional notes..."/>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={()=>setUploadOpen(false)}>Cancel</Button>
-            <Button onClick={handleUpload} disabled={uploading}>
-              {uploading ? <RefreshCw className="h-4 w-4 animate-spin mr-2"/> : <Upload className="h-4 w-4 mr-2"/>}
-              Submit Report
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       {/* Submit for Closure Dialog (rd_head) */}
       <Dialog open={closureOpen} onOpenChange={setClosureOpen}>
@@ -6368,7 +6373,7 @@ function UsersAdmin({ token }) {
 }
 
 /* -------------------- ADMIN — ROLES -------------------- */
-const PERM_MODULES = ['Projects','PPD','Formulation','Lab Notebook','Plant Trials','Regulatory','Sensory','Costing','Claim','Artwork','Master Data','Reports','Archive','Users','Audit']
+const PERM_MODULES = ['Projects','PPD','Formulation','Lab Notebook','Plant Trials','Pilot Trial','Regulatory','Sensory','Costing','Claim','Artwork','Master Data','Reports','Archive','Users','Audit']
 const PERM_ACTIONS = ['view','create','edit','submit','approve','delete']
 
 function RolesAdmin({ token }) {
