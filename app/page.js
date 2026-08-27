@@ -2867,28 +2867,6 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
             </Button>
           )}
 
-          {/* Admin override — acts on whichever stage is currently active */}
-          {isAdmin && (isPending || isMgmtReview || isMgmtApproved || isFinalReview) && (
-            <Button size="sm" className="gap-1 bg-slate-700 hover:bg-slate-800 text-white" onClick={async () => {
-              setSaving(true)
-              try {
-                if (isPending) {
-                  const allApproved = reviewers.map(r => ({ ...r, status: 'Approved', updated_at: new Date().toISOString() }))
-                  await apiCall(`/api/ppd/${ppd.ppd_id}/reviewers`, { method: 'PATCH', token, body: { reviewers: allApproved } })
-                } else if (isMgmtReview) {
-                  await apiCall(`/api/ppd/${ppd.ppd_id}/mgmt-review`, { method: 'PATCH', token, body: { status: 'Approved', comment: 'Admin override' } })
-                } else {
-                  await apiCall(`/api/ppd/${ppd.ppd_id}/final-review`, { method: 'PATCH', token, body: { status: 'Approved', comment: 'Admin override' } })
-                }
-                await refreshPpd()
-                toast.success('Admin override approved.')
-              } catch (err) { toast.error(err.message) }
-              finally { setSaving(false) }
-            }} disabled={saving}>
-              {saving ? <RefreshCw className="h-4 w-4 animate-spin mr-1"/> : <CheckCircle2 className="h-4 w-4 mr-1"/>}
-              Admin Approve
-            </Button>
-          )}
 
           {/* Task owner: Mark Rework Done — only when status is Rework */}
           {isTaskOwner && isRework && (
@@ -3206,7 +3184,7 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
                   : mgmtApprovals.map((r, i) => {
                       const isApprovedRow = r.status === 'Approved'
                       const isReworkRow   = r.status === 'Rework'
-                      const isMyRow       = r.role === myRole && isMgmtReviewer
+                      const isMyRow       = r.role === myRole && isMgmtReviewer && !isAdmin
                       return (
                         <div key={i} className={`flex items-center justify-between p-3 border rounded-lg gap-4
                           ${isApprovedRow ? 'border-emerald-200 bg-emerald-50'
@@ -3221,7 +3199,30 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
                             {r.comment && <div className="text-xs text-muted-foreground mt-1 italic">"{r.comment}"</div>}
                             {r.updated_at && <div className="text-xs text-muted-foreground">{relTime(r.updated_at)}</div>}
                           </div>
-                          <Badge variant={isApprovedRow ? 'default' : isReworkRow ? 'destructive' : 'outline'} className={isApprovedRow ? 'bg-emerald-600' : ''}>{r.status}</Badge>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <Badge variant={isApprovedRow ? 'default' : isReworkRow ? 'destructive' : 'outline'} className={isApprovedRow ? 'bg-emerald-600' : ''}>{r.status}</Badge>
+                            {/* Admin can approve each pending mgmt slot individually */}
+                            {isAdmin && !isApprovedRow && isMgmtReview && (
+                              <Button size="sm" variant="outline"
+                                className="h-6 text-[10px] px-2 border-emerald-400 text-emerald-700 hover:bg-emerald-50"
+                                disabled={mgmtApproving}
+                                onClick={async () => {
+                                  setMgmtApproving(true)
+                                  try {
+                                    await apiCall(`/api/ppd/${ppd.ppd_id}/mgmt-review`, {
+                                      method: 'PATCH', token,
+                                      body: { status: 'Approved', comment: 'Admin override', role: r.role }
+                                    })
+                                    await refreshPpd()
+                                    toast.success(`Approved as ${r.team_label}`)
+                                  } catch (err) { toast.error(err.message) }
+                                  finally { setMgmtApproving(false) }
+                                }}>
+                                {mgmtApproving ? <RefreshCw className="h-2.5 w-2.5 animate-spin"/> : <CheckCircle2 className="h-2.5 w-2.5"/>}
+                                Approve
+                              </Button>
+                            )}
+                          </div>
                         </div>
                       )
                     })
