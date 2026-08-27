@@ -1226,6 +1226,12 @@ async def delete_ppd(
 
     teams = _involved_roles(p)
     name = p.project_name
+
+    # Delete all tasks linked to this PPD so dashboard counts reset correctly
+    task_rows = await db.execute(select(Task).where(Task.ppd_id == ppd_id))
+    for t in task_rows.scalars().all():
+        await db.delete(t)
+
     await db.delete(p)
 
     await notify_roles(

@@ -37,7 +37,10 @@ async def _build_stats(db: AsyncSession, role: str, user_email: str) -> list[Sta
 
     active_ppds = (await db.execute(
         _ppd_filter(select(func.count()).select_from(PPDSubmission), role)
-        .where(PPDSubmission.status.in_(["Pending", "Rework", "ReviewerApproved", "SubmittedForApproval"]))
+        .where(PPDSubmission.status.in_([
+            "Pending", "Rework", "ReviewerApproved",
+            "MgmtReview", "MgmtApproved", "FinalReview"
+        ]))
     )).scalar() or 0
 
     pending_approvals = (await db.execute(
@@ -126,26 +129,15 @@ async def _build_activity(db: AsyncSession, role: str) -> list[ActivityItem]:
     ]
 
 
-# ── seed fallback data ────────────────────────────────────────────────────────
+# ── seed fallback data — shown only when DB is truly empty ────────────────────
 SEED_STATS = [
-    StatCard(label="Active PPDs",       value=12, change="+3", icon="FileText",    color="from-emerald-500 to-emerald-700"),
-    StatCard(label="Pending Approvals", value=7,  change="+2", icon="FileCheck2",  color="from-orange-500 to-orange-700"),
-    StatCard(label="Under Review",      value=4,  change="-1", icon="FlaskConical", color="from-blue-500 to-blue-700"),
-    StatCard(label="Approved PPDs",     value=8,  change="+5", icon="CheckCircle2", color="from-purple-500 to-purple-700"),
+    StatCard(label="Active PPDs",       value=0, change="", icon="FileText",    color="from-emerald-500 to-emerald-700"),
+    StatCard(label="Pending Approvals", value=0, change="", icon="FileCheck2",  color="from-orange-500 to-orange-700"),
+    StatCard(label="Under Review",      value=0, change="", icon="FlaskConical", color="from-blue-500 to-blue-700"),
+    StatCard(label="Approved PPDs",     value=0, change="", icon="CheckCircle2", color="from-purple-500 to-purple-700"),
 ]
-SEED_TASKS = [
-    PendingTask(project="Complan Pro Chocolate",    task="Review PPD v2.1",           priority="High",     due="Today"),
-    PendingTask(project="Sugar Free Green Stevia+", task="Approve Formulation",       priority="Medium",   due="Tomorrow"),
-    PendingTask(project="Everyuth Aloe Face Wash",  task="Sensory Evaluation Report", priority="Critical", due="Today"),
-    PendingTask(project="Glucon-D Immunity+",       task="Regulatory Assessment",     priority="Medium",   due="2 days"),
-]
-SEED_ACTIVITY = [
-    ActivityItem(user="Priya S.",   action="submitted PPD for approval", project="Sugar Free Stevia+", time="5m"),
-    ActivityItem(user="CEO Office", action="approved final PPD",         project="Everyuth Aloe",      time="25m"),
-    ActivityItem(user="Rahul M.",   action="created new PPD",            project="Complan NutriGro",   time="1h"),
-    ActivityItem(user="Regulatory", action="requested rework",           project="Nycil XT",           time="2h"),
-    ActivityItem(user="Plant Team", action="uploaded stability report",  project="Glucon-D",           time="3h"),
-]
+SEED_TASKS: list = []
+SEED_ACTIVITY: list = []
 SEED_PIPELINE: list[PipelineStage] = []   # pipeline removed — PPD is top-level entity
 
 ROLE_SEED_OVERRIDES = {
@@ -185,26 +177,11 @@ async def get_dashboard(
     role  = current_user.get("role", "fd")
     email = current_user.get("sub", "")
 
-    has_ppds  = ((await db.execute(select(func.count()).select_from(PPDSubmission))).scalar() or 0) > 0
-    has_tasks = ((await db.execute(select(func.count()).select_from(Task))).scalar() or 0) > 0
-    has_logs  = ((await db.execute(select(func.count()).select_from(AuditLog))).scalar() or 0) > 0
-
-    if has_ppds:
-        stats = await _build_stats(db, role, email)
-    else:
-        override = ROLE_SEED_OVERRIDES.get(role, {})
-        stats = override.get("stats", SEED_STATS)
-
-    if has_tasks:
-        tasks = await _build_tasks(db, role, email)
-    else:
-        override = ROLE_SEED_OVERRIDES.get(role, {})
-        tasks = override.get("tasks", SEED_TASKS)
-
-    activity = await _build_activity(db, role) if has_logs else SEED_ACTIVITY
-
-    # Build PPD section — always from live data (empty list if none exist)
-    recent_ppds = await _build_ppds(db, role) if has_ppds else []
+    # Always use live data — seed fallback is now all-zeros
+    stats       = await _build_stats(db, role, email)
+    tasks       = await _build_tasks(db, role, email)
+    activity    = await _build_activity(db, role)
+    recent_ppds = await _build_ppds(db, role)
 
     return DashboardResponse(
         stats=stats,
