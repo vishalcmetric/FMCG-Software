@@ -240,60 +240,77 @@ def _generate_pdf(ppd: PPDSubmission, formulas: list[Formula]) -> bytes:
         for idx, f in enumerate(formulas, 1):
             block = []
             block.append(Paragraph(
-                f"Formula {idx}: <b>{f.formula_id}</b> &nbsp;·&nbsp; {f.version} &nbsp;·&nbsp; {f.formula_type}",
+                f"Formula {idx}: <b>{f.formula_id}</b> &nbsp;·&nbsp; {f.version}",
                 S["subsection"]
             ))
             block.append(_kv_table([
-                ("Formula ID",    f.formula_id),
-                ("Version",       f.version),
-                ("Type",          f.formula_type),
-                ("Status",        f.status),
-                ("Protein Source",f.protein_source),
-                ("Sweetener",     f.sweetener),
-                ("Protein %",     f.protein_pct),
-                ("Cocoa %",       f.cocoa_pct),
-                ("Sugar (g/100g)",f.sugar_per_100g),
-                ("Cost/kg (₹)",   f.cost_per_kg),
-                ("Stability 40°C",f.stability_40c),
-                ("Sensory Score", f.sensory_score),
-                ("Created By",    f.created_by),
-                ("Last Updated",  f.updated_at.strftime("%d %b %Y %H:%M") if f.updated_at else "—"),
+                ("Formula ID",      f.formula_id),
+                ("Version",         f.version),
+                ("Status",          f.status),
+                ("Trial No.",       f.trial_no),
+                ("Batch No.",       f.batch_no),
+                ("Batch Size (gm)", f.batch_size),
+                ("Unit Qty. (gm)",  f.unit_qty),
+                ("Mfg Date",        f.mfg_date),
+                ("Trial Taken By",  f.trial_taken_by),
+                ("Evaluated By",    f.evaluated_by),
+                ("Created By",      f.created_by),
+                ("Last Updated",    f.updated_at.strftime("%d %b %Y %H:%M") if f.updated_at else "—"),
             ]))
 
-            if f.notes:
-                block.append(Paragraph("<b>Notes:</b>", S["label"]))
-                block.append(Paragraph(f.notes, S["body"]))
+            if f.method_of_preparation:
+                block.append(Paragraph("<b>Method of Preparation:</b>", S["label"]))
+                block.append(Paragraph(f.method_of_preparation, S["body"]))
 
-            # Ingredients table
+            if f.observation:
+                block.append(Paragraph("<b>Observation / Reason of Modification:</b>", S["label"]))
+                block.append(Paragraph(f.observation, S["body"]))
+
+            if f.conclusion:
+                block.append(Paragraph("<b>Conclusion:</b>", S["label"]))
+                block.append(Paragraph(f.conclusion, S["body"]))
+
+            # Ingredients table — new columns matching the formula form
             ingredients = f.ingredients or []
             if ingredients:
                 block.append(Spacer(1, 4))
-                block.append(Paragraph("<b>Ingredient List:</b>", S["label"]))
+                block.append(Paragraph("<b>Product Parameters (Ingredients):</b>", S["label"]))
                 ing_data = [[
-                    Paragraph("<b>#</b>", S["label"]),
-                    Paragraph("<b>Ingredient</b>", S["label"]),
-                    Paragraph("<b>Qty</b>", S["label"]),
-                    Paragraph("<b>Unit</b>", S["label"]),
-                    Paragraph("<b>Supplier</b>", S["label"]),
+                    Paragraph("<b>Sr.</b>", S["label"]),
+                    Paragraph("<b>Ingredient Name</b>", S["label"]),
+                    Paragraph("<b>INS/CAS/INCI</b>", S["label"]),
+                    Paragraph("<b>Vendor</b>", S["label"]),
+                    Paragraph("<b>Use/Function</b>", S["label"]),
+                    Paragraph("<b>Cost/kg</b>", S["label"]),
+                    Paragraph("<b>Qty %</b>", S["label"]),
+                    Paragraph("<b>Qty/Unit</b>", S["label"]),
+                    Paragraph("<b>Cost/Unit (₹)</b>", S["label"]),
                 ]]
                 for j, ing in enumerate(ingredients, 1):
                     ing_data.append([
                         Paragraph(str(j), S["body"]),
-                        Paragraph(ing.get("name",""), S["body"]),
-                        Paragraph(str(ing.get("qty","")), S["body"]),
-                        Paragraph(ing.get("unit",""), S["body"]),
-                        Paragraph(ing.get("supplier","") or "—", S["body"]),
+                        Paragraph(ing.get("name", "") or "—", S["body"]),
+                        Paragraph(ing.get("ins_cas_inci", "") or "—", S["body"]),
+                        Paragraph(ing.get("vendor", "") or "—", S["body"]),
+                        Paragraph(ing.get("use_function", "") or "—", S["body"]),
+                        Paragraph(str(ing.get("cost_per_kg", "") or "—"), S["body"]),
+                        Paragraph(str(ing.get("qty_pct", "") or "—"), S["body"]),
+                        Paragraph(str(ing.get("qty_per_unit", "") or "—"), S["body"]),
+                        Paragraph(str(ing.get("cost_per_unit", "") or "—"), S["body"]),
                     ])
-                it = Table(ing_data, colWidths=[8*mm, 62*mm, 22*mm, 18*mm, 55*mm], hAlign="LEFT")
+                it = Table(ing_data,
+                    colWidths=[8*mm, 32*mm, 22*mm, 24*mm, 22*mm, 16*mm, 14*mm, 16*mm, 18*mm],
+                    hAlign="LEFT")
                 it.setStyle(TableStyle([
-                    ("BACKGROUND",   (0,0), (-1,0), PRIMARY),
-                    ("TEXTCOLOR",    (0,0), (-1,0), colors.white),
-                    ("ROWBACKGROUNDS",(0,1),(-1,-1),[colors.white, LIGHT_BG]),
-                    ("GRID",         (0,0), (-1,-1), 0.4, BORDER),
-                    ("TOPPADDING",   (0,0), (-1,-1), 3),
-                    ("BOTTOMPADDING",(0,0), (-1,-1), 3),
-                    ("LEFTPADDING",  (0,0), (-1,-1), 4),
-                    ("FONTSIZE",     (0,0), (-1,-1), 8),
+                    ("BACKGROUND",    (0,0), (-1,0), PRIMARY),
+                    ("TEXTCOLOR",     (0,0), (-1,0), colors.white),
+                    ("ROWBACKGROUNDS",(0,1), (-1,-1), [colors.white, LIGHT_BG]),
+                    ("GRID",          (0,0), (-1,-1), 0.4, BORDER),
+                    ("TOPPADDING",    (0,0), (-1,-1), 3),
+                    ("BOTTOMPADDING", (0,0), (-1,-1), 3),
+                    ("LEFTPADDING",   (0,0), (-1,-1), 3),
+                    ("FONTSIZE",      (0,0), (-1,-1), 7),
+                    ("VALIGN",        (0,0), (-1,-1), "TOP"),
                 ]))
                 block.append(it)
 
