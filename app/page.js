@@ -207,21 +207,15 @@ function BrandPanel() {
             <Sparkles className="h-7 w-7 text-primary" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold">FMCG Software</h1>
+            <h1 className="text-2xl font-bold">Pharma FMCG Software</h1>
             <p className="text-sm opacity-80">FMCG Product Development Platform</p>
           </div>
         </div>
       </div>
       <div className="relative z-10 space-y-6">
         <h2 className="text-4xl font-bold leading-tight">Digitizing the future of <span className="text-orange-400">FMCG innovation</span></h2>
-        <p className="text-lg opacity-80 max-w-md">End-to-end product lifecycle management — from PPD to plant trials, approvals, and archival.</p>
+        <p className="text-lg opacity-80 max-w-md">End-to-end product lifecycle management.</p>
         <div className="grid grid-cols-3 gap-4 pt-6">
-          {[{ l: 'Brands', v: '12+' }, { l: 'Active Projects', v: '48' }, { l: 'Teams', v: '14' }].map(s => (
-            <div key={s.l} className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl p-4">
-              <div className="text-2xl font-bold">{s.v}</div>
-              <div className="text-xs opacity-80">{s.l}</div>
-            </div>
-          ))}
         </div>
       </div>
       <div className="relative z-10 text-xs opacity-70">© 2026 FMCG Software. All rights reserved.</div>
