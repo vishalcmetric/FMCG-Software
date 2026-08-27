@@ -618,14 +618,33 @@ async def update_mgmt_review(
     current_mgmt = copy.deepcopy(p.mgmt_approvals or list(DEFAULT_MGMT_APPROVALS))
 
     updated = False
+    target_role_in_body = body.get("role")  # set only when admin approves a specific slot
+
     for entry in current_mgmt:
-        if entry.get("role") == role or (role == "admin" and body.get("role") == entry.get("role")):
-            target_role = entry.get("role")
+        entry_role = entry.get("role")
+        # Non-admin: update own slot only
+        # Admin with specific role in body: update that slot only
+        # Admin with no role in body: update ALL pending slots
+        if role != "admin" and entry_role == role:
             entry["status"]     = new_status_val
             entry["comment"]    = comment_val
             entry["updated_at"] = _ist_now_iso()
             updated = True
             break
+        elif role == "admin" and target_role_in_body:
+            if entry_role == target_role_in_body:
+                entry["status"]     = new_status_val
+                entry["comment"]    = comment_val
+                entry["updated_at"] = _ist_now_iso()
+                updated = True
+                break
+        elif role == "admin" and not target_role_in_body:
+            # Approve all pending slots
+            if entry.get("status") != "Approved":
+                entry["status"]     = new_status_val
+                entry["comment"]    = comment_val
+                entry["updated_at"] = _ist_now_iso()
+            updated = True
 
     if not updated and role != "admin":
         raise HTTPException(403, "Your role is not in the Management Committee reviewer list")
