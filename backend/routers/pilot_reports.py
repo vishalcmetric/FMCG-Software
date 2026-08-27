@@ -19,6 +19,8 @@ from typing import Optional
 import os, uuid, aiofiles
 from datetime import datetime, timezone
 
+from fastapi.responses import FileResponse
+
 router = APIRouter(prefix="/api/pilot-reports", tags=["pilot-reports"])
 
 UPLOAD_ROLES  = {"admin", "production", "packaging", "regulatory", "sa"}
@@ -69,6 +71,35 @@ async def list_reports(
     stmt = stmt.order_by(PilotReport.created_at.desc()).limit(200)
     result = await db.execute(stmt)
     return [_out(r) for r in result.scalars().all()]
+
+
+# ── DOWNLOAD (proxied through Next.js) ───────────────────────────────────────
+
+@router.get("/{report_id}/download")
+async def download_report(
+    report_id: str,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession   = Depends(get_db),
+):
+    res = await db.execute(select(PilotReport).where(PilotReport.report_id == report_id))
+    rpt = res.scalars().first()
+    if not rpt:
+        raise HTTPException(404, "Report not found")
+
+    # Reconstruct the absolute path from the stored relative URL
+    # file_url is like /uploads/pilot_reports/abc.docx
+    rel = rpt.file_url.lstrip("/")          # uploads/pilot_reports/abc.docx
+    abs_path = os.path.join(os.path.dirname(__file__), "..", rel)
+    abs_path = os.path.normpath(abs_path)
+
+    if not os.path.isfile(abs_path):
+        raise HTTPException(404, "File not found on server")
+
+    return FileResponse(
+        path=abs_path,
+        filename=rpt.file_name or "report",
+        media_type="application/octet-stream",
+    )
 
 
 # ── UPLOAD ────────────────────────────────────────────────────────────────────

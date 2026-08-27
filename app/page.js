@@ -5814,7 +5814,7 @@ function ReportsView({ user, token }) {
                     <TableCell className="text-sm">{r.report_type}</TableCell>
                     <TableCell>
                       {r.file_url
-                        ? <a href={`${API_BASE}${r.file_url}`} target="_blank" rel="noreferrer" className="text-xs text-blue-600 hover:underline flex items-center gap-1"><Paperclip className="h-3 w-3"/>{r.file_name||'Download'}</a>
+                        ? <a href={`/api/pilot-reports/${r.report_id}/download`} target="_blank" rel="noreferrer" className="text-xs text-blue-600 hover:underline flex items-center gap-1"><Paperclip className="h-3 w-3"/>{r.file_name||'Download'}</a>
                         : <span className="text-xs text-muted-foreground">—</span>}
                     </TableCell>
                     <TableCell className="text-sm">
@@ -6037,7 +6037,7 @@ function PilotTrialView({ user, token }) {
                     <TableCell className="text-sm">{r.report_type}</TableCell>
                     <TableCell>
                       {r.file_url ? (
-                        <a href={`${API_BASE}${r.file_url}`} target="_blank" rel="noreferrer"
+                        <a href={`/api/pilot-reports/${r.report_id}/download`} target="_blank" rel="noreferrer"
                           className="text-xs text-blue-600 hover:underline flex items-center gap-1">
                           <Paperclip className="h-3 w-3"/>{r.file_name || 'Download'}
                         </a>
