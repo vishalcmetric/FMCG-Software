@@ -5298,6 +5298,7 @@ function ArtworkView({ user, token, can }) {
   const [showAdd, setShowAdd]     = useState(false)
   const [saving, setSaving]       = useState(false)
   const [selected, setSelected]   = useState(null)
+  const [detailOpen, setDetailOpen] = useState(false)
   const [editOpen, setEditOpen]   = useState(false)
   const [editForm, setEditForm]   = useState({})
   const [statusFilter, setStatusFilter] = useState('all')
@@ -5515,6 +5516,80 @@ function ArtworkView({ user, token, can }) {
         </Dialog>
       )}
 
+      {/* Detail Dialog — shown when clicking a row */}
+      {selected && detailOpen && (
+        <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle className="font-mono text-base">{selected.artwork_id}</DialogTitle>
+              <DialogDescription>{selected.project_name} • {selected.brand}</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3 text-sm">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-slate-50 rounded-lg p-3 border">
+                  <p className="text-xs text-muted-foreground">Artwork Type</p>
+                  <p className="font-medium mt-0.5">{selected.artwork_type || '—'}</p>
+                </div>
+                <div className="bg-slate-50 rounded-lg p-3 border">
+                  <p className="text-xs text-muted-foreground">SKU / Pack Size</p>
+                  <p className="font-medium mt-0.5">{selected.sku || '—'}</p>
+                </div>
+                <div className="bg-slate-50 rounded-lg p-3 border">
+                  <p className="text-xs text-muted-foreground">Version</p>
+                  <p className="font-medium mt-0.5 font-mono">{selected.version || '—'}</p>
+                </div>
+                <div className="bg-slate-50 rounded-lg p-3 border">
+                  <p className="text-xs text-muted-foreground">Status</p>
+                  <span className={`text-xs px-2 py-0.5 rounded-md font-medium ${ART_STATUS_COLORS[selected.status]||'bg-slate-100'}`}>{selected.status}</span>
+                </div>
+                <div className="bg-slate-50 rounded-lg p-3 border">
+                  <p className="text-xs text-muted-foreground">Assigned To</p>
+                  <p className="font-medium mt-0.5">{selected.assigned_to || '—'}</p>
+                </div>
+                <div className="bg-slate-50 rounded-lg p-3 border">
+                  <p className="text-xs text-muted-foreground">Reviewed By</p>
+                  <p className="font-medium mt-0.5">{selected.reviewed_by || '—'}</p>
+                </div>
+              </div>
+              {selected.design_link && (
+                <div className="bg-slate-50 rounded-lg p-3 border">
+                  <p className="text-xs text-muted-foreground mb-1">Design Link</p>
+                  <a href={selected.design_link} target="_blank" rel="noreferrer"
+                    className="text-primary text-xs hover:underline flex items-center gap-1 break-all">
+                    <Eye className="h-3 w-3 shrink-0"/>
+                    {selected.design_link}
+                  </a>
+                </div>
+              )}
+              {selected.brief_notes && (
+                <div className="bg-slate-50 rounded-lg p-3 border">
+                  <p className="text-xs text-muted-foreground mb-1">Brief Notes</p>
+                  <p className="text-sm whitespace-pre-wrap">{selected.brief_notes}</p>
+                </div>
+              )}
+              {selected.comment && (
+                <div className="bg-amber-50 rounded-lg p-3 border border-amber-200">
+                  <p className="text-xs text-amber-700 font-medium mb-1">Review Comment</p>
+                  <p className="text-sm">{selected.comment}</p>
+                </div>
+              )}
+              <div className="grid grid-cols-2 gap-3 text-xs text-muted-foreground">
+                <div><span className="font-medium">Created by:</span> {selected.created_by} ({selected.created_by_role})</div>
+                <div><span className="font-medium">Created:</span> {selected.created_at ? new Date(selected.created_at).toLocaleString('en-IN') : '—'}</div>
+              </div>
+            </div>
+            <DialogFooter>
+              {canUpdate && (
+                <Button variant="outline" onClick={()=>{ setDetailOpen(false); openEdit(selected) }}>
+                  <Edit className="h-4 w-4 mr-2"/>Edit
+                </Button>
+              )}
+              <Button onClick={()=>setDetailOpen(false)}>Close</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+
       {/* Table */}
       {loading ? <Card><CardContent className="p-8 text-center text-muted-foreground">Loading…</CardContent></Card> : (
         <Card><CardContent className="p-0">
@@ -5535,7 +5610,8 @@ function ArtworkView({ user, token, can }) {
                     {canCreate && <p className="text-xs mt-1">Create a brief using the button above</p>}
                   </TableCell></TableRow>
                 : artworks.map(a => (
-                  <TableRow key={a.artwork_id} className="hover:bg-muted/40">
+                  <TableRow key={a.artwork_id} className="hover:bg-muted/40 cursor-pointer"
+                    onClick={e => { if (e.target.closest('button,select,input,a')) return; setSelected(a); setDetailOpen(true) }}>
                     <TableCell className="font-mono text-xs">{a.artwork_id}</TableCell>
                     <TableCell className="font-medium text-sm max-w-[160px] truncate">{a.project_name}</TableCell>
                     <TableCell><Badge variant="outline" className="text-xs">{a.brand}</Badge></TableCell>
