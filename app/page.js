@@ -1289,9 +1289,9 @@ function Dashboard({ user, setView, token }) {
         </div>
       )}
 
-      {/* ── Tasks + Activity ── */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <Card className="lg:col-span-2">
+      {/* ── Tasks ── */}
+      <div className="grid grid-cols-1 gap-6">
+        <Card>
           <CardHeader className="flex flex-row items-center justify-between">
             <div>
               <CardTitle>My Pending Tasks</CardTitle>
@@ -1354,29 +1354,6 @@ function Dashboard({ user, setView, token }) {
                   })}
                 </TableBody>
               </Table>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader><CardTitle>Recent Activity</CardTitle><CardDescription>Latest updates across projects</CardDescription></CardHeader>
-          <CardContent className="space-y-4">
-            {loading ? (
-              <div className="space-y-3">{[1,2,3,4].map(i=><div key={i} className="h-10 bg-slate-100 rounded animate-pulse"/>)}</div>
-            ) : (
-              activity.map((a, i) => (
-                <div key={i} className="flex gap-3">
-                  <Avatar className="h-8 w-8">
-                    <AvatarFallback className="text-xs bg-primary text-white">
-                      {a.user.split(' ').map(s=>s[0]).join('').slice(0,2)}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="flex-1 text-sm">
-                    <div><span className="font-medium">{a.user}</span> {a.action}</div>
-                    <div className="text-muted-foreground text-xs">{a.project} • {a.time} ago</div>
-                  </div>
-                </div>
-              ))
             )}
           </CardContent>
         </Card>
@@ -2708,12 +2685,13 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
   const reworkCount      = reviewers.filter(r => r.status === 'Rework').length
   const isPending        = ppd.status === 'Pending'
   const isApproved       = ppd.status === 'Approved'
+  const isCompleted      = ppd.status === 'Completed'
   const isRework         = ppd.status === 'Rework'
   const isReviewerApproved = ppd.status === 'ReviewerApproved'
   const isMgmtReview     = ppd.status === 'MgmtReview'
   const isMgmtApproved   = ppd.status === 'MgmtApproved'
   const isFinalReview    = ppd.status === 'FinalReview'
-  const isFullyDone      = isApproved
+  const isFullyDone      = isApproved || isCompleted
 
   const mgmtApprovals  = ppd.mgmt_approvals  || []
   const finalApprovals = ppd.final_approvals || []
@@ -2724,7 +2702,14 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
   const myMgmtEntry   = mgmtApprovals.find(r => r.role === myRole)
   const myFinalEntry  = finalApprovals.find(r => r.role === myRole)
 
-  const wfSteps = [
+  const wfSteps = isCompleted ? [
+    { s: '1. PPD Created',                                                                                     d: `${ppd.created_by} (${ROLES[ppd.created_by_role]?.label || ppd.created_by_role}) created this PPD`, st: 'done' },
+    { s: '2. Initial Review (R&D/F&D + PM)',                                                                   d: `✓ All initial reviewers approved`,                                                                   st: 'done' },
+    { s: '3. Source Team Submits for Approval',                                                                d: '✓ Source Team submitted PPD to Management Committee',                                               st: 'done' },
+    { s: '4. Management Committee Review (R&D Head, Marketing Head, Sales Head, GDSO Head, Regulatory Head, CFO)', d: `✓ All management reviewers approved`,                                                          st: 'done' },
+    { s: '5. Final Approval (CEO)',                                                                             d: '✓ CEO approved',                                                                                     st: 'done' },
+    { s: '6. Fully Approved & Completed',                                                                      d: '✓ PPD completed — project execution done',                                                           st: 'done' },
+  ] : [
     {
       s: '1. PPD Created',
       d: `${ppd.created_by} (${ROLES[ppd.created_by_role]?.label || ppd.created_by_role}) created this PPD`,
