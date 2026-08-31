@@ -1,6 +1,6 @@
 """
 Artwork Management router.
-Marketing creates briefs, Packaging manages design versions & approvals.
+Packaging creates briefs → RD Head approves or requests rework → Approved.
 """
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, func
@@ -14,8 +14,9 @@ from typing import Optional
 
 router = APIRouter(prefix="/api/artwork", tags=["artwork"])
 
-CREATE_ROLES = {"admin", "marketing", "packaging", "rd_head"}
-UPDATE_ROLES = {"admin", "packaging", "marketing"}
+CREATE_ROLES  = {"admin", "marketing", "packaging", "rd_head"}
+UPDATE_ROLES  = {"admin", "packaging", "marketing", "rd_head"}
+REVIEW_ROLES  = {"admin", "rd_head"}
 ALL_ROLES = "admin,source,pm,fd,rd_head,marketing,regulatory,packaging,adl,pmsa,sa,mgmt,ceo,production"
 
 ART_STATUSES = [
@@ -44,6 +45,11 @@ class ArtworkUpdate(BaseModel):
     version: Optional[str] = None
 
 
+class ArtworkReview(BaseModel):
+    decision: str          # "approved" | "rework"
+    comment: Optional[str] = None
+
+
 def _out(a: ArtworkBrief) -> dict:
     return {
         "id": a.id, "artwork_id": a.artwork_id, "ppd_id": a.ppd_id,
@@ -51,6 +57,7 @@ def _out(a: ArtworkBrief) -> dict:
         "artwork_type": a.artwork_type, "sku": a.sku, "brief_notes": a.brief_notes,
         "design_link": a.design_link, "comment": a.comment, "status": a.status,
         "assigned_to": a.assigned_to,
+        "reviewed_by": a.reviewed_by,
         "created_by": a.created_by, "created_by_role": a.created_by_role,
         "created_at": fmt_ist(a.created_at),
         "updated_at": fmt_ist(a.updated_at),
@@ -89,7 +96,9 @@ async def create_artwork(
 ):
     role = current_user.get("role", "fd")
     if role not in CREATE_ROLES:
-        raise HTTPException(403, "Only marketing, packaging, admin can create artwork briefs")
+        raise HTTPException(403, "Only marketing, packaging, rd_head, admin can create artwork briefs")
+
+    # Allow packaging to look up any PPD (not filtered by teams_involved)
     ppd_result = await db.execute(select(PPDSubmission).where(PPDSubmission.ppd_id == body.ppd_id))
     ppd = ppd_result.scalars().first()
     if not ppd:
@@ -110,7 +119,7 @@ async def create_artwork(
         brief_notes=body.brief_notes,
         design_link=body.design_link,
         assigned_to=body.assigned_to,
-        status="Brief Pending",
+        status="Under Review",   # immediately goes to RD Head for review
         created_by=current_user.get("name", ""),
         created_by_role=role,
     )
@@ -119,21 +128,74 @@ async def create_artwork(
         user_name=current_user.get("name", ""),
         user_email=current_user.get("sub", ""),
         action="CREATE",
-        action_label=f"created artwork brief {artwork_id} for {ppd.project_name}",
+        action_label=f"created artwork brief {artwork_id} for {ppd.project_name} — sent to R&D Head for approval",
         entity=artwork_id,
-        involved_roles=ppd.teams_involved or ALL_ROLES,
+        involved_roles="rd_head,packaging,admin",
         time_ago="just now",
     ))
+    # Notify RD Head immediately for review
     await notify_roles(
-        db, roles=["packaging", "admin"],
-        title=f"Artwork Brief Created: {ppd.project_name}",
-        message=f"{current_user.get('name','User')} created {body.artwork_type or 'Label'} artwork brief for {ppd.project_name} ({artwork_id}).",
+        db, roles=["rd_head", "admin"],
+        title=f"Artwork Brief Requires Approval: {ppd.project_name}",
+        message=f"{current_user.get('name','User')} ({role}) submitted artwork brief {artwork_id} ({body.artwork_type or 'Label'}) for {ppd.project_name}. Please review and approve or request rework.",
         action_type="task_assigned", entity_id=body.ppd_id,
         entity_name=ppd.project_name, created_by=current_user.get("name", ""),
     )
     await db.commit()
     await db.refresh(art)
     return _out(art)
+
+
+# ── REVIEW (rd_head / admin) ──────────────────────────────────────────────────
+
+@router.post("/{artwork_id}/review", status_code=200)
+async def review_artwork(
+    artwork_id: str,
+    body: ArtworkReview,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """RD Head approves or requests rework on an artwork brief."""
+    role = current_user.get("role", "fd")
+    if role not in REVIEW_ROLES:
+        raise HTTPException(403, "Only rd_head or admin can review artwork briefs")
+    if body.decision not in ("approved", "rework"):
+        raise HTTPException(400, "decision must be 'approved' or 'rework'")
+
+    result = await db.execute(select(ArtworkBrief).where(ArtworkBrief.artwork_id == artwork_id))
+    a = result.scalars().first()
+    if not a:
+        raise HTTPException(404, "Artwork brief not found")
+
+    old_status = a.status
+    a.status = "Approved" if body.decision == "approved" else "Rework"
+    a.comment = body.comment or ""
+    a.reviewed_by = current_user.get("name", "")
+
+    db.add(AuditLog(
+        user_name=current_user.get("name", ""),
+        user_email=current_user.get("sub", ""),
+        action="APPROVE" if body.decision == "approved" else "REWORK",
+        action_label=f"{body.decision} artwork {artwork_id} for {a.project_name}",
+        entity=artwork_id,
+        involved_roles="packaging,admin",
+        time_ago="just now",
+    ))
+
+    # Notify packaging team of outcome
+    await notify_roles(
+        db, roles=["packaging", "admin"],
+        title=f"Artwork {'Approved' if body.decision == 'approved' else 'Rework Requested'}: {a.project_name}",
+        message=(
+            f"R&D Head {current_user.get('name','User')} {'approved' if body.decision == 'approved' else 'requested rework on'} "
+            f"artwork {artwork_id} ({a.artwork_type}) for {a.project_name}."
+            + (f" Comment: {body.comment}" if body.comment else "")
+        ),
+        action_type="ppd_reviewed", entity_id=a.ppd_id,
+        entity_name=a.project_name, created_by=current_user.get("name", ""),
+    )
+    await db.commit()
+    return {"ok": True, "artwork_id": artwork_id, "status": a.status}
 
 
 @router.put("/{artwork_id}")
@@ -145,7 +207,7 @@ async def update_artwork(
 ):
     role = current_user.get("role", "fd")
     if role not in UPDATE_ROLES:
-        raise HTTPException(403, "Only packaging, marketing, admin can update artwork")
+        raise HTTPException(403, "Only packaging, marketing, rd_head, admin can update artwork")
     result = await db.execute(select(ArtworkBrief).where(ArtworkBrief.artwork_id == artwork_id))
     a = result.scalars().first()
     if not a:
@@ -167,11 +229,8 @@ async def update_artwork(
         time_ago="just now",
     ))
     if body.status and body.status != old_status:
-        ppd_result = await db.execute(select(PPDSubmission).where(PPDSubmission.ppd_id == a.ppd_id))
-        ppd = ppd_result.scalars().first()
-        teams = (ppd.teams_involved if ppd else ALL_ROLES).split(",")
         await notify_roles(
-            db, roles=teams,
+            db, roles=["packaging", "rd_head", "admin"],
             title=f"Artwork Updated: {a.project_name}",
             message=f"{current_user.get('name','User')} updated artwork {artwork_id} — {change}.",
             action_type="info", entity_id=a.ppd_id,

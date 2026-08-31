@@ -170,13 +170,15 @@ async def list_ppds(
     q:      str = Query("", description="Search by name / ID"),
     status: str = Query("all"),
     brand:  str = Query("all"),
+    all:    str = Query("", description="Pass 'all' to skip teams_involved filter (for artwork/cross-module use)"),
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     role = current_user.get("role", "fd")
     stmt = select(PPDSubmission)
 
-    if role != "admin":
+    # Skip teams_involved filter when explicitly requested (e.g. packaging creating artwork)
+    if role != "admin" and all != "all":
         stmt = stmt.where(PPDSubmission.teams_involved.contains(role))
 
     if status != "all":

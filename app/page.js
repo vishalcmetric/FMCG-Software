@@ -66,7 +66,7 @@ const MENU = [
   // Claims: Scientific Affairs, R&D Head, Regulatory
   { key: 'claim',       label: 'Claim Substantiation',  icon: BadgeCheck,      roles: ['admin','sa','rd_head','regulatory'] },
   // Artwork: Packaging manages, Marketing reviews
-  { key: 'artwork',     label: 'Artwork (Karomi)',       icon: Palette,         roles: ['admin','packaging','marketing','production'] },
+  { key: 'artwork',     label: 'Artwork (Karomi)',       icon: Palette,         roles: ['admin','packaging','marketing','production','rd_head'] },
   // Master Data: SAP integration — PM, Packaging, Production manage
   { key: 'master',      label: 'Master Data (SAP)',      icon: Database,        roles: ['admin','production','packaging','pm'] },
   { key: 'reports',     label: 'Reports & Analytics',   icon: BarChart3,       roles: 'all' },
@@ -5292,34 +5292,38 @@ const ART_STATUSES = ['Brief Pending','Design In Progress','Under Review','Appro
 const ART_TYPES    = ['Label','Carton','Pouch','Shipper','Digital Banner','POS Material']
 
 function ArtworkView({ user, token, can }) {
-  const [artworks, setArtworks] = useState([])
-  const [ppds, setPpds]         = useState([])
-  const [loading, setLoading]   = useState(true)
-  const [showAdd, setShowAdd]   = useState(false)
-  const [saving, setSaving]     = useState(false)
-  const [selected, setSelected] = useState(null)
-  const [editOpen, setEditOpen] = useState(false)
-  const [editForm, setEditForm] = useState({})
+  const [artworks, setArtworks]   = useState([])
+  const [ppds, setPpds]           = useState([])
+  const [loading, setLoading]     = useState(true)
+  const [showAdd, setShowAdd]     = useState(false)
+  const [saving, setSaving]       = useState(false)
+  const [selected, setSelected]   = useState(null)
+  const [editOpen, setEditOpen]   = useState(false)
+  const [editForm, setEditForm]   = useState({})
   const [statusFilter, setStatusFilter] = useState('all')
+  const [reviewComment, setReviewComment] = useState('')
+  const [reviewing, setReviewing] = useState(null)
   const [form, setForm] = useState({ ppd_id:'', artwork_type:'Label', sku:'', brief_notes:'', design_link:'', assigned_to:'' })
 
-  // marketing + packaging can create; packaging can update status/design; admin full
   const canCreate = ['admin','marketing','packaging','rd_head'].includes(user?.role) || (can && can('Artwork','create'))
-  const canUpdate = ['admin','packaging','marketing'].includes(user?.role) || (can && can('Artwork','edit'))
+  const canUpdate = ['admin','packaging','marketing','rd_head'].includes(user?.role) || (can && can('Artwork','edit'))
+  const canReview = ['admin','rd_head'].includes(user?.role)
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
       const params = statusFilter !== 'all' ? `?status=${statusFilter}` : ''
+      // packaging & rd_head need all PPDs for artwork — use ?all=all to bypass teams_involved filter
+      const ppdUrl = ['packaging','rd_head'].includes(user?.role) ? '/api/ppd?all=all' : '/api/ppd'
       const [aData, pData] = await Promise.all([
         apiCall(`/api/artwork${params}`, { token }),
-        apiCall('/api/ppd', { token }),
+        apiCall(ppdUrl, { token }),
       ])
       setArtworks(Array.isArray(aData) ? aData : [])
       setPpds(Array.isArray(pData) ? pData : [])
     } catch(e) { toast.error('Failed to load artwork') }
     finally { setLoading(false) }
-  }, [token, statusFilter])
+  }, [token, statusFilter, user?.role])
 
   useEffect(() => { load() }, [load])
 
@@ -5328,7 +5332,7 @@ function ArtworkView({ user, token, can }) {
     setSaving(true)
     try {
       const res = await apiCall('/api/artwork', { method:'POST', body: form, token })
-      toast.success(`Artwork brief ${res.artwork_id} created — Packaging team notified`)
+      toast.success(`Artwork brief ${res.artwork_id} submitted — R&D Head notified for approval`)
       setShowAdd(false)
       setForm({ ppd_id:'', artwork_type:'Label', sku:'', brief_notes:'', design_link:'', assigned_to:'' })
       load()
@@ -5361,6 +5365,20 @@ function ArtworkView({ user, token, can }) {
     finally { setSaving(false) }
   }
 
+  const handleReview = async (artworkId, decision) => {
+    setReviewing(artworkId)
+    try {
+      await apiCall(`/api/artwork/${artworkId}/review`, {
+        method: 'POST', token,
+        body: { decision, comment: reviewComment.trim() || undefined }
+      })
+      toast.success(`Artwork ${decision === 'approved' ? 'Approved ✓' : 'Rework requested'}`)
+      setReviewComment('')
+      load()
+    } catch(e) { toast.error(e.message || 'Failed') }
+    finally { setReviewing(null) }
+  }
+
   // Counts by status
   const pending = artworks.filter(a => a.status === 'Brief Pending').length
   const inProg  = artworks.filter(a => a.status === 'Design In Progress').length
@@ -5376,7 +5394,8 @@ function ArtworkView({ user, token, can }) {
           <h1 className="text-2xl font-bold">Artwork Management</h1>
           <p className="text-muted-foreground text-sm">
             {user?.role === 'marketing' ? 'Submit artwork briefs for your brands' :
-             user?.role === 'packaging' ? 'Manage designs, upload files, update approvals' :
+             user?.role === 'packaging' ? 'Upload artwork brief → sent to R&D Head for approval' :
+             user?.role === 'rd_head'   ? 'Review and approve artwork briefs submitted by Packaging' :
              'All artwork versions and approvals'}
           </p>
         </div>
@@ -5409,7 +5428,7 @@ function ArtworkView({ user, token, can }) {
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>New Artwork Brief</DialogTitle>
-            <DialogDescription>Marketing submits brief → Packaging picks up for design</DialogDescription>
+            <DialogDescription>Packaging submits brief → R&D Head reviews and approves</DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
             <div><Label>PPD <span className="text-red-500">*</span></Label>
@@ -5536,13 +5555,45 @@ function ArtworkView({ user, token, can }) {
                           </a>
                         : <span className="text-xs text-muted-foreground">—</span>}
                     </TableCell>
-                    {canUpdate && (
-                      <TableCell className="flex items-center gap-1">
-                        <Button size="sm" variant="ghost" title="Edit" onClick={()=>openEdit(a)}><Edit className="h-4 w-4"/></Button>
-                        <Select onValueChange={v=>handleStatusChange(a,v)}>
-                          <SelectTrigger className="h-7 w-28 text-xs"><SelectValue placeholder="Status"/></SelectTrigger>
-                          <SelectContent>{ART_STATUSES.map(s=><SelectItem key={s} value={s} className="text-xs">{s}</SelectItem>)}</SelectContent>
-                        </Select>
+                    {(canUpdate || canReview) && (
+                      <TableCell>
+                        <div className="flex gap-1 items-center flex-wrap">
+                          {/* RD Head review buttons — shown only for Under Review artworks */}
+                          {canReview && a.status === 'Under Review' && (
+                            <>
+                              <Input
+                                className="h-6 text-xs w-24"
+                                placeholder="Comment"
+                                value={reviewing === a.artwork_id ? reviewComment : ''}
+                                onChange={e => { setReviewing(a.artwork_id); setReviewComment(e.target.value) }}
+                              />
+                              <Button size="sm" className="h-6 text-xs bg-emerald-600 hover:bg-emerald-700 px-2"
+                                onClick={() => handleReview(a.artwork_id, 'approved')}
+                                title="Approve">
+                                <CheckCircle2 className="h-3 w-3"/>
+                              </Button>
+                              <Button size="sm" variant="outline" className="h-6 text-xs border-amber-400 text-amber-600 px-2"
+                                onClick={() => handleReview(a.artwork_id, 'rework')}
+                                title="Request Rework">
+                                <XCircle className="h-3 w-3"/>
+                              </Button>
+                            </>
+                          )}
+                          {/* Non-review actions for packaging/marketing */}
+                          {canUpdate && !canReview && (
+                            <>
+                              <Button size="sm" variant="ghost" title="Edit" onClick={()=>openEdit(a)}><Edit className="h-4 w-4"/></Button>
+                              <Select onValueChange={v=>handleStatusChange(a,v)}>
+                                <SelectTrigger className="h-7 w-28 text-xs"><SelectValue placeholder="Status"/></SelectTrigger>
+                                <SelectContent>{ART_STATUSES.map(s=><SelectItem key={s} value={s} className="text-xs">{s}</SelectItem>)}</SelectContent>
+                              </Select>
+                            </>
+                          )}
+                          {/* Admin can both review and edit */}
+                          {user?.role === 'admin' && (
+                            <Button size="sm" variant="ghost" title="Edit" onClick={()=>openEdit(a)}><Edit className="h-4 w-4"/></Button>
+                          )}
+                        </div>
                       </TableCell>
                     )}
                   </TableRow>

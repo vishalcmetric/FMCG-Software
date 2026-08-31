@@ -137,6 +137,8 @@ async def _migrate_columns() -> None:
         ("formulas",         "approval_comment",        "TEXT NULL"),
         ("formulas",         "approved_by",             "VARCHAR(150) NULL"),
         ("formulas",         "approved_at",             "DATETIME NULL"),
+        # Artwork review column
+        ("artwork_briefs",   "reviewed_by",             "VARCHAR(150) NULL"),
     ]
 
     try:
