@@ -341,9 +341,18 @@ async def update_ppd(
     for field, value in updates.items():
         setattr(p, field, value)
 
+    # When admin overrides status to a terminal state, close all pending tasks for this PPD
+    new_status = updates.get("status", "")
+    if new_status in ("Completed", "Approved"):
+        task_rows = await db.execute(
+            select(Task).where(Task.ppd_id == ppd_id).where(Task.status.in_(["pending", "rework"]))
+        )
+        for t in task_rows.scalars().all():
+            t.status = "approved"
+
     change_parts = []
-    if "status" in updates:
-        change_parts.append(f"status → {updates['status']}")
+    if new_status:
+        change_parts.append(f"status → {new_status}")
     change_summary = ", ".join(change_parts) if change_parts else "content updated"
 
     db.add(AuditLog(

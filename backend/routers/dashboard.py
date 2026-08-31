@@ -43,12 +43,14 @@ async def _build_stats(db: AsyncSession, role: str, user_email: str) -> list[Sta
         ]))
     )).scalar() or 0
 
-    # Only count tasks whose PPD still exists (avoids orphaned tasks from deleted PPDs)
-    existing_ppd_ids = select(PPDSubmission.ppd_id)
+    # Only count tasks whose PPD still exists AND is not already in a terminal state
+    active_ppd_ids = select(PPDSubmission.ppd_id).where(
+        PPDSubmission.status.not_in(["Approved", "Completed"])
+    )
     pending_approvals = (await db.execute(
         _role_task(select(func.count()).select_from(Task))
         .where(Task.status == "pending")
-        .where(Task.ppd_id.in_(existing_ppd_ids))
+        .where(Task.ppd_id.in_(active_ppd_ids))
     )).scalar() or 0
 
     under_review = (await db.execute(
@@ -94,11 +96,14 @@ async def _build_ppds(db: AsyncSession, role: str) -> list[dict]:
 
 
 async def _build_tasks(db: AsyncSession, role: str, user_email: str) -> list[PendingTask]:
-    existing_ppd_ids = select(PPDSubmission.ppd_id)
+    # Only show tasks for PPDs that are still active (not Approved/Completed/deleted)
+    active_ppd_ids = select(PPDSubmission.ppd_id).where(
+        PPDSubmission.status.not_in(["Approved", "Completed"])
+    )
     stmt = (
         select(Task)
         .where(Task.status.not_in(["approved"]))
-        .where(Task.ppd_id.in_(existing_ppd_ids))   # skip orphaned tasks
+        .where(Task.ppd_id.in_(active_ppd_ids))   # skip orphaned + terminal-state tasks
     )
     if role not in _FULL_ROLES:
         stmt = stmt.where(Task.assigned_role == role)
@@ -208,7 +213,14 @@ async def get_dashboard_summary(
 ):
     """Lightweight summary — used for the header notification badge."""
     role = current_user.get("role", "fd")
-    stmt = select(func.count()).select_from(Task).where(Task.status == "pending")
+    active_ppd_ids = select(PPDSubmission.ppd_id).where(
+        PPDSubmission.status.not_in(["Approved", "Completed"])
+    )
+    stmt = (
+        select(func.count()).select_from(Task)
+        .where(Task.status == "pending")
+        .where(Task.ppd_id.in_(active_ppd_ids))
+    )
     if role not in _FULL_ROLES:
         stmt = stmt.where(Task.assigned_role == role)
     pending = (await db.execute(stmt)).scalar() or 0
