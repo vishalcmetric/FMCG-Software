@@ -57,7 +57,6 @@ def _out(a: ArtworkBrief) -> dict:
         "artwork_type": a.artwork_type, "sku": a.sku, "brief_notes": a.brief_notes,
         "design_link": a.design_link, "comment": a.comment, "status": a.status,
         "assigned_to": a.assigned_to,
-        "reviewed_by": getattr(a, "reviewed_by", None),   # safe — column added via migration
         "created_by": a.created_by, "created_by_role": a.created_by_role,
         "created_at": fmt_ist(a.created_at),
         "updated_at": fmt_ist(a.updated_at),
@@ -142,7 +141,7 @@ async def create_artwork(
         entity_name=ppd.project_name, created_by=current_user.get("name", ""),
     )
     await db.commit()
-    await db.refresh(art)
+    # Do NOT refresh — avoids SELECT of new columns (e.g. reviewed_by) before migration runs
     return _out(art)
 
 
@@ -169,8 +168,9 @@ async def review_artwork(
 
     old_status = a.status
     a.status = "Approved" if body.decision == "approved" else "Rework"
-    a.comment = body.comment or ""
-    a.reviewed_by = current_user.get("name", "")
+    # Store reviewer name in comment: "Reviewed by <name>: <comment>"
+    reviewer = current_user.get("name", "R&D Head")
+    a.comment = f"Reviewed by {reviewer}: {body.comment}" if body.comment else f"Reviewed by {reviewer}"
 
     db.add(AuditLog(
         user_name=current_user.get("name", ""),

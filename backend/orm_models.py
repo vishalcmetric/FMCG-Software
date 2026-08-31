@@ -411,7 +411,6 @@ class ArtworkBrief(Base):
     design_link     = Column(String(500))
     comment         = Column(Text)
     status          = Column(String(30), default="Brief Pending")
-    reviewed_by     = Column(String(150), nullable=True)
     created_by      = Column(String(150))
     created_by_role = Column(String(50))
     assigned_to     = Column(String(150))

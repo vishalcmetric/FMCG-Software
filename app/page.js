@@ -5546,10 +5546,6 @@ function ArtworkView({ user, token, can }) {
                   <p className="text-xs text-muted-foreground">Assigned To</p>
                   <p className="font-medium mt-0.5">{selected.assigned_to || '—'}</p>
                 </div>
-                <div className="bg-slate-50 rounded-lg p-3 border">
-                  <p className="text-xs text-muted-foreground">Reviewed By</p>
-                  <p className="font-medium mt-0.5">{selected.reviewed_by || '—'}</p>
-                </div>
               </div>
               {selected.design_link && (
                 <div className="bg-slate-50 rounded-lg p-3 border">
