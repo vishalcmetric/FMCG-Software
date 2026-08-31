@@ -30,11 +30,6 @@ def _ppd_filter(q, role: str):
 
 
 async def _build_stats(db: AsyncSession, role: str, user_email: str) -> list[StatCard]:
-    def _role_task(q):
-        if role not in (*_FULL_ROLES, *_MGMT_ROLES):
-            return q.where(Task.assigned_role == role)
-        return q
-
     active_ppds = (await db.execute(
         _ppd_filter(select(func.count()).select_from(PPDSubmission), role)
         .where(PPDSubmission.status.in_([
@@ -43,15 +38,19 @@ async def _build_stats(db: AsyncSession, role: str, user_email: str) -> list[Sta
         ]))
     )).scalar() or 0
 
-    # Only count tasks whose PPD still exists AND is not already in a terminal state
+    # Count ONLY tasks assigned to this specific role (never all roles)
+    # admin sees all; every other role sees only their own tasks
     active_ppd_ids = select(PPDSubmission.ppd_id).where(
         PPDSubmission.status.not_in(["Approved", "Completed"])
     )
-    pending_approvals = (await db.execute(
-        _role_task(select(func.count()).select_from(Task))
+    pending_q = (
+        select(func.count()).select_from(Task)
         .where(Task.status == "pending")
         .where(Task.ppd_id.in_(active_ppd_ids))
-    )).scalar() or 0
+    )
+    if role not in _FULL_ROLES:
+        pending_q = pending_q.where(Task.assigned_role == role)
+    pending_approvals = (await db.execute(pending_q)).scalar() or 0
 
     under_review = (await db.execute(
         _ppd_filter(select(func.count()).select_from(PPDSubmission), role)

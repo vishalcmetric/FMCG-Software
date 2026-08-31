@@ -93,15 +93,16 @@ async def create_artwork(
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    import traceback
     role = current_user.get("role", "fd")
     if role not in CREATE_ROLES:
         raise HTTPException(403, "Only marketing, packaging, rd_head, admin can create artwork briefs")
 
-    # Allow packaging to look up any PPD (not filtered by teams_involved)
+    # Allow packaging/rd_head to look up any PPD (not filtered by teams_involved)
     ppd_result = await db.execute(select(PPDSubmission).where(PPDSubmission.ppd_id == body.ppd_id))
     ppd = ppd_result.scalars().first()
     if not ppd:
-        raise HTTPException(404, f"PPD {body.ppd_id} not found")
+        raise HTTPException(404, f"PPD '{body.ppd_id}' not found. Make sure you selected a valid PPD.")
 
     seq = ((await db.execute(select(func.count()).select_from(ArtworkBrief).where(ArtworkBrief.ppd_id == body.ppd_id))).scalar() or 0) + 1
     while (await db.execute(select(ArtworkBrief.id).where(ArtworkBrief.artwork_id == f"ART-{body.ppd_id}-{str(seq).zfill(2)}"))).scalar():
@@ -112,36 +113,41 @@ async def create_artwork(
         artwork_id=artwork_id,
         ppd_id=body.ppd_id,
         project_name=ppd.project_name,
-        brand=ppd.brand,
+        brand=ppd.brand or "",
         artwork_type=body.artwork_type or "Label",
-        sku=body.sku,
-        brief_notes=body.brief_notes,
-        design_link=body.design_link,
-        assigned_to=body.assigned_to,
-        status="Under Review",   # immediately goes to RD Head for review
+        sku=body.sku or "",
+        brief_notes=body.brief_notes or "",
+        design_link=body.design_link or "",
+        assigned_to=body.assigned_to or "",
+        status="Under Review",
         created_by=current_user.get("name", ""),
         created_by_role=role,
     )
-    db.add(art)
-    db.add(AuditLog(
-        user_name=current_user.get("name", ""),
-        user_email=current_user.get("sub", ""),
-        action="CREATE",
-        action_label=f"created artwork brief {artwork_id} for {ppd.project_name} — sent to R&D Head for approval",
-        entity=artwork_id,
-        involved_roles="rd_head,packaging,admin",
-        time_ago="just now",
-    ))
-    # Notify RD Head immediately for review
-    await notify_roles(
-        db, roles=["rd_head", "admin"],
-        title=f"Artwork Brief Requires Approval: {ppd.project_name}",
-        message=f"{current_user.get('name','User')} ({role}) submitted artwork brief {artwork_id} ({body.artwork_type or 'Label'}) for {ppd.project_name}. Please review and approve or request rework.",
-        action_type="task_assigned", entity_id=body.ppd_id,
-        entity_name=ppd.project_name, created_by=current_user.get("name", ""),
-    )
-    await db.commit()
-    # Do NOT refresh — avoids SELECT of new columns (e.g. reviewed_by) before migration runs
+    try:
+        db.add(art)
+        db.add(AuditLog(
+            user_name=current_user.get("name", ""),
+            user_email=current_user.get("sub", ""),
+            action="CREATE",
+            action_label=f"created artwork brief {artwork_id} for {ppd.project_name}",
+            entity=artwork_id,
+            involved_roles="rd_head,packaging,admin",
+            time_ago="just now",
+        ))
+        await notify_roles(
+            db, roles=["rd_head", "admin"],
+            title=f"Artwork Brief Requires Approval: {ppd.project_name}",
+            message=f"{current_user.get('name','User')} ({role}) submitted artwork brief {artwork_id} ({body.artwork_type or 'Label'}) for {ppd.project_name}. Please review and approve or request rework.",
+            action_type="task_assigned", entity_id=body.ppd_id,
+            entity_name=ppd.project_name, created_by=current_user.get("name", ""),
+        )
+        await db.commit()
+    except Exception as e:
+        await db.rollback()
+        tb = traceback.format_exc()
+        print(f"[artwork create] ERROR: {e}\n{tb}")
+        raise HTTPException(500, f"Failed to save artwork brief: {str(e)}")
+
     return _out(art)
 
 
