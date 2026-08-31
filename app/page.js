@@ -772,6 +772,7 @@ function NotificationPanel({ token, setView }) {
   const [unread, setUnread]       = useState(0)
   const [loading, setLoading]     = useState(false)
   const [markingAll, setMarkingAll] = useState(false)
+  const [clearing, setClearing]   = useState(false)
 
   // Poll unread count every 15 seconds
   const fetchCount = useCallback(async () => {
@@ -818,6 +819,17 @@ function NotificationPanel({ token, setView }) {
       setUnread(0)
     } catch (_) {}
     finally { setMarkingAll(false) }
+  }
+
+  const clearAll = async () => {
+    if (!confirm('Delete all notifications? This cannot be undone.')) return
+    setClearing(true)
+    try {
+      await apiCall('/api/notifications/clear-all', { method: 'DELETE', token })
+      setNotifs([])
+      setUnread(0)
+    } catch (_) {}
+    finally { setClearing(false) }
   }
 
   const handleClick = (n) => {
@@ -882,16 +894,28 @@ function NotificationPanel({ token, setView }) {
                   <span className="bg-red-100 text-red-700 text-xs font-bold px-1.5 py-0.5 rounded-full">{unread} new</span>
                 )}
               </div>
-              {unread > 0 && (
-                <button
-                  onClick={markAllRead}
-                  disabled={markingAll}
-                  className="text-xs text-primary hover:underline flex items-center gap-1"
-                >
-                  {markingAll && <RefreshCw className="h-3 w-3 animate-spin" />}
-                  Mark all read
-                </button>
-              )}
+              <div className="flex items-center gap-3">
+                {unread > 0 && (
+                  <button
+                    onClick={markAllRead}
+                    disabled={markingAll}
+                    className="text-xs text-primary hover:underline flex items-center gap-1"
+                  >
+                    {markingAll && <RefreshCw className="h-3 w-3 animate-spin" />}
+                    Mark all read
+                  </button>
+                )}
+                {notifs.length > 0 && (
+                  <button
+                    onClick={clearAll}
+                    disabled={clearing}
+                    className="text-xs text-red-500 hover:underline flex items-center gap-1"
+                  >
+                    {clearing && <RefreshCw className="h-3 w-3 animate-spin" />}
+                    Clear all
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* List */}

@@ -13,7 +13,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_db, fmt_ist
 from auth import get_current_user
 from models import FormulaCreate, FormulaUpdate, FormulaCommentCreate, FormulaApprovalDecision
-from orm_models import Formula, FormulaComment, PPDSubmission, AuditLog, LabExperiment, SensoryEvaluation, CostingRecord
+from orm_models import Formula, FormulaComment, PPDSubmission, AuditLog, LabExperiment, SensoryEvaluation, CostingRecord, Notification
+from sqlalchemy import delete as sa_delete
 from notify import notify_roles
 from datetime import datetime, timezone
 
@@ -164,10 +165,10 @@ async def create_formula(
         time_ago="just now",
     ))
 
-    target_roles = (ppd.teams_involved or ALL_ROLES).split(",")
+    # Notify only the formulation team — fd, rd_head, admin
     await notify_roles(
         db,
-        roles=target_roles,
+        roles=["fd", "rd_head", "admin"],
         title=f"New Formula: {fid}",
         message=f"{current_user.get('name','User')} created formula {fid} (Trial No: {body.trial_no or '—'}) for {ppd.project_name}.",
         action_type="info",
@@ -240,10 +241,10 @@ async def update_formula(
         time_ago="just now",
     ))
 
-    target_roles = (teams or ALL_ROLES).split(",")
+    # Notify only the formulation team — fd, rd_head, admin
     await notify_roles(
         db,
-        roles=target_roles,
+        roles=["fd", "rd_head", "admin"],
         title=f"Formula Updated: {formula_id}",
         message=f"{current_user.get('name','User')} updated {formula_id} — {change_summary}.",
         action_type="info",
@@ -293,6 +294,9 @@ async def delete_formula(
         select(CostingRecord).where(CostingRecord.formula_id == formula_id)
     )).scalars().all():
         await db.delete(cr)
+
+    # Delete notifications referencing this formula so they don't show as stale
+    await db.execute(sa_delete(Notification).where(Notification.entity_id == formula_id))
 
     await db.delete(f)
     db.add(AuditLog(
@@ -350,9 +354,10 @@ async def add_comment(
     ppd = ppd_result.scalars().first()
     teams = ppd.teams_involved if ppd else ALL_ROLES
 
+    # Comments only go to the formulation team (fd + rd_head) and admin
     await notify_roles(
         db,
-        roles=(teams or ALL_ROLES).split(","),
+        roles=["fd", "rd_head", "admin"],
         title=f"New Comment on Formula: {formula_id}",
         message=f"{current_user.get('name','User')} ({role}) commented on {formula_id}: {body.comment[:80]}",
         action_type="info",
@@ -500,9 +505,10 @@ async def review_formula(
         time_ago="just now",
     ))
 
+    # Review result goes only to the fd creator and admin (not all PPD teams)
     await notify_roles(
         db,
-        roles=teams.split(","),
+        roles=["fd", "admin"],
         title=notif_title,
         message=notif_msg,
         action_type="info",

@@ -1,12 +1,13 @@
 """
 Notifications router — per-role notification feed.
-GET  /api/notifications          → list unread (+ recent read) for current user's role
-GET  /api/notifications/count    → unread count only (lightweight poll)
-POST /api/notifications/{id}/read → mark one as read
-POST /api/notifications/read-all  → mark all as read for this role
+GET    /api/notifications          → list unread (+ recent read) for current user's role
+GET    /api/notifications/count    → unread count only (lightweight poll)
+POST   /api/notifications/{id}/read → mark one as read
+POST   /api/notifications/read-all  → mark all as read for this role
+DELETE /api/notifications/clear-all → permanently delete all notifications for this role
 """
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import select, func, or_, update
+from sqlalchemy import select, func, or_, update, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_db, fmt_ist
 from auth import get_current_user
@@ -98,6 +99,21 @@ async def mark_all_read(
             Notification.is_read == False,  # noqa
         )
         .values(is_read=True)
+    )
+    await db.execute(stmt)
+    await db.commit()
+    return {"ok": True}
+
+
+@router.delete("/clear-all")
+async def clear_all_notifications(
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Permanently delete all notifications for the current user's role."""
+    role = current_user.get("role", "fd")
+    stmt = delete(Notification).where(
+        or_(Notification.target_role == role, Notification.target_role == "all")
     )
     await db.execute(stmt)
     await db.commit()

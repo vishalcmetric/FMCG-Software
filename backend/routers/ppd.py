@@ -42,7 +42,8 @@ import copy, os, uuid, aiofiles
 from database import get_db, now_ist_naive, IST, fmt_ist
 from auth import get_current_user, require_admin
 from models import PPDCreate, PPDUpdate, PPDCommentCreate
-from orm_models import PPDSubmission, PPDComment, AuditLog, Task
+from orm_models import PPDSubmission, PPDComment, AuditLog, Task, Notification
+from sqlalchemy import delete as sa_delete
 from notify import notify_roles
 from datetime import datetime
 
@@ -1240,6 +1241,9 @@ async def delete_ppd(
     task_rows = await db.execute(select(Task).where(Task.ppd_id == ppd_id))
     for t in task_rows.scalars().all():
         await db.delete(t)
+
+    # Delete all notifications referencing this PPD so they don't show as stale
+    await db.execute(sa_delete(Notification).where(Notification.entity_id == ppd_id))
 
     await db.delete(p)
 
