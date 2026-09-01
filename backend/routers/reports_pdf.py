@@ -18,7 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_db, IST
 from auth import decode_token
-from orm_models import PPDSubmission, Formula
+from orm_models import PPDSubmission, Formula, PilotReport, PPDComment
 from io import BytesIO
 from datetime import datetime
 
@@ -111,17 +111,8 @@ def _section_rule(styles):
     return HRFlowable(width="100%", thickness=1.5, color=PRIMARY, spaceAfter=4)
 
 
-def _generate_pdf(ppd: PPDSubmission, formulas: list[Formula]) -> bytes:
-    buf = BytesIO()
-    doc = SimpleDocTemplate(
-        buf,
-        pagesize=A4,
-        leftMargin=20*mm, rightMargin=20*mm,
-        topMargin=20*mm,  bottomMargin=20*mm,
-        title=f"PPD Dossier — {ppd.ppd_id}",
-        author="FMCG Software Platform",
-    )
-    S = _build_styles()
+def _build_story(ppd: PPDSubmission, formulas: list[Formula], S: dict) -> list:
+    """Build and return the reportlab story list without building the PDF."""
     story = []
 
     # ── COVER HEADER ──────────────────────────────────────────────────────
@@ -320,7 +311,24 @@ def _generate_pdf(ppd: PPDSubmission, formulas: list[Formula]) -> bytes:
 
             story.append(KeepTogether(block))
 
-    # ── FOOTER NOTE ───────────────────────────────────────────────────────
+    return story
+
+
+def _generate_pdf(ppd: PPDSubmission, formulas: list[Formula]) -> bytes:
+    """Build complete PDF bytes with footer — wraps _build_story."""
+    buf = BytesIO()
+    doc = SimpleDocTemplate(
+        buf,
+        pagesize=A4,
+        leftMargin=20*mm, rightMargin=20*mm,
+        topMargin=20*mm,  bottomMargin=20*mm,
+        title=f"PPD Dossier — {ppd.ppd_id}",
+        author="FMCG Software Platform",
+    )
+    S = _build_styles()
+    story = _build_story(ppd, formulas, S)
+
+    # Footer
     story.append(Spacer(1, 10))
     story.append(HRFlowable(width="100%", thickness=0.5, color=BORDER))
     story.append(Spacer(1, 4))
@@ -333,6 +341,130 @@ def _generate_pdf(ppd: PPDSubmission, formulas: list[Formula]) -> bytes:
     doc.build(story)
     buf.seek(0)
     return buf.read()
+
+
+# ── ATTACHMENTS APPENDIX ──────────────────────────────────────────────────────
+
+def _append_attachments(
+    story: list,
+    S: dict,
+    reports: list,
+    comments_with_attachments: list,
+    base_url: str,
+):
+    """
+    Append an 'Appendix — Attached Documents' section to the story.
+    reports  : list of PilotReport ORM objects
+    comments_with_attachments : list of PPDComment ORM objects that have attachment_url
+    base_url : API base URL used to build clickable file links
+    """
+    story.append(Spacer(1, 12))
+    story.append(_section_rule(S))
+    story.append(Paragraph("Appendix — Attached Documents", S["section"]))
+    story.append(Paragraph(
+        "The following files were selected by R&D Head and appended to this report.",
+        S["body"]
+    ))
+    story.append(Spacer(1, 6))
+
+    has_content = False
+
+    # ── Pilot / Approved Reports ─────────────────────────────────────────────
+    if reports:
+        has_content = True
+        story.append(Paragraph("A. Report Files", S["subsection"]))
+        rpt_data = [[
+            Paragraph("<b>Report ID</b>", S["label"]),
+            Paragraph("<b>Type</b>",      S["label"]),
+            Paragraph("<b>File Name</b>", S["label"]),
+            Paragraph("<b>Uploaded By</b>", S["label"]),
+            Paragraph("<b>Role</b>",      S["label"]),
+            Paragraph("<b>Status</b>",    S["label"]),
+            Paragraph("<b>Date</b>",      S["label"]),
+            Paragraph("<b>Link</b>",      S["label"]),
+        ]]
+        for r in reports:
+            date_str = r.created_at.strftime("%d %b %Y") if r.created_at else "—"
+            file_url = f"{base_url}{r.file_url}" if r.file_url else ""
+            link_cell = (
+                Paragraph(f'<a href="{file_url}" color="blue"><u>View File</u></a>', S["body"])
+                if file_url else Paragraph("—", S["body"])
+            )
+            rpt_data.append([
+                Paragraph(r.report_id or "—",         S["body"]),
+                Paragraph(r.report_type or "—",        S["body"]),
+                Paragraph(r.file_name or "—",          S["body"]),
+                Paragraph(r.created_by or "—",         S["body"]),
+                Paragraph(r.created_by_role or "—",    S["body"]),
+                Paragraph(r.status or "—",             S["body"]),
+                Paragraph(date_str,                    S["body"]),
+                link_cell,
+            ])
+        rt = Table(rpt_data,
+            colWidths=[22*mm, 20*mm, 35*mm, 28*mm, 18*mm, 18*mm, 18*mm, 17*mm],
+            hAlign="LEFT")
+        rt.setStyle(TableStyle([
+            ("BACKGROUND",    (0,0), (-1,0), PRIMARY),
+            ("TEXTCOLOR",     (0,0), (-1,0), colors.white),
+            ("ROWBACKGROUNDS",(0,1), (-1,-1), [colors.white, LIGHT_BG]),
+            ("GRID",          (0,0), (-1,-1), 0.4, BORDER),
+            ("TOPPADDING",    (0,0), (-1,-1), 3),
+            ("BOTTOMPADDING", (0,0), (-1,-1), 3),
+            ("LEFTPADDING",   (0,0), (-1,-1), 4),
+            ("FONTSIZE",      (0,0), (-1,-1), 7),
+            ("VALIGN",        (0,0), (-1,-1), "TOP"),
+        ]))
+        story.append(rt)
+        story.append(Spacer(1, 8))
+
+    # ── PPD Comment Attachments ──────────────────────────────────────────────
+    if comments_with_attachments:
+        has_content = True
+        story.append(Paragraph("B. Comment Attachments", S["subsection"]))
+        cmt_data = [[
+            Paragraph("<b>Comment By</b>", S["label"]),
+            Paragraph("<b>Role</b>",        S["label"]),
+            Paragraph("<b>File Name</b>",   S["label"]),
+            Paragraph("<b>Comment</b>",     S["label"]),
+            Paragraph("<b>Date</b>",        S["label"]),
+            Paragraph("<b>Link</b>",        S["label"]),
+        ]]
+        for c in comments_with_attachments:
+            date_str = c.created_at.strftime("%d %b %Y") if c.created_at else "—"
+            att_url = c.attachment_url or ""
+            # Build full URL if it's a relative path
+            if att_url and att_url.startswith("/"):
+                att_url = f"{base_url}{att_url}"
+            link_cell = (
+                Paragraph(f'<a href="{att_url}" color="blue"><u>View File</u></a>', S["body"])
+                if att_url else Paragraph("—", S["body"])
+            )
+            cmt_data.append([
+                Paragraph(c.user_name or "—",    S["body"]),
+                Paragraph(c.user_role or "—",    S["body"]),
+                Paragraph(c.attachment_name or "—", S["body"]),
+                Paragraph((c.comment or "—")[:120] + ("…" if len(c.comment or "") > 120 else ""), S["body"]),
+                Paragraph(date_str,              S["body"]),
+                link_cell,
+            ])
+        ct = Table(cmt_data,
+            colWidths=[28*mm, 18*mm, 32*mm, 50*mm, 18*mm, 17*mm],
+            hAlign="LEFT")
+        ct.setStyle(TableStyle([
+            ("BACKGROUND",    (0,0), (-1,0), ACCENT),
+            ("TEXTCOLOR",     (0,0), (-1,0), colors.white),
+            ("ROWBACKGROUNDS",(0,1), (-1,-1), [colors.white, LIGHT_BG]),
+            ("GRID",          (0,0), (-1,-1), 0.4, BORDER),
+            ("TOPPADDING",    (0,0), (-1,-1), 3),
+            ("BOTTOMPADDING", (0,0), (-1,-1), 3),
+            ("LEFTPADDING",   (0,0), (-1,-1), 4),
+            ("FONTSIZE",      (0,0), (-1,-1), 7),
+            ("VALIGN",        (0,0), (-1,-1), "TOP"),
+        ]))
+        story.append(ct)
+
+    if not has_content:
+        story.append(Paragraph("No attachments were selected.", S["body"]))
 
 
 # ── ENDPOINT ──────────────────────────────────────────────────────────────────
@@ -378,6 +510,97 @@ async def download_ppd_report(
     filename = f"PPD_Dossier_{ppd_id}.pdf"
     return StreamingResponse(
         iter([pdf_bytes]),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/report/{ppd_id}/with-attachments")
+async def download_ppd_report_with_attachments(
+    ppd_id:      str,
+    token:       str = Query(""),
+    report_ids:  str = Query("", description="Comma-separated PilotReport report_id values"),
+    comment_ids: str = Query("", description="Comma-separated PPDComment id values"),
+    base_url:    str = Query("https://fmcg-software.onrender.com", description="API base URL for file links"),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Generate PPD dossier PDF and append a selected-attachments appendix at the bottom.
+    Caller passes report_ids and/or comment_ids as comma-separated lists.
+    base_url is used to build absolute hyperlinks for each file.
+    """
+    try:
+        current_user = decode_token(token) if token else {"role": "admin", "sub": "", "name": ""}
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid or missing token")
+
+    # Fetch PPD
+    ppd_res = await db.execute(select(PPDSubmission).where(PPDSubmission.ppd_id == ppd_id))
+    ppd = ppd_res.scalars().first()
+    if not ppd:
+        raise HTTPException(404, f"PPD {ppd_id} not found")
+
+    role = current_user.get("role", "fd")
+    if role not in ("admin", "mgmt", "ceo", "rd_head") and role not in (ppd.teams_involved or "").split(","):
+        raise HTTPException(403, "You are not assigned to this PPD")
+
+    # Fetch formulas
+    form_res = await db.execute(
+        select(Formula).where(Formula.ppd_id == ppd_id).order_by(Formula.created_at.asc())
+    )
+    formulas = list(form_res.scalars().all())
+
+    # Fetch selected pilot reports
+    selected_reports = []
+    if report_ids.strip():
+        ids = [r.strip() for r in report_ids.split(",") if r.strip()]
+        rpt_res = await db.execute(
+            select(PilotReport).where(PilotReport.report_id.in_(ids))
+        )
+        selected_reports = list(rpt_res.scalars().all())
+
+    # Fetch selected PPD comments (with attachments)
+    selected_comments = []
+    if comment_ids.strip():
+        try:
+            int_ids = [int(i.strip()) for i in comment_ids.split(",") if i.strip()]
+        except ValueError:
+            int_ids = []
+        if int_ids:
+            cmt_res = await db.execute(
+                select(PPDComment).where(PPDComment.id.in_(int_ids))
+            )
+            selected_comments = list(cmt_res.scalars().all())
+
+    # Build PDF with appendix using shared story builder
+    S = _build_styles()
+    story = _build_story(ppd, formulas, S)
+    _append_attachments(story, S, selected_reports, selected_comments, base_url.rstrip("/"))
+    # Footer
+    story.append(Spacer(1, 10))
+    story.append(HRFlowable(width="100%", thickness=0.5, color=BORDER))
+    story.append(Spacer(1, 4))
+    story.append(Paragraph(
+        f"FMCG Software Platform &nbsp;|&nbsp; PPD {ppd.ppd_id} — {ppd.project_name} &nbsp;|&nbsp; "
+        f"Report generated {datetime.now(IST).strftime('%d %b %Y %H:%M IST')} &nbsp;|&nbsp; "
+        f"Generated by: {current_user.get('name','R&D Head')} ({role})",
+        S["footer"]
+    ))
+    buf = BytesIO()
+    doc = SimpleDocTemplate(
+        buf, pagesize=A4,
+        leftMargin=20*mm, rightMargin=20*mm,
+        topMargin=20*mm,  bottomMargin=20*mm,
+        title=f"PPD Dossier — {ppd_id} (with attachments)",
+        author="FMCG Software Platform",
+    )
+    doc.build(story)
+    buf.seek(0)
+    pdf_out = buf.read()
+
+    filename = f"ELab_Report_{ppd_id}_with_attachments.pdf"
+    return StreamingResponse(
+        iter([pdf_out]),
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )

@@ -4369,8 +4369,18 @@ function LabBookView({ user, token }) {
   const [loading, setLoading]   = useState(true)
   const [selected, setSelected] = useState(null)
   const [detailOpen, setDetailOpen] = useState(false)
+  const [detailTab, setDetailTab] = useState('details')
+
+  // Attachment selection (rd_head only)
+  const [ppdReports, setPpdReports]       = useState([])
+  const [ppdComments, setPpdComments]     = useState([])
+  const [loadingAttach, setLoadingAttach] = useState(false)
+  const [selReports, setSelReports]       = useState([])    // selected report_ids
+  const [selComments, setSelComments]     = useState([])    // selected comment ids
+  const [generating, setGenerating]       = useState(false)
 
   const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://fmcg-software.onrender.com'
+  const isRdHead = ['admin','rd_head'].includes(user?.role)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -4383,7 +4393,40 @@ function LabBookView({ user, token }) {
 
   useEffect(() => { load() }, [load])
 
-  const openDetail = (f) => { setSelected(f); setDetailOpen(true) }
+  const openDetail = async (f) => {
+    setSelected(f)
+    setDetailTab('details')
+    setSelReports([])
+    setSelComments([])
+    setDetailOpen(true)
+    // If rd_head, also load pilot reports + PPD comments for the PPD
+    if (isRdHead && f.ppd_id) {
+      setLoadingAttach(true)
+      try {
+        const [rData, cData] = await Promise.all([
+          apiCall(`/api/pilot-reports?ppd_id=${f.ppd_id}`, { token }),
+          apiCall(`/api/ppd/${f.ppd_id}/comments`, { token }),
+        ])
+        setPpdReports(Array.isArray(rData) ? rData : [])
+        setPpdComments(Array.isArray(cData) ? cData : [])
+      } catch { setPpdReports([]); setPpdComments([]) }
+      finally { setLoadingAttach(false) }
+    }
+  }
+
+  const toggleReport  = (id) => setSelReports(p => p.includes(id) ? p.filter(x=>x!==id) : [...p, id])
+  const toggleComment = (id) => setSelComments(p => p.includes(id) ? p.filter(x=>x!==id) : [...p, id])
+
+  const handleGenerate = () => {
+    if (!selected?.ppd_id) return
+    const params = new URLSearchParams({
+      token,
+      base_url: API_BASE,
+    })
+    if (selReports.length)  params.set('report_ids',  selReports.join(','))
+    if (selComments.length) params.set('comment_ids', selComments.join(','))
+    window.open(`${API_BASE}/api/formulation/report/${selected.ppd_id}/with-attachments?${params}`, '_blank')
+  }
 
   const STATUS_COLOR = {
     'Draft':          'bg-slate-100 text-slate-700',
@@ -4462,12 +4505,12 @@ function LabBookView({ user, token }) {
       {/* ── Detail Dialog ── */}
       {selected && (
         <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
-          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogContent className="max-w-3xl max-h-[92vh] overflow-y-auto">
             <DialogHeader>
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <DialogTitle className="font-mono text-lg">{selected.formula_id}</DialogTitle>
-                  <DialogDescription className="mt-1">{selected.project_name} • {selected.version}</DialogDescription>
+                  <DialogDescription className="mt-1">{selected.project_name} • {selected.version} • PPD: {selected.ppd_id}</DialogDescription>
                 </div>
                 <span className={`text-xs px-2 py-1 rounded-md font-medium whitespace-nowrap shrink-0 ${STATUS_COLOR[selected.status] || 'bg-slate-100 text-slate-600'}`}>
                   {selected.status}
@@ -4475,104 +4518,229 @@ function LabBookView({ user, token }) {
               </div>
             </DialogHeader>
 
-            <div className="space-y-4 text-sm">
-              {/* Core info grid */}
-              <div className="grid grid-cols-2 gap-3">
+            <Tabs value={detailTab} onValueChange={setDetailTab}>
+              <TabsList className={`w-full grid ${isRdHead ? 'grid-cols-3' : 'grid-cols-1'}`}>
+                <TabsTrigger value="details">Formula Details</TabsTrigger>
+                {isRdHead && <TabsTrigger value="reports">Report Files {ppdReports.length > 0 && `(${ppdReports.length})`}</TabsTrigger>}
+                {isRdHead && <TabsTrigger value="comments">PPD Comments {ppdComments.filter(c=>c.attachment_url).length > 0 && `(${ppdComments.filter(c=>c.attachment_url).length} with files)`}</TabsTrigger>}
+              </TabsList>
+
+              {/* ── Tab 1: Formula Details ── */}
+              <TabsContent value="details" className="space-y-4 pt-2 text-sm">
+                <div className="grid grid-cols-2 gap-3">
+                  {[
+                    { label: 'PPD ID',          value: selected.ppd_id },
+                    { label: 'Trial No.',        value: selected.trial_no },
+                    { label: 'Batch No.',        value: selected.batch_no },
+                    { label: 'Batch Size (gm)',  value: selected.batch_size },
+                    { label: 'Unit Qty (gm)',    value: selected.unit_qty },
+                    { label: 'Mfg Date',         value: selected.mfg_date },
+                    { label: 'Trial Taken By',   value: selected.trial_taken_by },
+                    { label: 'Evaluated By',     value: selected.evaluated_by },
+                  ].map(({ label, value }) => (
+                    <div key={label} className="bg-slate-50 rounded-lg p-3 border">
+                      <p className="text-xs text-muted-foreground">{label}</p>
+                      <p className="font-medium mt-0.5">{value || '—'}</p>
+                    </div>
+                  ))}
+                </div>
+
+                {selected.approval_status && (
+                  <div className={`rounded-lg border p-3 ${
+                    selected.approval_status === 'pending_approval' ? 'bg-amber-50 border-amber-200' :
+                    selected.approval_status === 'approved'         ? 'bg-green-50 border-green-200' :
+                                                                      'bg-red-50 border-red-200'
+                  }`}>
+                    <p className={`text-xs font-semibold uppercase tracking-wide ${
+                      selected.approval_status === 'pending_approval' ? 'text-amber-700' :
+                      selected.approval_status === 'approved'         ? 'text-green-700' : 'text-red-700'
+                    }`}>
+                      {selected.approval_status === 'pending_approval' && '⏳ Pending R&D Head Review'}
+                      {selected.approval_status === 'approved'         && '✓ Approved by R&D Head'}
+                      {selected.approval_status === 'rejected'         && '✗ Rejected by R&D Head'}
+                    </p>
+                    {selected.approved_by && <p className="text-xs text-muted-foreground mt-1">By: {selected.approved_by}</p>}
+                    {selected.approval_comment && <p className="text-sm mt-1 italic">"{selected.approval_comment}"</p>}
+                  </div>
+                )}
+
                 {[
-                  { label: 'PPD ID',          value: selected.ppd_id },
-                  { label: 'Trial No.',        value: selected.trial_no },
-                  { label: 'Batch No.',        value: selected.batch_no },
-                  { label: 'Batch Size (gm)',  value: selected.batch_size },
-                  { label: 'Unit Qty (gm)',    value: selected.unit_qty },
-                  { label: 'Mfg Date',         value: selected.mfg_date },
-                  { label: 'Trial Taken By',   value: selected.trial_taken_by },
-                  { label: 'Evaluated By',     value: selected.evaluated_by },
-                ].map(({ label, value }) => (
+                  { label: 'Method of Preparation', value: selected.method_of_preparation },
+                  { label: 'Observation',            value: selected.observation },
+                  { label: 'Conclusion',             value: selected.conclusion },
+                ].filter(f => f.value).map(({ label, value }) => (
                   <div key={label} className="bg-slate-50 rounded-lg p-3 border">
-                    <p className="text-xs text-muted-foreground">{label}</p>
-                    <p className="font-medium mt-0.5">{value || '—'}</p>
+                    <p className="text-xs text-muted-foreground mb-1">{label}</p>
+                    <p className="text-sm whitespace-pre-wrap">{value}</p>
                   </div>
                 ))}
-              </div>
 
-              {/* Approval status */}
-              {selected.approval_status && (
-                <div className={`rounded-lg border p-3 ${
-                  selected.approval_status === 'pending_approval' ? 'bg-amber-50 border-amber-200' :
-                  selected.approval_status === 'approved'         ? 'bg-green-50 border-green-200' :
-                                                                    'bg-red-50 border-red-200'
-                }`}>
-                  <p className={`text-xs font-semibold uppercase tracking-wide ${
-                    selected.approval_status === 'pending_approval' ? 'text-amber-700' :
-                    selected.approval_status === 'approved'         ? 'text-green-700' :
-                                                                      'text-red-700'
-                  }`}>
-                    {selected.approval_status === 'pending_approval' && '⏳ Pending R&D Head Review'}
-                    {selected.approval_status === 'approved'         && '✓ Approved by R&D Head'}
-                    {selected.approval_status === 'rejected'         && '✗ Rejected by R&D Head'}
-                  </p>
-                  {selected.approved_by && (
-                    <p className="text-xs text-muted-foreground mt-1">By: {selected.approved_by}</p>
-                  )}
-                  {selected.approval_comment && (
-                    <p className="text-sm mt-1 italic">"{selected.approval_comment}"</p>
-                  )}
-                </div>
-              )}
-
-              {/* Long-text fields */}
-              {[
-                { label: 'Method of Preparation', value: selected.method_of_preparation },
-                { label: 'Observation',            value: selected.observation },
-                { label: 'Conclusion',             value: selected.conclusion },
-              ].filter(f => f.value).map(({ label, value }) => (
-                <div key={label} className="bg-slate-50 rounded-lg p-3 border">
-                  <p className="text-xs text-muted-foreground mb-1">{label}</p>
-                  <p className="text-sm whitespace-pre-wrap">{value}</p>
-                </div>
-              ))}
-
-              {/* Ingredients */}
-              {(selected.ingredients || []).length > 0 && (
-                <div>
-                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Ingredients ({selected.ingredients.length})</p>
-                  <div className="overflow-x-auto rounded-lg border">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead className="w-8">Sr.</TableHead>
-                          <TableHead>Ingredient</TableHead>
-                          <TableHead>Vendor</TableHead>
-                          <TableHead>Function</TableHead>
-                          <TableHead>Qty (%)</TableHead>
-                          <TableHead>Cost/Unit (₹)</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {selected.ingredients.map((ing, i) => (
-                          <TableRow key={i}>
-                            <TableCell className="text-center text-xs text-muted-foreground">{i + 1}</TableCell>
-                            <TableCell className="font-medium text-sm">{ing.name || '—'}</TableCell>
-                            <TableCell className="text-sm">{ing.vendor || '—'}</TableCell>
-                            <TableCell className="text-sm">{ing.use_function || '—'}</TableCell>
-                            <TableCell className="text-sm">{ing.qty_pct || '—'}</TableCell>
-                            <TableCell className="text-sm">{ing.cost_per_unit || '—'}</TableCell>
+                {(selected.ingredients || []).length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Ingredients ({selected.ingredients.length})</p>
+                    <div className="overflow-x-auto rounded-lg border">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="w-8">Sr.</TableHead>
+                            <TableHead>Ingredient</TableHead>
+                            <TableHead>Vendor</TableHead>
+                            <TableHead>Function</TableHead>
+                            <TableHead>Qty (%)</TableHead>
+                            <TableHead>Cost/Unit (₹)</TableHead>
                           </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
+                        </TableHeader>
+                        <TableBody>
+                          {selected.ingredients.map((ing, i) => (
+                            <TableRow key={i}>
+                              <TableCell className="text-center text-xs text-muted-foreground">{i + 1}</TableCell>
+                              <TableCell className="font-medium text-sm">{ing.name || '—'}</TableCell>
+                              <TableCell className="text-sm">{ing.vendor || '—'}</TableCell>
+                              <TableCell className="text-sm">{ing.use_function || '—'}</TableCell>
+                              <TableCell className="text-sm">{ing.qty_pct || '—'}</TableCell>
+                              <TableCell className="text-sm">{ing.cost_per_unit || '—'}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
                   </div>
+                )}
+
+                <div className="grid grid-cols-2 gap-3 text-xs text-muted-foreground pt-1">
+                  <div><span className="font-medium">Created by:</span> {selected.created_by} ({selected.created_by_role})</div>
+                  <div><span className="font-medium">Created:</span> {selected.created_at ? new Date(selected.created_at).toLocaleString('en-IN') : '—'}</div>
                 </div>
+              </TabsContent>
+
+              {/* ── Tab 2: Report Files (rd_head only) ── */}
+              {isRdHead && (
+                <TabsContent value="reports" className="pt-2">
+                  <div className="mb-3 flex items-center justify-between">
+                    <p className="text-sm text-muted-foreground">Select reports to append to the E-Lab PDF. Tick the files you want included.</p>
+                    {selReports.length > 0 && (
+                      <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full font-medium">{selReports.length} selected</span>
+                    )}
+                  </div>
+                  {loadingAttach ? (
+                    <div className="space-y-2">{[1,2,3].map(i=><div key={i} className="h-10 bg-slate-100 rounded animate-pulse"/>)}</div>
+                  ) : ppdReports.length === 0 ? (
+                    <div className="text-center py-10 text-muted-foreground text-sm">
+                      <FileText className="h-8 w-8 mx-auto mb-2 opacity-30"/>
+                      <p>No pilot reports found for PPD {selected.ppd_id}</p>
+                    </div>
+                  ) : (
+                    <div className="rounded-lg border overflow-hidden">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="w-10"></TableHead>
+                            <TableHead>Report ID</TableHead>
+                            <TableHead>Type</TableHead>
+                            <TableHead>File Name</TableHead>
+                            <TableHead>Uploaded By</TableHead>
+                            <TableHead>Status</TableHead>
+                            <TableHead>Date</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {ppdReports.map(r => (
+                            <TableRow key={r.report_id} className={`cursor-pointer ${selReports.includes(r.report_id) ? 'bg-primary/5' : ''}`}
+                              onClick={() => toggleReport(r.report_id)}>
+                              <TableCell>
+                                <Checkbox checked={selReports.includes(r.report_id)}
+                                  onCheckedChange={() => toggleReport(r.report_id)}/>
+                              </TableCell>
+                              <TableCell className="font-mono text-xs">{r.report_id}</TableCell>
+                              <TableCell className="text-sm">{r.report_type || '—'}</TableCell>
+                              <TableCell className="text-sm max-w-[150px] truncate" title={r.file_name}>{r.file_name || '—'}</TableCell>
+                              <TableCell className="text-sm">{r.created_by || '—'}</TableCell>
+                              <TableCell>
+                                <span className={`text-xs px-2 py-0.5 rounded-md font-medium ${
+                                  r.status === 'approved' ? 'bg-green-100 text-green-700' :
+                                  r.status === 'rejected' ? 'bg-red-100 text-red-700' :
+                                  'bg-amber-100 text-amber-700'}`}>
+                                  {r.status}
+                                </span>
+                              </TableCell>
+                              <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                                {r.created_at ? new Date(r.created_at).toLocaleDateString('en-IN') : '—'}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  )}
+                </TabsContent>
               )}
 
-              {/* Meta info */}
-              <div className="grid grid-cols-2 gap-3 text-xs text-muted-foreground pt-1">
-                <div><span className="font-medium">Created by:</span> {selected.created_by} ({selected.created_by_role})</div>
-                <div><span className="font-medium">Created:</span> {selected.created_at ? new Date(selected.created_at).toLocaleString('en-IN') : '—'}</div>
-              </div>
-            </div>
+              {/* ── Tab 3: PPD Comments (rd_head only) ── */}
+              {isRdHead && (
+                <TabsContent value="comments" className="pt-2">
+                  <div className="mb-3 flex items-center justify-between">
+                    <p className="text-sm text-muted-foreground">Select comments that have attached files to include in the E-Lab PDF.</p>
+                    {selComments.length > 0 && (
+                      <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full font-medium">{selComments.length} selected</span>
+                    )}
+                  </div>
+                  {loadingAttach ? (
+                    <div className="space-y-2">{[1,2,3].map(i=><div key={i} className="h-10 bg-slate-100 rounded animate-pulse"/>)}</div>
+                  ) : ppdComments.length === 0 ? (
+                    <div className="text-center py-10 text-muted-foreground text-sm">
+                      <MessageSquare className="h-8 w-8 mx-auto mb-2 opacity-30"/>
+                      <p>No comments found for PPD {selected.ppd_id}</p>
+                    </div>
+                  ) : (
+                    <ScrollArea className="h-80">
+                      <div className="space-y-2 pr-2">
+                        {ppdComments.map(c => {
+                          const hasFile = !!c.attachment_url
+                          const isSelected = selComments.includes(String(c.id))
+                          return (
+                            <div key={c.id}
+                              className={`flex items-start gap-3 rounded-lg border p-3 ${hasFile ? 'cursor-pointer hover:bg-slate-50' : 'opacity-60'} ${isSelected ? 'bg-primary/5 border-primary/30' : ''}`}
+                              onClick={() => hasFile && toggleComment(String(c.id))}>
+                              <Checkbox
+                                checked={isSelected}
+                                disabled={!hasFile}
+                                onCheckedChange={() => hasFile && toggleComment(String(c.id))}
+                                className="mt-0.5"
+                              />
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="text-xs font-semibold">{c.user_name}</span>
+                                  <Badge variant="outline" className="text-[10px] py-0">{c.user_role}</Badge>
+                                  <span className="text-xs text-muted-foreground">{c.created_at ? new Date(c.created_at).toLocaleDateString('en-IN') : '—'}</span>
+                                  {hasFile && (
+                                    <span className="flex items-center gap-1 text-xs text-primary font-medium">
+                                      <Paperclip className="h-3 w-3"/>{c.attachment_name || 'attachment'}
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="text-sm text-muted-foreground mt-0.5 line-clamp-2">{c.comment}</p>
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </ScrollArea>
+                  )}
+                </TabsContent>
+              )}
+            </Tabs>
 
-            <DialogFooter className="gap-2">
+            <DialogFooter className="gap-2 pt-2 flex-wrap">
+              {/* Generate with attachments — rd_head only */}
+              {isRdHead && (selReports.length > 0 || selComments.length > 0) && (
+                <Button
+                  className="gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white mr-auto"
+                  disabled={generating}
+                  onClick={handleGenerate}>
+                  <Download className="h-3.5 w-3.5"/>
+                  Generate E-Lab Report with {selReports.length + selComments.length} Attachment{selReports.length + selComments.length !== 1 ? 's' : ''}
+                </Button>
+              )}
               <Button variant="outline" className="gap-1.5 text-xs border-blue-300 text-blue-700 hover:bg-blue-50"
                 onClick={() => window.open(`${API_BASE}/api/formulation/report/${selected.ppd_id}?token=${encodeURIComponent(token)}`, '_blank')}>
                 <FileText className="h-3.5 w-3.5"/>Download PPD Report
