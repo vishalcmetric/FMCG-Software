@@ -4647,7 +4647,7 @@ function LabBookView({ user, token }) {
                           {ppdReports.map(r => (
                             <TableRow key={r.report_id} className={`cursor-pointer ${selReports.includes(r.report_id) ? 'bg-primary/5' : ''}`}
                               onClick={() => toggleReport(r.report_id)}>
-                              <TableCell>
+                              <TableCell onClick={e => e.stopPropagation()}>
                                 <Checkbox checked={selReports.includes(r.report_id)}
                                   onCheckedChange={() => toggleReport(r.report_id)}/>
                               </TableCell>
@@ -4704,7 +4704,8 @@ function LabBookView({ user, token }) {
                               <Checkbox
                                 checked={isSelected}
                                 disabled={!hasFile}
-                                onCheckedChange={() => hasFile && toggleComment(String(c.id))}
+                                onCheckedChange={e => { if (typeof e === 'object' && e.stopPropagation) e.stopPropagation(); hasFile && toggleComment(String(c.id)) }}
+                                onClick={e => e.stopPropagation()}
                                 className="mt-0.5"
                               />
                               <div className="flex-1 min-w-0">
