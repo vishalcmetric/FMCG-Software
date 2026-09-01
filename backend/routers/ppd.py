@@ -439,6 +439,17 @@ async def update_reviewers(
         flag_modified(p, "reviewers")
 
         if new_status == "Approved":
+            # Mark this role's pending task as approved so dashboard count drops
+            task_upd = await db.execute(
+                select(Task)
+                .where(Task.ppd_id == ppd_id)
+                .where(Task.assigned_role == role)
+                .where(Task.status == "pending")
+                .where(Task.type == "ppd_review")
+            )
+            for t in task_upd.scalars().all():
+                t.status = "approved"
+
             all_approved = all(r.get("status") == "Approved" for r in current_reviewers)
             if all_approved:
                 # ALL fd+pm approved → ReviewerApproved; Source must submit
@@ -665,6 +676,28 @@ async def update_mgmt_review(
     flag_modified(p, "mgmt_approvals")
 
     if new_status_val == "Approved":
+        # Mark the approving role's task(s) as approved — reduces dashboard pending count
+        # When admin approves all at once, close all mgmt tasks for this PPD
+        if role == "admin" and not body.get("role"):
+            # Admin approved all slots at once — close all mgmt tasks
+            task_upd = await db.execute(
+                select(Task)
+                .where(Task.ppd_id == ppd_id)
+                .where(Task.type == "ppd_mgmt_approval")
+                .where(Task.status == "pending")
+            )
+        else:
+            close_role = body.get("role") if (role == "admin" and body.get("role")) else role
+            task_upd = await db.execute(
+                select(Task)
+                .where(Task.ppd_id == ppd_id)
+                .where(Task.assigned_role == close_role)
+                .where(Task.type == "ppd_mgmt_approval")
+                .where(Task.status == "pending")
+            )
+        for t in task_upd.scalars().all():
+            t.status = "approved"
+
         all_mgmt_approved = all(e.get("status") == "Approved" for e in current_mgmt)
         if all_mgmt_approved:
             # ALL 6 mgmt approved → MgmtApproved; now assign CEO
@@ -816,6 +849,17 @@ async def update_final_review(
     flag_modified(p, "final_approvals")
 
     if new_status_val == "Approved":
+        # Mark the approving role's task as approved — reduces dashboard pending count
+        task_upd = await db.execute(
+            select(Task)
+            .where(Task.ppd_id == ppd_id)
+            .where(Task.assigned_role == role)
+            .where(Task.type == "ppd_final_approval")
+            .where(Task.status == "pending")
+        )
+        for t in task_upd.scalars().all():
+            t.status = "approved"
+
         all_final_approved = all(e.get("status") == "Approved" for e in current_final)
         if all_final_approved:
             # CEO approved → fully Approved, expand visibility
@@ -920,6 +964,22 @@ async def request_rework(
     from_stage = stage_map.get(p.status, "initial")
     p.rework_from_stage = from_stage
     p.status = "Rework"
+
+    # Close all pending tasks for this PPD at this stage (rework supersedes them)
+    stage_type_map = {
+        "initial": "ppd_review",
+        "mgmt":    "ppd_mgmt_approval",
+        "final":   "ppd_final_approval",
+    }
+    close_type = stage_type_map.get(from_stage, "ppd_review")
+    rw_task_upd = await db.execute(
+        select(Task)
+        .where(Task.ppd_id == ppd_id)
+        .where(Task.type == close_type)
+        .where(Task.status == "pending")
+    )
+    for t in rw_task_upd.scalars().all():
+        t.status = "rework"
 
     # Update the relevant reviewer list entry
     if from_stage == "initial":

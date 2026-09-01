@@ -7,7 +7,7 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_db, fmt_ist
 from auth import get_current_user
-from orm_models import ArtworkBrief, PPDSubmission, AuditLog
+from orm_models import ArtworkBrief, PPDSubmission, AuditLog, Task
 from notify import notify_roles
 from pydantic import BaseModel
 from typing import Optional
@@ -125,6 +125,17 @@ async def create_artwork(
     )
     try:
         db.add(art)
+        # Create a pending task for rd_head so it shows up in their dashboard pending count
+        db.add(Task(
+            title=f"Artwork Approval: {artwork_id} — {ppd.project_name}",
+            project_name=ppd.project_name,
+            ppd_id=body.ppd_id,
+            assigned_role="rd_head",
+            type="artwork_approval",
+            status="pending",
+            priority="High",
+            due_label="Today",
+        ))
         db.add(AuditLog(
             user_name=current_user.get("name", ""),
             user_email=current_user.get("sub", ""),
@@ -178,6 +189,16 @@ async def review_artwork(
     # Store reviewer name in comment: "Reviewed by <name>: <comment>"
     reviewer = current_user.get("name", "R&D Head")
     a.comment = f"Reviewed by {reviewer}: {body.comment}" if body.comment else f"Reviewed by {reviewer}"
+
+    # Close the rd_head artwork approval task for this PPD
+    task_upd = await db.execute(
+        select(Task)
+        .where(Task.ppd_id == a.ppd_id)
+        .where(Task.type == "artwork_approval")
+        .where(Task.status == "pending")
+    )
+    for t in task_upd.scalars().all():
+        t.status = "approved"
 
     db.add(AuditLog(
         user_name=current_user.get("name", ""),

@@ -199,7 +199,7 @@ def _build_story(ppd: PPDSubmission, formulas: list[Formula], S: dict) -> list:
         ]
         for a in approvals:
             ap_data.append([
-                Paragraph(a.get("label", ""), S["body"]),
+                Paragraph(a.get("team_label", a.get("label", "")), S["body"]),
                 Paragraph(a.get("status", "Pending"), S["body"]),
                 Paragraph(a.get("comment", "") or "—", S["body"]),
             ])
