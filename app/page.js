@@ -661,6 +661,35 @@ function Shell({ user, token, view, setView, sidebarOpen, setSidebarOpen, onLogo
       .catch(() => setUserPerms({}))  // fallback: show all on API failure
   }, [token, user.role])
 
+  // ── Live master-config lists (brands, project types) ─────────────────────
+  // Fetched once on login; refreshed whenever MastersAdmin mutates the list.
+  const [brands, setBrands]             = useState(BRANDS)        // fallback to static list until API responds
+  const [projectTypes, setProjectTypes] = useState([])
+  const [masterConfigVer, setMasterConfigVer] = useState(0)       // increment to force re-fetch
+
+  useEffect(() => {
+    if (!token) return
+    apiCall('/api/master-config?config_type=brand', { token })
+      .then(data => {
+        const labels = Array.isArray(data) ? data.map(d => d.label) : []
+        if (labels.length) setBrands(labels)
+      })
+      .catch(() => {})  // keep fallback on failure
+  }, [token, masterConfigVer])
+
+  useEffect(() => {
+    if (!token) return
+    apiCall('/api/master-config?config_type=project_type', { token })
+      .then(data => {
+        const labels = Array.isArray(data) ? data.map(d => d.label) : []
+        if (labels.length) setProjectTypes(labels)
+      })
+      .catch(() => {})
+  }, [token, masterConfigVer])
+
+  // Called by MastersAdmin after any add/delete — triggers a re-fetch of master lists
+  const onMasterConfigChange = useCallback(() => setMasterConfigVer(v => v + 1), [])
+
   // Helper: can current user perform `action` on `module`?
   const can = useCallback((module, action = 'view') => {
     if (user.role === 'admin') return true   // admin always has full access
@@ -1066,7 +1095,7 @@ function ViewRouter({ view, setView, user, token, userPerms, can, dashboardKey }
   }
   switch (view) {
     case 'dashboard':    return <div className={p}><Dashboard key={dashboardKey} user={user} setView={setView} token={token} /></div>
-    case 'ppd':          return guard('PPD',         <div className={p}><PPDView user={user} token={token} can={can} /></div>)
+    case 'ppd':          return guard('PPD',         <div className={p}><PPDView user={user} token={token} can={can} brands={brands} /></div>)
     case 'formulation':  return guard('Formulation', <div className={p}><FormulationView user={user} token={token} can={can} /></div>)
     case 'labbook':      return guard('Lab Notebook',<div className={p}><LabBookView user={user} token={token} can={can} /></div>)
     case 'plant':        return guard('Plant Trials',<div className={p}><PlantTrialsView user={user} token={token} can={can} /></div>)
@@ -1081,7 +1110,7 @@ function ViewRouter({ view, setView, user, token, userPerms, can, dashboardKey }
     case 'archive':      return guard('Archive',     <div className={p}><ArchiveView token={token} /></div>)
     case 'admin_users':  return <div className={p}><UsersAdmin token={token} /></div>
     case 'admin_roles':  return <div className={p}><RolesAdmin token={token} /></div>
-    case 'admin_masters':return <div className={p}><MastersAdmin token={token} /></div>
+    case 'admin_masters':return <div className={p}><MastersAdmin token={token} onConfigChange={onMasterConfigChange} /></div>
     case 'audit':        return guard('Audit',       <div className={p}><AuditView token={token} /></div>)
     default:             return <div className={p}><Dashboard user={user} setView={setView} token={token} /></div>
   }
@@ -2058,7 +2087,10 @@ const PPD_STATUS_LABELS = {
 const PPD_STATUSES = Object.keys(PPD_STATUS_COLORS)
 
 /** Top-level PPD list (role-filtered from API) */
-function PPDView({ user, token, can }) {
+function PPDView({ user, token, can, brands: brandsProp }) {
+  // Use live brands from master-config; fall back to static list while loading
+  const liveBrands = (brandsProp && brandsProp.length) ? brandsProp : BRANDS
+
   const [ppds, setPpds]               = useState([])
   const [loading, setLoading]         = useState(true)
   const [q, setQ]                     = useState('')
@@ -2069,7 +2101,7 @@ function PPDView({ user, token, can }) {
   const [createOpen, setCreateOpen]   = useState(false)
   const [creating, setCreating]       = useState(false)
   const [createForm, setCreateForm]   = useState({
-    project_name:'', brand:'Complan', ppd_title:'', product_category:'',
+    project_name:'', brand:'', ppd_title:'', product_category:'',
     target_consumer:'', market_segment:'', expected_launch:'', objective:'', key_benefits:''
   })
 
@@ -2102,7 +2134,7 @@ function PPDView({ user, token, can }) {
       const ppd = await apiCall('/api/ppd', { method: 'POST', token, body: createForm })
       toast.success(`PPD created: ${ppd.ppd_id}`)
       setCreateOpen(false)
-      setCreateForm({ project_name:'', brand:'Complan', ppd_title:'', product_category:'', target_consumer:'', market_segment:'', expected_launch:'', objective:'', key_benefits:'' })
+      setCreateForm({ project_name:'', brand:'', ppd_title:'', product_category:'', target_consumer:'', market_segment:'', expected_launch:'', objective:'', key_benefits:'' })
       fetchPPDs()
     } catch (err) { toast.error(err.message) }
     finally { setCreating(false) }
@@ -2290,8 +2322,8 @@ function PPDView({ user, token, can }) {
             <div className="space-y-2">
               <Label>Brand <span className="text-red-500">*</span></Label>
               <Select value={createForm.brand} onValueChange={v => setCreateForm(f => ({...f, brand: v}))}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>{BRANDS.map(b => <SelectItem key={b} value={b}>{b}</SelectItem>)}</SelectContent>
+                <SelectTrigger><SelectValue placeholder="Select brand…"/></SelectTrigger>
+                <SelectContent>{liveBrands.map(b => <SelectItem key={b} value={b}>{b}</SelectItem>)}</SelectContent>
               </Select>
             </div>
             <div className="col-span-2 space-y-2">
@@ -6851,7 +6883,7 @@ function RolesAdmin({ token }) {
 }
 
 /* -------------------- ADMIN — MASTERS -------------------- */
-function MastersAdmin({ token }) {
+function MastersAdmin({ token, onConfigChange }) {
   const [configs, setConfigs] = useState([])
   const [loading, setLoading] = useState(true)
   const [activeType, setActiveType] = useState('brand')
@@ -6879,6 +6911,7 @@ function MastersAdmin({ token }) {
       setShowAdd(false)
       setForm({ key:'', label:'', meta:{} })
       load(activeType)
+      onConfigChange?.()   // notify Shell to re-fetch live brand/type lists
     } catch(e) { toast.error(e.message || 'Failed') }
     finally { setSaving(false) }
   }
@@ -6888,6 +6921,7 @@ function MastersAdmin({ token }) {
       await apiCall(`/api/master-config/${id}`, { method:'DELETE', token })
       toast.success('Removed')
       load(activeType)
+      onConfigChange?.()   // notify Shell to re-fetch live brand/type lists
     } catch(e) { toast.error('Failed') }
   }
 
