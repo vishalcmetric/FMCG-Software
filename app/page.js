@@ -767,7 +767,7 @@ function Shell({ user, token, view, setView, sidebarOpen, setSidebarOpen, onLogo
       <div className="flex-1 flex flex-col min-w-0">
         <Header user={user} onLogout={onLogout} view={view} setView={setView} token={token} />
         <main className="flex-1 overflow-auto">
-          <ViewRouter view={view} setView={setView} user={user} token={token} userPerms={userPerms} can={can} dashboardKey={dashboardKey} />
+          <ViewRouter view={view} setView={setView} user={user} token={token} userPerms={userPerms} can={can} dashboardKey={dashboardKey} brands={brands} onMasterConfigChange={onMasterConfigChange} />
         </main>
       </div>
     </div>
@@ -1058,7 +1058,7 @@ function Header({ user, onLogout, view, setView, token }) {
 }
 
 /* -------------------- ROUTER -------------------- */
-function ViewRouter({ view, setView, user, token, userPerms, can, dashboardKey }) {
+function ViewRouter({ view, setView, user, token, userPerms, can, dashboardKey, brands, onMasterConfigChange }) {
   const p = "p-6 space-y-6"
 
   // Map view key → module name so we can check permission for the active view
@@ -1110,7 +1110,7 @@ function ViewRouter({ view, setView, user, token, userPerms, can, dashboardKey }
     case 'archive':      return guard('Archive',     <div className={p}><ArchiveView token={token} /></div>)
     case 'admin_users':  return <div className={p}><UsersAdmin token={token} /></div>
     case 'admin_roles':  return <div className={p}><RolesAdmin token={token} /></div>
-    case 'admin_masters':return <div className={p}><MastersAdmin token={token} onConfigChange={onMasterConfigChange} /></div>
+    case 'admin_masters':return <div className={p}><MastersAdmin token={token} onConfigChange={onMasterConfigChange ?? (() => {})} /></div>
     case 'audit':        return guard('Audit',       <div className={p}><AuditView token={token} /></div>)
     default:             return <div className={p}><Dashboard user={user} setView={setView} token={token} /></div>
   }
