@@ -5505,15 +5505,27 @@ function ArtworkView({ user, token, can }) {
               <div><Label>Brief Notes</Label>
                 <Textarea rows={2} value={editForm.brief_notes||''} onChange={e=>setEditForm(f=>({...f,brief_notes:e.target.value}))}/>
               </div>
-              <div><Label>Review Comment</Label>
-                <Textarea rows={2} value={editForm.comment||''} onChange={e=>setEditForm(f=>({...f,comment:e.target.value}))} placeholder="Reviewer feedback, change requests…"/>
-              </div>
-              <div><Label>Status</Label>
-                <Select value={editForm.status||''} onValueChange={v=>setEditForm(f=>({...f,status:v}))}>
-                  <SelectTrigger><SelectValue/></SelectTrigger>
-                  <SelectContent>{ART_STATUSES.map(s=><SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
-                </Select>
-              </div>
+              {/* Only R&D Head / Admin can add review comments and change status */}
+              {canReview && (
+                <>
+                  <div><Label>Review Comment</Label>
+                    <Textarea rows={2} value={editForm.comment||''} onChange={e=>setEditForm(f=>({...f,comment:e.target.value}))} placeholder="Reviewer feedback, change requests…"/>
+                  </div>
+                  <div><Label>Status</Label>
+                    <Select value={editForm.status||''} onValueChange={v=>setEditForm(f=>({...f,status:v}))}>
+                      <SelectTrigger><SelectValue/></SelectTrigger>
+                      <SelectContent>{ART_STATUSES.map(s=><SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </div>
+                </>
+              )}
+              {/* Show current status as read-only for packaging */}
+              {!canReview && (
+                <div className="bg-slate-50 rounded-lg p-3 border">
+                  <p className="text-xs text-muted-foreground">Current Status</p>
+                  <span className={`text-xs px-2 py-0.5 rounded-md font-medium mt-1 inline-block ${ART_STATUS_COLORS[editForm.status]||'bg-slate-100'}`}>{editForm.status}</span>
+                </div>
+              )}
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={()=>setEditOpen(false)}>Cancel</Button>
@@ -5637,7 +5649,7 @@ function ArtworkView({ user, token, can }) {
                     {(canUpdate || canReview) && (
                       <TableCell>
                         <div className="flex gap-1 items-center flex-wrap">
-                          {/* RD Head review buttons — shown only for Under Review artworks */}
+                          {/* R&D Head: Approve / Rework buttons — only for Under Review artworks */}
                           {canReview && a.status === 'Under Review' && (
                             <>
                               <Input
@@ -5658,19 +5670,17 @@ function ArtworkView({ user, token, can }) {
                               </Button>
                             </>
                           )}
-                          {/* Non-review actions for packaging/marketing */}
+                          {/* Packaging / marketing: Edit brief details only — no status change */}
                           {canUpdate && !canReview && (
-                            <>
-                              <Button size="sm" variant="ghost" title="Edit" onClick={()=>openEdit(a)}><Edit className="h-4 w-4"/></Button>
-                              <Select onValueChange={v=>handleStatusChange(a,v)}>
-                                <SelectTrigger className="h-7 w-28 text-xs"><SelectValue placeholder="Status"/></SelectTrigger>
-                                <SelectContent>{ART_STATUSES.map(s=><SelectItem key={s} value={s} className="text-xs">{s}</SelectItem>)}</SelectContent>
-                              </Select>
-                            </>
+                            <Button size="sm" variant="ghost" title="Edit Brief" onClick={()=>openEdit(a)}>
+                              <Edit className="h-4 w-4"/>
+                            </Button>
                           )}
-                          {/* Admin can both review and edit */}
-                          {user?.role === 'admin' && (
-                            <Button size="sm" variant="ghost" title="Edit" onClick={()=>openEdit(a)}><Edit className="h-4 w-4"/></Button>
+                          {/* Admin & rd_head: Edit button always available */}
+                          {canReview && (
+                            <Button size="sm" variant="ghost" title="Edit" onClick={()=>openEdit(a)}>
+                              <Edit className="h-4 w-4"/>
+                            </Button>
                           )}
                         </div>
                       </TableCell>

@@ -142,6 +142,7 @@ async def create_artwork(
             entity_name=ppd.project_name, created_by=current_user.get("name", ""),
         )
         await db.commit()
+        await db.refresh(art)   # re-load DB-generated fields (created_at, updated_at, etc.)
     except Exception as e:
         await db.rollback()
         tb = traceback.format_exc()
@@ -221,6 +222,9 @@ async def update_artwork(
 
     old_status = a.status
     updates = body.model_dump(exclude_none=True)
+    # Packaging / marketing cannot change status — only rd_head / admin can
+    if role in ("packaging", "marketing") and "status" in updates:
+        updates.pop("status")
     for field, value in updates.items():
         setattr(a, field, value)
 
