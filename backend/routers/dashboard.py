@@ -101,7 +101,7 @@ async def _build_tasks(db: AsyncSession, role: str, user_email: str) -> list[Pen
     )
     stmt = (
         select(Task)
-        .where(Task.status.not_in(["approved"]))
+        .where(Task.status == "pending")           # only truly pending tasks
         .where(Task.ppd_id.in_(active_ppd_ids))   # skip orphaned + terminal-state tasks
     )
     if role not in _FULL_ROLES:

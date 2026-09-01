@@ -1454,145 +1454,18 @@ function Dashboard({ user, setView, token }) {
 
 /* -------------------- FALLBACK DASHBOARD DATA (when API offline) -------------------- */
 function FALLBACK_DASHBOARD(role) {
-  const ROLE_OVERRIDES = {
-    fd: {
-      stats: [
-        { label: 'My Formulas',       value: 8,  change: '+2', icon: 'FlaskConical', color: 'from-emerald-500 to-emerald-700' },
-        { label: 'Pending Lab Tests', value: 3,  change: '+1', icon: 'FileCheck2',   color: 'from-orange-500 to-orange-700' },
-        { label: 'Awaiting Approval', value: 2,  change: '0',  icon: 'Clock',        color: 'from-blue-500 to-blue-700' },
-        { label: 'Completed Trials',  value: 5,  change: '+1', icon: 'CheckCircle2', color: 'from-purple-500 to-purple-700' },
-      ],
-      pending_tasks: [
-        { project: 'Complan Pro Chocolate',  task: 'Update formula F-04 protein %', priority: 'High',   due: 'Today' },
-        { project: 'Sugar Free Stevia+',     task: 'Lab trial report submission',   priority: 'Medium', due: 'Tomorrow' },
-      ],
-    },
-    source: {
-      stats: [
-        { label: 'My PPDs (Draft)',       value: 3,  change: '+1', icon: 'FileText',     color: 'from-blue-500 to-blue-700' },
-        { label: 'Under PM Review',       value: 2,  change: '0',  icon: 'Clock',         color: 'from-cyan-500 to-cyan-700' },
-        { label: 'Awaiting Mgmt Approval',value: 1,  change: '0',  icon: 'FileCheck2',   color: 'from-orange-500 to-orange-700' },
-        { label: 'CEO Approved (Live)',   value: 4,  change: '+2', icon: 'CheckCircle2', color: 'from-emerald-500 to-emerald-700' },
-      ],
-      pending_tasks: [
-        { project: 'Complan NutriGro',     task: 'Complete PPD form & submit for PM review', priority: 'High',   due: 'Today' },
-        { project: 'Sugar Free Stevia+',   task: 'Incorporate rework feedback from Mgmt',     priority: 'Medium', due: 'Tomorrow' },
-      ],
-    },
-    pm: {
-      stats: [
-        { label: 'PPDs Awaiting Assignment', value: 4,  change: '+2', icon: 'ClipboardList', color: 'from-cyan-500 to-cyan-700' },
-        { label: 'Active Projects',           value: 12, change: '+1', icon: 'FolderKanban',  color: 'from-blue-500 to-blue-700' },
-        { label: 'Dept Reviews Pending',      value: 7,  change: '+3', icon: 'Clock',          color: 'from-orange-500 to-orange-700' },
-        { label: 'Projects Completed (Q1)',  value: 5,  change: '+2', icon: 'CheckCircle2',  color: 'from-emerald-500 to-emerald-700' },
-      ],
-      pending_tasks: [
-        { project: 'Complan Pro Chocolate', task: 'Review PPD draft & assign dept teams', priority: 'High',   due: 'Today' },
-        { project: 'Glucon-D Immunity+',    task: 'Track departmental review progress',    priority: 'Medium', due: 'Tomorrow' },
-      ],
-    },
-    adl: {
-      stats: [
-        { label: 'Lab Experiments Active', value: 6,  change: '+2', icon: 'FlaskConical', color: 'from-indigo-500 to-indigo-700' },
-        { label: 'Sensory Evals Scheduled',value: 3,  change: '+1', icon: 'FileCheck2',   color: 'from-teal-500 to-teal-700' },
-        { label: 'Awaiting Sign-off',       value: 2,  change: '0',  icon: 'Clock',         color: 'from-orange-500 to-orange-700' },
-        { label: 'Completed This Month',   value: 8,  change: '+3', icon: 'CheckCircle2', color: 'from-emerald-500 to-emerald-700' },
-      ],
-      pending_tasks: [
-        { project: 'Sugar Free Stevia+',    task: 'Stability batch test at 40°C',    priority: 'High',   due: 'Today' },
-        { project: 'Complan Pro Chocolate', task: 'ADL protein & fat analysis',       priority: 'Medium', due: '2 days' },
-      ],
-    },
-    pmsa: {
-      stats: [
-        { label: 'Sensory Evals Due',      value: 3,  change: '+1', icon: 'TestTube2',   color: 'from-teal-500 to-teal-700' },
-        { label: 'Claim Reviews Pending',  value: 2,  change: '0',  icon: 'BadgeCheck',  color: 'from-sky-500 to-sky-700' },
-        { label: 'Reports Submitted',      value: 5,  change: '+2', icon: 'FileCheck2',  color: 'from-emerald-500 to-emerald-700' },
-        { label: 'Active Assignments',     value: 4,  change: '+1', icon: 'Users',       color: 'from-blue-500 to-blue-700' },
-      ],
-      pending_tasks: [
-        { project: 'Nycil Cool Menthol XT', task: 'Sensory panel evaluation report',    priority: 'High',   due: 'Today' },
-        { project: 'Everyuth Aloe',          task: 'Upload sensory scorecard',           priority: 'Medium', due: '2 days' },
-      ],
-    },
-    sa: {
-      stats: [
-        { label: 'Claims Under Review',    value: 4,  change: '+2', icon: 'BadgeCheck',  color: 'from-sky-500 to-sky-700' },
-        { label: 'Evidence Verified',      value: 7,  change: '+3', icon: 'CheckCircle2',color: 'from-emerald-500 to-emerald-700' },
-        { label: 'Clinical Reports Due',   value: 1,  change: '0',  icon: 'FileText',    color: 'from-orange-500 to-orange-700' },
-        { label: 'Rejected Claims',        value: 1,  change: '-1', icon: 'XCircle',     color: 'from-red-500 to-red-700' },
-      ],
-      pending_tasks: [
-        { project: 'Complan Pro Chocolate', task: 'Clinical evidence for cognitive claim', priority: 'High',   due: 'Today' },
-        { project: 'Sugar Free Stevia+',    task: 'Substantiate low-glycaemic index claim',priority: 'Medium', due: '3 days' },
-      ],
-    },
-    regulatory: {
-      stats: [
-        { label: 'Pending Reviews',    value: 5, change: '+2', icon: 'ShieldCheck',  color: 'from-red-500 to-red-700' },
-        { label: 'Approved',           value: 8, change: '+3', icon: 'CheckCircle2', color: 'from-emerald-500 to-emerald-700' },
-        { label: 'Rework Requested',   value: 2, change: '-1', icon: 'AlertCircle',  color: 'from-orange-500 to-orange-700' },
-        { label: 'Overdue Items',      value: 1, change: '0',  icon: 'XCircle',      color: 'from-purple-500 to-purple-700' },
-      ],
-      pending_tasks: [
-        { project: 'Glucon-D Immunity+', task: 'Regulatory Assessment',       priority: 'Medium', due: '2 days' },
-        { project: 'Complan NutriGro',   task: 'Ingredient compliance check', priority: 'High',   due: 'Today' },
-      ],
-    },
-    production: {
-      stats: [
-        { label: 'Plant Trials Scheduled', value: 4, change: '+1', icon: 'Factory',    color: 'from-orange-500 to-orange-700' },
-        { label: 'Trials In Progress',     value: 2, change: '0',  icon: 'RefreshCw',  color: 'from-blue-500 to-blue-700' },
-        { label: 'Trials Completed',       value: 7, change: '+3', icon: 'CheckCircle2',color: 'from-emerald-500 to-emerald-700' },
-        { label: 'Batch Failures',         value: 1, change: '-1', icon: 'XCircle',    color: 'from-purple-500 to-purple-700' },
-      ],
-      pending_tasks: [
-        { project: 'Nycil Cool Menthol XT', task: 'Pilot batch report upload', priority: 'High',   due: 'Today' },
-        { project: 'Glucon-D Immunity+',    task: 'Scale-up trial scheduling', priority: 'Medium', due: '3 days' },
-      ],
-    },
-    marketing: {
-      stats: [
-        { label: 'My PPDs Under Review',   value: 3,  change: '+1', icon: 'FileText',     color: 'from-pink-500 to-pink-700' },
-        { label: 'Awaiting Brief',          value: 4,  change: '+2', icon: 'ClipboardList',color: 'from-orange-500 to-orange-700' },
-        { label: 'Active Brand Projects',  value: 11, change: '+2', icon: 'Package',       color: 'from-blue-500 to-blue-700' },
-        { label: 'Launches This Quarter',  value: 2,  change: '0',  icon: 'TrendingUp',    color: 'from-purple-500 to-purple-700' },
-      ],
-      pending_tasks: [
-        { project: 'Complan Pro Chocolate', task: 'Review PPD v2.1',       priority: 'High',    due: 'Today' },
-        { project: 'Everyuth Aloe',         task: 'Provide artwork brief', priority: 'Critical', due: 'Today' },
-      ],
-    },
-  }
-  const override = ROLE_OVERRIDES[role] || {}
+  // Always return empty data — real counts come from the API only.
+  // This prevents stale/fake numbers from showing on the dashboard.
   return {
-    stats: override.stats || [
-      { label: 'Active Projects',     value: 24, change: '+3', icon: 'FolderKanban', color: 'from-emerald-500 to-emerald-700' },
-      { label: 'Pending Approvals',   value: 7,  change: '+2', icon: 'FileCheck2',   color: 'from-orange-500 to-orange-700' },
-      { label: 'In Formulation',      value: 12, change: '-1', icon: 'FlaskConical', color: 'from-blue-500 to-blue-700' },
-      { label: 'Completed (Q1)',       value: 18, change: '+5', icon: 'CheckCircle2', color: 'from-purple-500 to-purple-700' },
+    stats: [
+      { label: 'Active PPDs',       value: 0, change: '', icon: 'FileText',    color: 'from-emerald-500 to-emerald-700' },
+      { label: 'Pending Approvals', value: 0, change: '', icon: 'FileCheck2',  color: 'from-orange-500 to-orange-700' },
+      { label: 'Under Review',      value: 0, change: '', icon: 'FlaskConical', color: 'from-blue-500 to-blue-700' },
+      { label: 'Approved PPDs',     value: 0, change: '', icon: 'CheckCircle2', color: 'from-purple-500 to-purple-700' },
     ],
-    pending_tasks: override.pending_tasks || [
-      { project: 'Complan Pro Chocolate',    task: 'Review PPD v2.1',           priority: 'High',     due: 'Today' },
-      { project: 'Sugar Free Green Stevia+', task: 'Approve Formulation',       priority: 'Medium',   due: 'Tomorrow' },
-      { project: 'Everyuth Aloe Face Wash',  task: 'Sensory Evaluation Report', priority: 'Critical', due: 'Today' },
-      { project: 'Glucon-D Immunity+',       task: 'Regulatory Assessment',     priority: 'Medium',   due: '2 days' },
-    ],
-    recent_activity: [
-      { user: 'Priya S.',   action: 'submitted FD for approval',   project: 'Sugar Free Stevia+', time: '5m' },
-      { user: 'CEO Office', action: 'approved final PPD',           project: 'Everyuth Aloe',      time: '25m' },
-      { user: 'Rahul M.',   action: 'created new project',          project: 'Complan NutriGro',   time: '1h' },
-      { user: 'Regulatory', action: 'requested rework',             project: 'Nycil XT',           time: '2h' },
-      { user: 'Plant Team', action: 'uploaded stability report',    project: 'Glucon-D',           time: '3h' },
-    ],
-    pipeline: [
-      { stage: 'PPD Draft',    count: 6,  progress: 10 },
-      { stage: 'PPD Review',   count: 4,  progress: 25 },
-      { stage: 'Formulation',  count: 12, progress: 60 },
-      { stage: 'Sensory/Reg',  count: 8,  progress: 45 },
-      { stage: 'Plant Trial',  count: 3,  progress: 80 },
-      { stage: 'Approvals',    count: 7,  progress: 90 },
-    ],
+    pending_tasks: [],
+    recent_activity: [],
+    pipeline: [],
   }
 }
 
@@ -3934,7 +3807,8 @@ function FormulationView({ user, token, can }) {
               </TableHeader>
               <TableBody>
                 {formulas.map(f => (
-                  <TableRow key={f.formula_id} className="cursor-pointer hover:bg-muted/50">
+                  <TableRow key={f.formula_id} className="cursor-pointer hover:bg-muted/50"
+                    onClick={e => { if (e.target.closest('button,input,select,label,[role=checkbox]')) return; openDetail(f) }}>
                     <TableCell onClick={e => e.stopPropagation()}>
                       <Checkbox
                         checked={compareIds.includes(f.formula_id)}
@@ -3943,10 +3817,10 @@ function FormulationView({ user, token, can }) {
                         )}
                       />
                     </TableCell>
-                    <TableCell className="font-mono text-xs text-muted-foreground" onClick={() => openDetail(f)}>{f.ppd_id||'—'}</TableCell>
-                    <TableCell className="text-sm font-medium truncate max-w-[200px]" onClick={() => openDetail(f)}>{f.project_name||'—'}</TableCell>
-                    <TableCell className="text-xs font-medium" onClick={() => openDetail(f)}>{f.trial_no||'—'}</TableCell>
-                    <TableCell onClick={() => openDetail(f)}>
+                    <TableCell className="font-mono text-xs text-muted-foreground">{f.ppd_id||'—'}</TableCell>
+                    <TableCell className="text-sm font-medium truncate max-w-[200px]">{f.project_name||'—'}</TableCell>
+                    <TableCell className="text-xs font-medium">{f.trial_no||'—'}</TableCell>
+                    <TableCell>
                       {f.approval_status === 'pending_approval' && (
                         <span className="text-xs px-2 py-0.5 rounded-md font-medium bg-amber-100 text-amber-700">Pending Review</span>
                       )}
@@ -4484,6 +4358,8 @@ function FormulationView({ user, token, can }) {
 function LabBookView({ user, token }) {
   const [formulas, setFormulas] = useState([])
   const [loading, setLoading]   = useState(true)
+  const [selected, setSelected] = useState(null)
+  const [detailOpen, setDetailOpen] = useState(false)
 
   const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://fmcg-software.onrender.com'
 
@@ -4498,9 +4374,7 @@ function LabBookView({ user, token }) {
 
   useEffect(() => { load() }, [load])
 
-  const openReport = (ppdId) => {
-    window.open(`${API_BASE}/api/formulation/report/${ppdId}?token=${encodeURIComponent(token)}`, '_blank')
-  }
+  const openDetail = (f) => { setSelected(f); setDetailOpen(true) }
 
   const STATUS_COLOR = {
     'Draft':          'bg-slate-100 text-slate-700',
@@ -4517,7 +4391,7 @@ function LabBookView({ user, token }) {
         <div>
           <h1 className="text-2xl font-bold">E-Lab Notebook</h1>
           <p className="text-muted-foreground text-sm">
-            {loading ? 'Loading…' : `${formulas.length} formula record${formulas.length !== 1 ? 's' : ''} — click any card to preview the project report`}
+            {loading ? 'Loading…' : `${formulas.length} formula record${formulas.length !== 1 ? 's' : ''} — click any card to view details`}
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={load}>
@@ -4543,7 +4417,7 @@ function LabBookView({ user, token }) {
           {formulas.map(f => (
             <div
               key={f.formula_id}
-              onClick={() => openReport(f.ppd_id || f.project_id)}
+              onClick={() => openDetail(f)}
               className="group relative flex flex-col gap-3 p-4 bg-white border border-slate-200 rounded-xl cursor-pointer
                          hover:border-primary/50 hover:shadow-md transition-all duration-150"
             >
@@ -4566,14 +4440,138 @@ function LabBookView({ user, token }) {
               <div className="flex items-center gap-2 mt-auto pt-2 border-t border-slate-100">
                 <span className="text-[11px] font-mono bg-slate-100 text-slate-700 px-2 py-0.5 rounded">{f.version}</span>
                 <span className="text-[11px] text-muted-foreground">{f.formula_type}</span>
-                {/* Preview icon — visible on hover */}
+                {/* Detail icon — visible on hover */}
                 <span className="ml-auto opacity-0 group-hover:opacity-100 transition-opacity text-primary">
-                  <FileText className="h-4 w-4" />
+                  <Eye className="h-4 w-4" />
                 </span>
               </div>
             </div>
           ))}
         </div>
+      )}
+
+      {/* ── Detail Dialog ── */}
+      {selected && (
+        <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <DialogTitle className="font-mono text-lg">{selected.formula_id}</DialogTitle>
+                  <DialogDescription className="mt-1">{selected.project_name} • {selected.version}</DialogDescription>
+                </div>
+                <span className={`text-xs px-2 py-1 rounded-md font-medium whitespace-nowrap shrink-0 ${STATUS_COLOR[selected.status] || 'bg-slate-100 text-slate-600'}`}>
+                  {selected.status}
+                </span>
+              </div>
+            </DialogHeader>
+
+            <div className="space-y-4 text-sm">
+              {/* Core info grid */}
+              <div className="grid grid-cols-2 gap-3">
+                {[
+                  { label: 'PPD ID',          value: selected.ppd_id },
+                  { label: 'Trial No.',        value: selected.trial_no },
+                  { label: 'Batch No.',        value: selected.batch_no },
+                  { label: 'Batch Size (gm)',  value: selected.batch_size },
+                  { label: 'Unit Qty (gm)',    value: selected.unit_qty },
+                  { label: 'Mfg Date',         value: selected.mfg_date },
+                  { label: 'Trial Taken By',   value: selected.trial_taken_by },
+                  { label: 'Evaluated By',     value: selected.evaluated_by },
+                ].map(({ label, value }) => (
+                  <div key={label} className="bg-slate-50 rounded-lg p-3 border">
+                    <p className="text-xs text-muted-foreground">{label}</p>
+                    <p className="font-medium mt-0.5">{value || '—'}</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* Approval status */}
+              {selected.approval_status && (
+                <div className={`rounded-lg border p-3 ${
+                  selected.approval_status === 'pending_approval' ? 'bg-amber-50 border-amber-200' :
+                  selected.approval_status === 'approved'         ? 'bg-green-50 border-green-200' :
+                                                                    'bg-red-50 border-red-200'
+                }`}>
+                  <p className={`text-xs font-semibold uppercase tracking-wide ${
+                    selected.approval_status === 'pending_approval' ? 'text-amber-700' :
+                    selected.approval_status === 'approved'         ? 'text-green-700' :
+                                                                      'text-red-700'
+                  }`}>
+                    {selected.approval_status === 'pending_approval' && '⏳ Pending R&D Head Review'}
+                    {selected.approval_status === 'approved'         && '✓ Approved by R&D Head'}
+                    {selected.approval_status === 'rejected'         && '✗ Rejected by R&D Head'}
+                  </p>
+                  {selected.approved_by && (
+                    <p className="text-xs text-muted-foreground mt-1">By: {selected.approved_by}</p>
+                  )}
+                  {selected.approval_comment && (
+                    <p className="text-sm mt-1 italic">"{selected.approval_comment}"</p>
+                  )}
+                </div>
+              )}
+
+              {/* Long-text fields */}
+              {[
+                { label: 'Method of Preparation', value: selected.method_of_preparation },
+                { label: 'Observation',            value: selected.observation },
+                { label: 'Conclusion',             value: selected.conclusion },
+              ].filter(f => f.value).map(({ label, value }) => (
+                <div key={label} className="bg-slate-50 rounded-lg p-3 border">
+                  <p className="text-xs text-muted-foreground mb-1">{label}</p>
+                  <p className="text-sm whitespace-pre-wrap">{value}</p>
+                </div>
+              ))}
+
+              {/* Ingredients */}
+              {(selected.ingredients || []).length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Ingredients ({selected.ingredients.length})</p>
+                  <div className="overflow-x-auto rounded-lg border">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="w-8">Sr.</TableHead>
+                          <TableHead>Ingredient</TableHead>
+                          <TableHead>Vendor</TableHead>
+                          <TableHead>Function</TableHead>
+                          <TableHead>Qty (%)</TableHead>
+                          <TableHead>Cost/Unit (₹)</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {selected.ingredients.map((ing, i) => (
+                          <TableRow key={i}>
+                            <TableCell className="text-center text-xs text-muted-foreground">{i + 1}</TableCell>
+                            <TableCell className="font-medium text-sm">{ing.name || '—'}</TableCell>
+                            <TableCell className="text-sm">{ing.vendor || '—'}</TableCell>
+                            <TableCell className="text-sm">{ing.use_function || '—'}</TableCell>
+                            <TableCell className="text-sm">{ing.qty_pct || '—'}</TableCell>
+                            <TableCell className="text-sm">{ing.cost_per_unit || '—'}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </div>
+              )}
+
+              {/* Meta info */}
+              <div className="grid grid-cols-2 gap-3 text-xs text-muted-foreground pt-1">
+                <div><span className="font-medium">Created by:</span> {selected.created_by} ({selected.created_by_role})</div>
+                <div><span className="font-medium">Created:</span> {selected.created_at ? new Date(selected.created_at).toLocaleString('en-IN') : '—'}</div>
+              </div>
+            </div>
+
+            <DialogFooter className="gap-2">
+              <Button variant="outline" className="gap-1.5 text-xs border-blue-300 text-blue-700 hover:bg-blue-50"
+                onClick={() => window.open(`${API_BASE}/api/formulation/report/${selected.ppd_id}?token=${encodeURIComponent(token)}`, '_blank')}>
+                <FileText className="h-3.5 w-3.5"/>Download PPD Report
+              </Button>
+              <Button onClick={() => setDetailOpen(false)}>Close</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       )}
     </div>
   )
