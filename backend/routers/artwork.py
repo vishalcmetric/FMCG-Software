@@ -283,6 +283,29 @@ async def delete_artwork(
     a = result.scalars().first()
     if not a:
         raise HTTPException(404, "Artwork brief not found")
+
+    ppd_id       = a.ppd_id
+    project_name = a.project_name
+
+    # Delete related pending tasks (artwork_approval type) for this PPD
+    from sqlalchemy import delete as sa_delete
+    await db.execute(
+        sa_delete(Task)
+        .where(Task.ppd_id == ppd_id)
+        .where(Task.type == "artwork_approval")
+    )
+
     await db.delete(a)
+
+    db.add(AuditLog(
+        user_name=current_user.get("name", ""),
+        user_email=current_user.get("sub", ""),
+        action="DELETE",
+        action_label=f"deleted artwork brief {artwork_id} for {project_name}",
+        entity=artwork_id,
+        involved_roles="admin",
+        time_ago="just now",
+    ))
+
     await db.commit()
     return {"ok": True}

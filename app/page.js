@@ -5480,11 +5480,14 @@ function ArtworkView({ user, token, can }) {
   const [statusFilter, setStatusFilter] = useState('all')
   const [reviewComment, setReviewComment] = useState('')
   const [reviewing, setReviewing] = useState(null)
+  const [confirmDelete, setConfirmDelete] = useState(null)  // artwork_id being confirmed
+  const [deleting, setDeleting]   = useState(false)
   const [form, setForm] = useState({ ppd_id:'', artwork_type:'Label', sku:'', brief_notes:'', design_link:'', assigned_to:'' })
 
   const canCreate = ['admin','marketing','packaging','rd_head'].includes(user?.role) || (can && can('Artwork','create'))
   const canUpdate = ['admin','packaging','marketing','rd_head'].includes(user?.role) || (can && can('Artwork','edit'))
   const canReview = ['admin','rd_head'].includes(user?.role)
+  const canDelete = user?.role === 'admin'
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -5554,6 +5557,25 @@ function ArtworkView({ user, token, can }) {
       load()
     } catch(e) { toast.error(e.message || 'Failed') }
     finally { setReviewing(null) }
+  }
+
+  const handleDelete = async (artworkId) => {
+    if (confirmDelete !== artworkId) {
+      // First click — ask for confirmation
+      setConfirmDelete(artworkId)
+      return
+    }
+    // Second click — confirmed, execute delete
+    setDeleting(true)
+    try {
+      await apiCall(`/api/artwork/${artworkId}`, { method: 'DELETE', token })
+      toast.success('Artwork deleted')
+      setConfirmDelete(null)
+      setDetailOpen(false)
+      setSelected(null)
+      load()
+    } catch(e) { toast.error(e.message || 'Failed to delete') }
+    finally { setDeleting(false) }
   }
 
   // Counts by status
@@ -5762,13 +5784,25 @@ function ArtworkView({ user, token, can }) {
                 <div><span className="font-medium">Created:</span> {selected.created_at ? new Date(selected.created_at).toLocaleString('en-IN') : '—'}</div>
               </div>
             </div>
-            <DialogFooter>
+            <DialogFooter className="flex-wrap gap-2">
+              {canDelete && (
+                <Button
+                  variant={confirmDelete === selected.artwork_id ? 'destructive' : 'outline'}
+                  className={confirmDelete === selected.artwork_id ? '' : 'border-red-300 text-red-600 hover:bg-red-50'}
+                  disabled={deleting}
+                  onClick={() => handleDelete(selected.artwork_id)}
+                >
+                  {deleting ? <RefreshCw className="h-4 w-4 mr-2 animate-spin"/> : <Trash2 className="h-4 w-4 mr-2"/>}
+                  {confirmDelete === selected.artwork_id ? 'Confirm Delete' : 'Delete'}
+                </Button>
+              )}
+              <div className="flex-1"/>
               {canUpdate && (
                 <Button variant="outline" onClick={()=>{ setDetailOpen(false); openEdit(selected) }}>
                   <Edit className="h-4 w-4 mr-2"/>Edit
                 </Button>
               )}
-              <Button onClick={()=>setDetailOpen(false)}>Close</Button>
+              <Button onClick={()=>{ setDetailOpen(false); setConfirmDelete(null) }}>Close</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
@@ -5850,6 +5884,23 @@ function ArtworkView({ user, token, can }) {
                             <Button size="sm" variant="ghost" title="Edit" onClick={()=>openEdit(a)}>
                               <Edit className="h-4 w-4"/>
                             </Button>
+                          )}
+                          {/* Admin: Delete button with inline confirm */}
+                          {canDelete && (
+                            confirmDelete === a.artwork_id ? (
+                              <Button size="sm" variant="destructive" className="h-6 text-xs px-2"
+                                disabled={deleting}
+                                onClick={() => handleDelete(a.artwork_id)}
+                                title="Click to confirm delete">
+                                {deleting ? <RefreshCw className="h-3 w-3 animate-spin"/> : '✓ Confirm'}
+                              </Button>
+                            ) : (
+                              <Button size="sm" variant="ghost" className="h-6 px-1 text-red-500 hover:text-red-700 hover:bg-red-50"
+                                onClick={() => setConfirmDelete(a.artwork_id)}
+                                title="Delete artwork">
+                                <Trash2 className="h-3.5 w-3.5"/>
+                              </Button>
+                            )
                           )}
                         </div>
                       </TableCell>
