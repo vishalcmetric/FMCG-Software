@@ -172,9 +172,9 @@ async def _migrate_columns() -> None:
             except Exception as e:
                 print(f"Warning: column migration {table}.{column} failed ({e})")
 
-        # Make project_id nullable on ppd_submissions and formulas — these columns still
+        # Make project_id nullable on ppd_submissions, formulas, and artwork_briefs — these columns
         # exist in the DB from before the project module was removed, but ORM no longer sets them.
-        for _tbl in ("ppd_submissions", "formulas"):
+        for _tbl in ("ppd_submissions", "formulas", "artwork_briefs", "lab_experiments", "plant_trials", "regulatory_checks", "sensory_evaluations", "costing_records", "claim_records"):
             try:
                 await cur.execute(
                     "SELECT IS_NULLABLE FROM information_schema.COLUMNS "

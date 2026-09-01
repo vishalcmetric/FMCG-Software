@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, useEffect, useCallback } from 'react'
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -644,6 +644,15 @@ const MENU_TO_MODULE = {
 function Shell({ user, token, view, setView, sidebarOpen, setSidebarOpen, onLogout }) {
   // Load this user's permissions from DB
   const [userPerms, setUserPerms] = useState(null)   // null = loading, {} = loaded
+  // Increment every time the view switches TO dashboard — forces re-mount + fresh fetch
+  const [dashboardKey, setDashboardKey] = useState(0)
+  const prevViewRef = useRef(view)
+  useEffect(() => {
+    if (view === 'dashboard' && prevViewRef.current !== 'dashboard') {
+      setDashboardKey(k => k + 1)
+    }
+    prevViewRef.current = view
+  }, [view])
 
   useEffect(() => {
     if (!token) { setUserPerms({}); return }
@@ -729,7 +738,7 @@ function Shell({ user, token, view, setView, sidebarOpen, setSidebarOpen, onLogo
       <div className="flex-1 flex flex-col min-w-0">
         <Header user={user} onLogout={onLogout} view={view} setView={setView} token={token} />
         <main className="flex-1 overflow-auto">
-          <ViewRouter view={view} setView={setView} user={user} token={token} userPerms={userPerms} can={can} />
+          <ViewRouter view={view} setView={setView} user={user} token={token} userPerms={userPerms} can={can} dashboardKey={dashboardKey} />
         </main>
       </div>
     </div>
@@ -1020,7 +1029,7 @@ function Header({ user, onLogout, view, setView, token }) {
 }
 
 /* -------------------- ROUTER -------------------- */
-function ViewRouter({ view, setView, user, token, userPerms, can }) {
+function ViewRouter({ view, setView, user, token, userPerms, can, dashboardKey }) {
   const p = "p-6 space-y-6"
 
   // Map view key → module name so we can check permission for the active view
@@ -1056,7 +1065,7 @@ function ViewRouter({ view, setView, user, token, userPerms, can }) {
     return el
   }
   switch (view) {
-    case 'dashboard':    return <div className={p}><Dashboard user={user} setView={setView} token={token} /></div>
+    case 'dashboard':    return <div className={p}><Dashboard key={dashboardKey} user={user} setView={setView} token={token} /></div>
     case 'ppd':          return guard('PPD',         <div className={p}><PPDView user={user} token={token} can={can} /></div>)
     case 'formulation':  return guard('Formulation', <div className={p}><FormulationView user={user} token={token} can={can} /></div>)
     case 'labbook':      return guard('Lab Notebook',<div className={p}><LabBookView user={user} token={token} can={can} /></div>)
