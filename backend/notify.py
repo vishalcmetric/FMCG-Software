@@ -8,7 +8,7 @@ from orm_models import Notification
 from typing import List
 
 _ALL_ROLES = [
-    "admin", "source", "pm", "fd", "rd_head", "marketing",
+    "admin", "source", "pm", "fd", "fd_member", "rd_team", "regulatory_team", "rd_head", "marketing",
     "regulatory", "packaging", "adl", "pmsa", "sa", "mgmt", "ceo", "production",
 ]
 
@@ -39,6 +39,10 @@ async def notify_roles(
         else:
             expanded.add(r)
 
+    # Clip to the column sizes (title 255, message 500, entity_name 255, created_by 150) —
+    # a long rework/comment text must never fail the whole request with a DB error.
+    title, message = (title or "")[:255], (message or "")[:500]
+    entity_name, created_by = (entity_name[:255] if entity_name else entity_name), (created_by or "")[:150]
     for role_key in expanded:
         db.add(
             Notification(

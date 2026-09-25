@@ -19,6 +19,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_db, IST
 from auth import decode_token
 from orm_models import PPDSubmission, Formula, PilotReport, PPDComment
+from ppd_fields import DRAFT_FIELDS, PLAIN_KEYS, draft_with_legacy
+import re
 from io import BytesIO
 from datetime import datetime
 
@@ -135,26 +137,22 @@ def _build_story(ppd: PPDSubmission, formulas: list[Formula], S: dict) -> list:
 
     # ── 1. PPD OVERVIEW ───────────────────────────────────────────────────
     story.append(Paragraph("1. Product Development Plan (PPD) Overview", S["section"]))
+    draft = draft_with_legacy(ppd)
     story.append(_kv_table([
         ("PPD ID",           ppd.ppd_id),
         ("Product Name",     ppd.project_name),
         ("Brand",            ppd.brand),
         ("Version",          ppd.ppd_version),
         ("Status",           ppd.status),
-        ("Product Category", ppd.product_category),
-        ("Target Consumer",  ppd.target_consumer),
-        ("Market Segment",   ppd.market_segment),
-        ("Expected Launch",  ppd.expected_launch),
         ("Created By",       ppd.created_by),
         ("Teams Involved",   (ppd.teams_involved or "").replace(",", ", ")),
-    ]))
-    if ppd.objective:
+    ] + [(label, draft.get(k)) for k, label in DRAFT_FIELDS if k in PLAIN_KEYS]))
+    for k, label in DRAFT_FIELDS:
+        if k in PLAIN_KEYS or not draft.get(k):
+            continue
         story.append(Spacer(1, 4))
-        story.append(Paragraph("<b>Objective:</b>", S["label"]))
-        story.append(Paragraph(ppd.objective, S["body"]))
-    if ppd.key_benefits:
-        story.append(Paragraph("<b>Key Benefits / Claims:</b>", S["label"]))
-        story.append(Paragraph(ppd.key_benefits, S["body"]))
+        story.append(Paragraph(f"<b>{label}:</b>", S["label"]))
+        story.append(Paragraph(_rte_to_rl(draft[k]), S["body"]))
     story.append(Spacer(1, 8))
 
     # ── 2. REVIEW STATUS ──────────────────────────────────────────────────
@@ -469,6 +467,18 @@ def _append_attachments(
 
 # ── ENDPOINT ──────────────────────────────────────────────────────────────────
 
+
+def _rte_to_rl(html: str) -> str:
+    """Convert rich-text editor HTML to ReportLab paragraph markup (b/i/u/br only)."""
+    h = re.sub(r"(?i)<li[^>]*>", "&bull; ", html or "")
+    h = re.sub(r"(?i)</(p|div|li|ul|ol)>|<br\s*/?>", "<br/>", h)
+    h = re.sub(r"(?i)<strong\b[^>]*>", "<b>", h); h = re.sub(r"(?i)</strong>", "</b>", h)
+    h = re.sub(r"(?i)<em\b[^>]*>", "<i>", h);     h = re.sub(r"(?i)</em>", "</i>", h)
+    h = re.sub(r"(?i)<(b|i|u)\s[^>]*>", r"<\1>", h)
+    h = re.sub(r"(?i)<(?!/?(b|i|u)>|br/>)[^>]*>", "", h)
+    h = re.sub(r"(<br/>\s*)+$", "", h)
+    return h or "—"
+
 @router.get("/report/{ppd_id}")
 async def download_ppd_report(
     ppd_id: str,
@@ -513,6 +523,127 @@ async def download_ppd_report(
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+# ── E-LAB NOTEBOOK: all trials of a PPD in ONE PDF ────────────────────────────
+
+ELAB_ROLES = {"admin", "mgmt", "ceo", "rd_head", "fd", "fd_member", "rd_team", "adl"}
+ELAB_ING_COLS = [("sr_no", "Sr. No."), ("name", "Name of Ingredients"), ("ins_cas_inci", "INS / CAS / INCI No."),
+                 ("vendor", "Vendor / Supplier Name"), ("use_function", "Use / Function"), ("cost_per_kg", "Cost Per Kg"),
+                 ("qty_pct", "Quantity in Percentage (%)"), ("qty_per_unit", "Quantity per Unit or BOM"),
+                 ("cost_per_unit", "Cost per Unit (in INR)")]
+
+
+def _elab_story(ppd: PPDSubmission, trials: list[dict]) -> list:
+    """One complete E-Lab Notebook sheet per trial, in trial order, each starting on a new page."""
+    from xml.sax.saxutils import escape
+    from reportlab.platypus import PageBreak
+    W = 273 * mm                                    # usable width on A4 landscape with 12 mm margins
+    cell = ParagraphStyle("elc", fontName="Helvetica", fontSize=8, leading=10)
+    head = ParagraphStyle("elh", fontName="Helvetica-Bold", fontSize=8, leading=10)
+    ttl = ParagraphStyle("elt", fontName="Helvetica-Bold", fontSize=13, leading=16, alignment=TA_CENTER)
+    sub = ParagraphStyle("els", fontName="Helvetica", fontSize=8.5, leading=11, alignment=TA_CENTER, textColor=TEXT_MUTED)
+    P = lambda v, s=cell: Paragraph(escape(str(v)) if v not in (None, "") else "—", s)
+    grid = [("GRID", (0, 0), (-1, -1), 0.6, colors.black), ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("TOPPADDING", (0, 0), (-1, -1), 3), ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+            ("LEFTPADDING", (0, 0), (-1, -1), 4), ("RIGHTPADDING", (0, 0), (-1, -1), 4)]
+    shade = colors.HexColor("#eef1f5")
+
+    story = []
+    if not trials:
+        story.append(Paragraph(escape(f"{ppd.project_name} - Trials"), ttl))
+        story.append(Paragraph(escape(f"{ppd.ppd_id} · {ppd.ppd_title or ''}"), sub))
+        story.append(Spacer(1, 10))
+        story.append(Paragraph("No formulas / trials have been recorded for this PPD yet.", cell))
+        return story
+
+    for n, t in enumerate(trials, 1):
+        if n > 1:
+            story.append(PageBreak())
+        # Header: Product name - Trials
+        hdr = Table([[Paragraph(escape(f"{t.get('project_name') or ppd.project_name} - Trials"), ttl)],
+                     [Paragraph(escape(f"PPD: {ppd.ppd_id} · {ppd.ppd_title or ppd.project_name}   |   "
+                                       f"Trial {n:02d} of {len(trials)}   |   Formula ID: {t['formula_id']}"), sub)]],
+                    colWidths=[W])
+        hdr.setStyle(TableStyle(grid + [("BACKGROUND", (0, 0), (-1, 0), shade)]))
+        story.append(hdr)
+        # Basic information
+        basic = [("Trial No.", t.get("trial_no")), ("Batch No.", t.get("batch_no")), ("Batch Size (gm)", t.get("batch_size")),
+                 ("Unit Qty. (gm)", t.get("unit_qty")), ("Mfg Date", t.get("mfg_date"))]
+        bt = Table([[P(k, head) for k, _ in basic], [P(v) for _, v in basic]], colWidths=[W / 5] * 5)
+        bt.setStyle(TableStyle(grid + [("BACKGROUND", (0, 0), (-1, 0), shade)]))
+        story.append(bt)
+        # Ingredients (header row repeats if the table runs onto the next page)
+        rows = [[P(lbl, head) for _, lbl in ELAB_ING_COLS]]
+        for i, ing in enumerate(t.get("ingredients") or [], 1):
+            rows.append([P(i if k == "sr_no" else ing.get(k)) for k, _ in ELAB_ING_COLS])
+        if len(rows) == 1:
+            rows.append([P("")] + [Paragraph("No ingredients recorded", cell)] + [P("")] * 7)
+        it = Table(rows, colWidths=[w * mm for w in (12, 50, 32, 38, 32, 22, 26, 30, 31)], repeatRows=1)
+        it.setStyle(TableStyle(grid + [("BACKGROUND", (0, 0), (-1, 0), shade),
+                                       ("ALIGN", (5, 1), (-1, -1), "RIGHT"), ("ALIGN", (0, 1), (0, -1), "CENTER")]))
+        story.append(it)
+        # Trial taken by / Evaluated by
+        pt = Table([[P("Trial Taken By", head), P(t.get("trial_taken_by")), P("Evaluated By", head), P(t.get("evaluated_by"))]],
+                   colWidths=[40 * mm, W / 2 - 40 * mm, 40 * mm, W / 2 - 40 * mm])
+        pt.setStyle(TableStyle(grid + [("BACKGROUND", (0, 0), (0, 0), shade), ("BACKGROUND", (2, 0), (2, 0), shade)]))
+        story.append(pt)
+        # Method / Observation / Conclusion (formatted text kept)
+        rich = t.get("rich_html") or {}
+
+        def rich_para(k):
+            try:
+                return Paragraph(_rte_to_rl(rich.get(k) or ""), cell)
+            except Exception:                        # malformed markup → plain text, never break the PDF
+                return P(t.get(k))
+        rt = Table([[P(lbl, head), rich_para(k)]
+                    for k, lbl in (("method_of_preparation", "Method of Preparation"),
+                                   ("observation", "Observation / Reason of Modification"),
+                                   ("conclusion", "Conclusion"))],
+                   colWidths=[55 * mm, W - 55 * mm])
+        rt.setStyle(TableStyle(grid + [("BACKGROUND", (0, 0), (0, -1), shade)]))
+        story.append(rt)
+    return story
+
+
+@router.get("/report/{ppd_id}/elab")
+async def download_elab_notebook(
+    ppd_id: str,
+    token: str = Query("", description="JWT — passed as query param for browser direct download"),
+    db: AsyncSession = Depends(get_db),
+):
+    """ONE PDF containing every formula/trial of the PPD, in creation order, in the E-Lab table layout."""
+    from reportlab.lib.pagesizes import landscape
+    from routers.formulation import _ppd_trials
+    try:
+        current_user = decode_token(token) if token else {"role": "admin", "sub": "", "name": ""}
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid or missing token")
+    ppd = (await db.execute(select(PPDSubmission).where(PPDSubmission.ppd_id == ppd_id))).scalars().first()
+    if not ppd:
+        raise HTTPException(404, f"PPD {ppd_id} not found")
+    role = current_user.get("role", "")
+    if role not in ELAB_ROLES and role not in (ppd.teams_involved or "").split(","):
+        raise HTTPException(403, "You are not assigned to this PPD")
+
+    trials = await _ppd_trials(db, ppd_id)
+    generated = datetime.now(IST).strftime("%d %b %Y %H:%M IST")
+
+    def _footer(canvas, doc):
+        canvas.saveState()
+        canvas.setFont("Helvetica", 7)
+        canvas.setFillColor(TEXT_MUTED)
+        canvas.drawString(12 * mm, 7 * mm, f"{ppd_id} — E-Lab Notebook  ·  {len(trials)} trial(s)  ·  generated {generated}")
+        canvas.drawRightString(landscape(A4)[0] - 12 * mm, 7 * mm, f"Page {doc.page}")
+        canvas.restoreState()
+
+    buf = BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=landscape(A4), leftMargin=12 * mm, rightMargin=12 * mm,
+                            topMargin=12 * mm, bottomMargin=14 * mm, title=f"{ppd_id} E-Lab Notebook")
+    doc.build(_elab_story(ppd, trials), onFirstPage=_footer, onLaterPages=_footer)
+    buf.seek(0)
+    return StreamingResponse(buf, media_type="application/pdf",
+                             headers={"Content-Disposition": f'attachment; filename="{ppd_id}_E-Lab-Notebook.pdf"'})
 
 
 @router.get("/report/{ppd_id}/with-attachments")

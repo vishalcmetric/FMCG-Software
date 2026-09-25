@@ -17,29 +17,37 @@ import { Progress } from '@/components/ui/progress'
 import { Separator } from '@/components/ui/separator'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Checkbox } from '@/components/ui/checkbox'
+import DraftPPDForm from '@/components/ppd/DraftPPDForm'
+import PPDDraftView from '@/components/ppd/PPDDraftView'
+import FormulationForm from '@/components/formulation/FormulationForm'
+import ElabNotebook from '@/components/formulation/ElabNotebook'
+import { AssignTeamButton, TeamAssignmentCard, CommentBody, CommentComposer, TEAM_MEMBER_ROLES } from '@/components/ppd/PPDCollab'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import {
   LayoutDashboard, FolderKanban, FileText, FlaskConical, Notebook, Factory, ShieldCheck, TestTube2,
   Calculator, BadgeCheck, Palette, Database, BarChart3, Archive, Users, KeyRound, Settings, ScrollText,
   Bell, LogOut, Search, Plus, Upload, Eye, Edit, CheckCircle2, XCircle, Clock, ChevronRight, Filter,
   Download, GitCompare, History, Layers, Sparkles, TrendingUp, AlertCircle, Building2, Menu, ChevronDown,
-  UserCog, Package, Beaker, ClipboardList, FileCheck2, RefreshCw, Send, MessageSquare, Trash2, Home, Paperclip
+  UserCog, Package, Beaker, ClipboardList, FileCheck2, RefreshCw, Send, MessageSquare, Trash2, Home, Paperclip, ArrowLeft
 } from 'lucide-react'
 
 /* -------------------- ROLES & MENU CONFIG -------------------- */
 const ROLES = {
   admin:          { label: 'System Administrator',    color: 'bg-purple-600',  desc: 'Full system access, user & config management' },
   source:         { label: 'Source Team',             color: 'bg-blue-600',    desc: 'Creates PPDs, initiates new product requests' },
-  pm:             { label: 'Project Management',      color: 'bg-cyan-600',    desc: 'Reviews PPDs, assigns teams, tracks project lifecycle' },
-  fd:             { label: 'R&D / F&D Team',          color: 'bg-emerald-600', desc: 'Formulation development, lab book, sensory trials' },
+  pm:             { label: 'Project Management Team', color: 'bg-cyan-600',    desc: 'Reviews PPDs, assigns teams, tracks project lifecycle' },
+  fd:             { label: 'F&D Team Head',           color: 'bg-emerald-600', desc: 'Leads formulation development, lab book, sensory trials — Stage 1 PPD reviewer' },
+  fd_member:      { label: 'F&D Team Member',         color: 'bg-emerald-500', desc: 'Formulation development, lab book, sensory trials' },
+  rd_team:        { label: 'R&D Team',                color: 'bg-teal-600',    desc: 'Research & development — formulation, lab book, trials' },
   rd_head:        { label: 'R&D Head',                color: 'bg-emerald-800', desc: 'Approves formulations, oversees R&D pipeline — Stage 3 reviewer' },
   marketing_head: { label: 'Marketing Head',          color: 'bg-pink-700',    desc: 'Marketing strategy, PPD review — Stage 3 reviewer' },
   sales_head:     { label: 'Sales Head',              color: 'bg-rose-600',    desc: 'Sales feasibility, market readiness — Stage 3 reviewer' },
   gdso_head:      { label: 'GDSO Head',               color: 'bg-violet-700',  desc: 'Global Demand & Supply Operations — Stage 3 reviewer' },
   regulatory:     { label: 'Regulatory Head',         color: 'bg-red-600',     desc: 'Regulatory compliance, FSSAI, ingredient checks — Stage 3 reviewer' },
+  regulatory_team:{ label: 'Regulatory Team',         color: 'bg-red-500',     desc: 'Regulatory documentation, FSSAI & ingredient compliance checks' },
   cfo:            { label: 'CFO',                     color: 'bg-slate-700',   desc: 'Financial feasibility review — Stage 3 reviewer' },
   packaging:      { label: 'Packaging Team',          color: 'bg-amber-600',   desc: 'Costing feasibility, artwork, SFG/PKG BOM' },
-  sa:             { label: 'Scientific Affairs',      color: 'bg-sky-600',     desc: 'Claim substantiation, clinical evidence, regulatory docs' },
+  sa:             { label: 'Scientific Affairs Team', color: 'bg-sky-600',     desc: 'Claim substantiation, clinical evidence, regulatory docs' },
   ceo:            { label: 'CEO',                     color: 'bg-black',       desc: 'Final approval authority — Stage 4 (terminal)' },
   production:     { label: 'Production Team',color: 'bg-orange-600',  desc: 'Pilot trials, BOM, MFC, stability batch reports' },
 }
@@ -48,19 +56,19 @@ const ROLES = {
 const MENU = [
   { key: 'dashboard',    label: 'Dashboard',             icon: LayoutDashboard, roles: 'all' },
   // PPD: Source creates, PM assigns, Functional reviews, Mgmt approves, CEO final
-  { key: 'ppd',         label: 'PPD Management',        icon: FileText,        roles: ['admin','source','pm','fd','rd_head','marketing_head','sales_head','gdso_head','regulatory','cfo','marketing','packaging','sa','adl','pmsa','ceo'] },
+  { key: 'ppd',         label: 'PPD Management',        icon: FileText,        roles: ['admin','source','pm','fd','fd_member','rd_team','rd_head','marketing_head','sales_head','gdso_head','regulatory','regulatory_team','cfo','marketing','packaging','sa','adl','pmsa','ceo'] },
   // Formulation: F&D team + R&D Head (after PPD CEO-approved)
-  { key: 'formulation', label: 'Formulation Dev.',      icon: FlaskConical,    roles: ['admin','fd','rd_head','adl'] },
+  { key: 'formulation', label: 'Formulation Dev.',      icon: FlaskConical,    roles: ['admin','fd','fd_member','rd_team','rd_head','adl'] },
   // Lab Book: F&D team, ADL lab, R&D Head
-  { key: 'labbook',     label: 'E-Lab Notebook',        icon: Notebook,        roles: ['admin','fd','rd_head','adl'] },
+  { key: 'labbook',     label: 'E-Lab Notebook',        icon: Notebook,        roles: ['admin','fd','fd_member','rd_team','rd_head','adl'] },
   // Plant Trials: Production team, Packaging, R&D Head
-  { key: 'plant',       label: 'Plant Trials',          icon: Factory,         roles: ['admin','production','rd_head','packaging','fd'] },
+  { key: 'plant',       label: 'Plant Trials',          icon: Factory,         roles: ['admin','production','rd_head','packaging','fd','fd_member','rd_team'] },
   // Pilot Trial: report upload + review + closure (new module)
   { key: 'pilot_trial', label: 'Pilot Trial',           icon: ClipboardList,   roles: ['admin','rd_head','pm'] },
   // Regulatory: Regulatory team reviews FD docs, R&D Head oversees
-  { key: 'regulatory',  label: 'Regulatory',            icon: ShieldCheck,     roles: ['admin','regulatory','rd_head','sa'] },
+  { key: 'regulatory',  label: 'Regulatory',            icon: ShieldCheck,     roles: ['admin','regulatory','regulatory_team','rd_head','sa'] },
   // Sensory: PM&SA team, ADL lab, R&D Head
-  { key: 'sensory',     label: 'Sensory & Analytical',  icon: TestTube2,       roles: ['admin','pmsa','adl','rd_head','fd'] },
+  { key: 'sensory',     label: 'Sensory & Analytical',  icon: TestTube2,       roles: ['admin','pmsa','adl','rd_head','fd','fd_member','rd_team'] },
   // Costing: Packaging, R&D Head, Management (view)
   { key: 'costing',     label: 'Costing & Feasibility', icon: Calculator,      roles: ['admin','packaging','rd_head','mgmt'] },
   // Claims: Scientific Affairs, R&D Head, Regulatory
@@ -68,7 +76,7 @@ const MENU = [
   // Artwork: Packaging manages, Marketing reviews
   { key: 'artwork',     label: 'Artwork (Karomi)',       icon: Palette,         roles: ['admin','packaging','marketing','production','rd_head'] },
   // Master Data: SAP integration — PM, Packaging, Production manage
-  { key: 'master',      label: 'Master Data (SAP)',      icon: Database,        roles: ['admin','production','packaging','pm'] },
+  { key: 'master',      label: 'Master Data',            icon: Database,        roles: ['admin','production','packaging','pm','rd_head','fd'] },
   { key: 'reports',     label: 'Reports & Analytics',   icon: BarChart3,       roles: 'all' },
   { key: 'archive',     label: 'Archive',               icon: Archive,         roles: 'all' },
   // Admin-only tools
@@ -137,6 +145,8 @@ export default function App() {
   const [user, setUser]   = useState(null)
   const [token, setToken] = useState(null)
   const [view, setView]   = useState('dashboard')
+  // Deep link: #/ppd/create and #/ppd/:id/edit open the PPD module
+  useEffect(() => { if (window.location.hash.startsWith('#/ppd/')) setView('ppd') }, [])
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [hydrated, setHydrated] = useState(false)
 
@@ -1311,7 +1321,7 @@ function Dashboard({ user, setView, token }) {
           </Button>
           {/* Source and admin can create a new PPD */}
           {['admin','source'].includes(user.role) && (
-            <Button onClick={() => setView('ppd')} className="gap-2"><Plus className="h-4 w-4"/>New PPD</Button>
+            <Button onClick={() => { window.location.hash = '#/ppd/create'; setView('ppd') }} className="gap-2"><Plus className="h-4 w-4"/>New PPD</Button>
           )}
         </div>
       </div>
@@ -1509,7 +1519,7 @@ function FALLBACK_DASHBOARD(role) {
 
 const BRANDS       = ['Complan','Sugar Free','Nycil','Glucon-D','Everyuth','Nutralite','Sugarlite']
 const PRIORITIES   = ['Low','Medium','High','Critical']
-const ALL_ROLE_KEYS = ['source','pm','fd','rd_head','marketing_head','sales_head','gdso_head','regulatory','cfo','marketing','packaging','adl','pmsa','sa','ceo','production']
+const ALL_ROLE_KEYS = ['source','pm','fd','fd_member','rd_team','rd_head','marketing_head','sales_head','gdso_head','regulatory','regulatory_team','cfo','marketing','packaging','adl','pmsa','sa','ceo','production']
 
 function _ProjectsViewRemoved({ setView, user, token, can }) {
   const [projects, setProjects] = useState([])
@@ -2065,6 +2075,7 @@ function _ProjectsViewRemoved({ setView, user, token, can }) {
 
 /* -------------------- PPD -------------------- */
 const PPD_STATUS_COLORS = {
+  'Draft':            'bg-slate-100 text-slate-600 border border-dashed border-slate-300',
   'Pending':          'bg-slate-200 text-slate-800',
   'Rework':           'bg-amber-100 text-amber-800',
   'ReviewerApproved': 'bg-blue-100 text-blue-800',
@@ -2075,6 +2086,7 @@ const PPD_STATUS_COLORS = {
   'Completed':        'bg-green-600 text-white',
 }
 const PPD_STATUS_LABELS = {
+  'Draft':            'Draft',
   'Pending':          'Pending',
   'Rework':           'Rework',
   'ReviewerApproved': 'Reviewer Approved',
@@ -2095,15 +2107,11 @@ function PPDView({ user, token, can, brands: brandsProp }) {
   const [loading, setLoading]         = useState(true)
   const [q, setQ]                     = useState('')
   const [statusFilter, setStatus]     = useState('all')
+  const [brandFilter, setBrandFilter] = useState('all')
   const [closingPpd, setClosingPpd]   = useState(null)
 
-  // Create PPD dialog
-  const [createOpen, setCreateOpen]   = useState(false)
-  const [creating, setCreating]       = useState(false)
-  const [createForm, setCreateForm]   = useState({
-    project_name:'', brand:'', ppd_title:'', product_category:'',
-    target_consumer:'', market_segment:'', expected_launch:'', objective:'', key_benefits:''
-  })
+  // Full-page Draft PPD form: { mode: 'create' } | { mode: 'edit', ppd }
+  const [draftPage, setDraftPage]     = useState(null)
 
   // Detail view
   const [selected, setSelected]       = useState(null)
@@ -2116,31 +2124,37 @@ function PPDView({ user, token, can, brands: brandsProp }) {
       const params = new URLSearchParams()
       if (q) params.set('q', q)
       if (statusFilter !== 'all') params.set('status', statusFilter)
+      if (brandFilter !== 'all') params.set('brand', brandFilter)
       const data = await apiCall(`/api/ppd?${params}`, { token })
       setPpds(data)
     } catch (err) {
       toast.error('Failed to load PPDs: ' + err.message)
     } finally { setLoading(false) }
-  }, [q, statusFilter, token])
+  }, [q, statusFilter, brandFilter, token])
 
   useEffect(() => { fetchPPDs() }, [fetchPPDs])
 
-  const handleCreate = async () => {
-    if (!createForm.project_name?.trim()) return toast.error('Product name is required')
-    if (!createForm.brand?.trim()) return toast.error('Brand is required')
-    if (!createForm.ppd_title?.trim()) return toast.error('PPD Title is required')
-    setCreating(true)
-    try {
-      const ppd = await apiCall('/api/ppd', { method: 'POST', token, body: createForm })
-      toast.success(`PPD created: ${ppd.ppd_id}`)
-      setCreateOpen(false)
-      setCreateForm({ project_name:'', brand:'', ppd_title:'', product_category:'', target_consumer:'', market_segment:'', expected_launch:'', objective:'', key_benefits:'' })
-      fetchPPDs()
-    } catch (err) { toast.error(err.message) }
-    finally { setCreating(false) }
-  }
+  // Hash routes: #/ppd/create and #/ppd/:id/edit
+  useEffect(() => {
+    const sync = async () => {
+      const h = window.location.hash
+      if (h === '#/ppd/create') return setDraftPage({ mode: 'create' })
+      const m = h.match(/^#\/ppd\/([^/]+)\/edit$/)
+      if (!m) return setDraftPage(null)
+      try { setDraftPage({ mode: 'edit', ppd: await apiCall(`/api/ppd/${m[1]}`, { token }) }) }
+      catch (err) { toast.error(err.message); setDraftPage(null) }
+    }
+    sync()
+    window.addEventListener('hashchange', sync)
+    return () => window.removeEventListener('hashchange', sync)
+  }, [token])
 
-  const openCreate = () => setCreateOpen(true)
+  const openCreate = () => { window.location.hash = '#/ppd/create' }
+  const openEdit   = (p) => { window.location.hash = `#/ppd/${p.ppd_id}/edit` }
+  const closeDraft = () => {
+    history.replaceState(null, '', window.location.pathname + window.location.search)
+    setDraftPage(null)
+  }
 
   // ── Close Project (pm / admin — only when Approved) ──
   const handleCloseProject = async (e, ppdId) => {
@@ -2173,10 +2187,25 @@ function PPDView({ user, token, can, brands: brandsProp }) {
     return `${Math.floor(h / 24)}d ago`
   }
 
+  // Full-page Create / Edit Draft PPD
+  if (draftPage) {
+    return <DraftPPDForm key={draftPage.ppd?.ppd_id || 'create'} mode={draftPage.mode} ppd={draftPage.ppd}
+      canSubmit={isAdmin || user?.role === 'source'}
+      token={token} apiCall={apiCall}
+      onBack={closeDraft}
+      onSaved={async (ppdId) => {
+        closeDraft()
+        fetchPPDs()
+        try { setSelected(await apiCall(`/api/ppd/${ppdId}`, { token })) } catch {}
+      }}
+    />
+  }
+
   // If a PPD is selected, show its detail view
   if (selected) {
     return <PPDDetail ppd={selected} user={user} token={token}
       onBack={() => { setSelected(null); fetchPPDs() }}
+      onEditDraft={() => openEdit(selected)}
       onRefresh={async () => {
         try {
           const updated = await apiCall(`/api/ppd/${selected.ppd_id}`, { token })
@@ -2212,13 +2241,20 @@ function PPDView({ user, token, can, brands: brandsProp }) {
       <div className="flex flex-wrap gap-3 items-center">
         <div className="relative flex-1 min-w-[200px]">
           <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-          <Input value={q} onChange={e => setQ(e.target.value)} placeholder="Search by name or PPD ID..." className="pl-9" />
+          <Input value={q} onChange={e => setQ(e.target.value)} placeholder="Search by project, brand, PPD ID, team or any PPD field..." className="pl-9" />
         </div>
         <Select value={statusFilter} onValueChange={setStatus}>
           <SelectTrigger className="w-48"><Filter className="h-4 w-4 mr-1"/><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Statuses</SelectItem>
             {PPD_STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+          </SelectContent>
+        </Select>
+        <Select value={brandFilter} onValueChange={setBrandFilter}>
+          <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Brands</SelectItem>
+            {[...new Set([...liveBrands, ...ppds.map(p => p.brand).filter(Boolean)])].map(b => <SelectItem key={b} value={b}>{b}</SelectItem>)}
           </SelectContent>
         </Select>
       </div>
@@ -2240,8 +2276,11 @@ function PPDView({ user, token, can, brands: brandsProp }) {
                 <TableRow>
                   <TableHead className="w-36">PPD ID</TableHead>
                   <TableHead>Title</TableHead>
-                  <TableHead>Product Name</TableHead>
+                  <TableHead>Project Name</TableHead>
+                  <TableHead>Project Type</TableHead>
                   <TableHead>Brand</TableHead>
+                  <TableHead>Project Leader</TableHead>
+                  <TableHead>Date</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Version</TableHead>
                   <TableHead>Created By</TableHead>
@@ -2260,7 +2299,10 @@ function PPDView({ user, token, can, brands: brandsProp }) {
                     <TableCell>
                       <div className="font-medium text-sm max-w-[200px] truncate">{p.project_name}</div>
                     </TableCell>
+                    <TableCell className="text-sm max-w-[140px] truncate">{p.draft_form?.project_type || '—'}</TableCell>
                     <TableCell><Badge variant="outline" className="text-xs">{p.brand}</Badge></TableCell>
+                    <TableCell className="text-sm max-w-[140px] truncate">{p.draft_form?.project_leader || '—'}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground whitespace-nowrap">{p.draft_form?.date || '—'}</TableCell>
                     <TableCell>
                       <span className={`text-xs px-2 py-0.5 rounded-md font-medium whitespace-nowrap ${PPD_STATUS_COLORS[p.status] || 'bg-slate-100'}`}>
                         {PPD_STATUS_LABELS[p.status] || p.status}
@@ -2307,64 +2349,6 @@ function PPDView({ user, token, can, brands: brandsProp }) {
         )}
       </Card>
 
-      {/* ── Create PPD Dialog ── */}
-      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Create New PPD</DialogTitle>
-            <DialogDescription>Product Development Plan — enter product name and brand to start.</DialogDescription>
-          </DialogHeader>
-          <div className="grid grid-cols-2 gap-4 py-2">
-            <div className="col-span-2 space-y-2">
-              <Label>Product Name <span className="text-red-500">*</span></Label>
-              <Input value={createForm.project_name} onChange={e => setCreateForm(f => ({...f, project_name: e.target.value}))} placeholder="e.g. Complan Pro Chocolate Boost" />
-            </div>
-            <div className="space-y-2">
-              <Label>Brand <span className="text-red-500">*</span></Label>
-              <Select value={createForm.brand} onValueChange={v => setCreateForm(f => ({...f, brand: v}))}>
-                <SelectTrigger><SelectValue placeholder="Select brand…"/></SelectTrigger>
-                <SelectContent>{liveBrands.map(b => <SelectItem key={b} value={b}>{b}</SelectItem>)}</SelectContent>
-              </Select>
-            </div>
-            <div className="col-span-2 space-y-2">
-              <Label>PPD Title <span className="text-red-500">*</span></Label>
-              <Input value={createForm.ppd_title} onChange={e => setCreateForm(f => ({...f, ppd_title: e.target.value}))} placeholder="e.g. Initial Formulation Brief, Reformulation v2, Cost Optimisation..." />
-              <p className="text-xs text-muted-foreground">Give this PPD a short title to distinguish it from other PPDs on the same project.</p>
-            </div>
-            <div className="space-y-2">
-              <Label>Product Category</Label>
-              <Input value={createForm.product_category} onChange={e => setCreateForm(f => ({...f, product_category: e.target.value}))} placeholder="e.g. Nutrition Powder" />
-            </div>
-            <div className="space-y-2">
-              <Label>Target Consumer</Label>
-              <Input value={createForm.target_consumer} onChange={e => setCreateForm(f => ({...f, target_consumer: e.target.value}))} placeholder="e.g. Kids 5–15 yrs" />
-            </div>
-            <div className="space-y-2">
-              <Label>Market Segment</Label>
-              <Input value={createForm.market_segment} onChange={e => setCreateForm(f => ({...f, market_segment: e.target.value}))} placeholder="e.g. Premium Health" />
-            </div>
-            <div className="space-y-2">
-              <Label>Expected Launch</Label>
-              <Input value={createForm.expected_launch} onChange={e => setCreateForm(f => ({...f, expected_launch: e.target.value}))} placeholder="e.g. Q4 2026" />
-            </div>
-            <div className="col-span-2 space-y-2">
-              <Label>Objective</Label>
-              <Textarea rows={3} value={createForm.objective} onChange={e => setCreateForm(f => ({...f, objective: e.target.value}))} placeholder="Product objective, target consumer, key goals..." />
-            </div>
-            <div className="col-span-2 space-y-2">
-              <Label>Key Benefits / Claims</Label>
-              <Textarea rows={2} value={createForm.key_benefits} onChange={e => setCreateForm(f => ({...f, key_benefits: e.target.value}))} placeholder="• Claim 1&#10;• Claim 2" />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button>
-            <Button onClick={handleCreate} disabled={creating}>
-              {creating && <RefreshCw className="h-4 w-4 animate-spin mr-2" />}
-              Create PPD
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }
@@ -2372,17 +2356,9 @@ function PPDView({ user, token, can, brands: brandsProp }) {
 /** ────────────────────────────────────────────────────────
  *  PPD DETAIL — full view for a single PPD record
  * ──────────────────────────────────────────────────────── */
-function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
+function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh, onEditDraft }) {
   const [ppd, setPpd]           = useState(initialPpd)
-  const [editForm, setEditForm] = useState({
-    product_category: initialPpd.product_category || '',
-    target_consumer:  initialPpd.target_consumer  || '',
-    market_segment:   initialPpd.market_segment   || '',
-    expected_launch:  initialPpd.expected_launch  || '',
-    objective:        initialPpd.objective        || '',
-    key_benefits:     initialPpd.key_benefits     || '',
-    status:           initialPpd.status,
-  })
+  const [editForm, setEditForm] = useState({ status: initialPpd.status })
   const [saving, setSaving]       = useState(false)
   const [deleting, setDeleting]   = useState(false)
   const [comments, setComments]         = useState([])
@@ -2396,6 +2372,10 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
 
   // Rework popup state
   const [reworkOpen, setReworkOpen]     = useState(false)
+  // Detail tab + "Request Rework" → Comments tab with Rework preselected
+  const [detailTab, setDetailTab]       = useState('details')
+  const [reworkPreset, setReworkPreset] = useState(0)
+  const openRework = () => { setDetailTab('comments'); setReworkPreset(n => n + 1) }
   const [reworkComment, setReworkComment] = useState('')
   const [reworking, setReworking]       = useState(false)
   // Rework-done popup state
@@ -2416,7 +2396,7 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
   const myRole     = user?.role || 'fd'
 
   // Stage role sets
-  const INITIAL_REVIEWER_ROLES_FE = new Set(['fd','pm'])
+  const INITIAL_REVIEWER_ROLES_FE = new Set(['pm','rd_head','fd'])
   const MGMT_REVIEWER_ROLES_FE    = new Set(['rd_head','marketing_head','sales_head','gdso_head','regulatory','cfo'])
   const FINAL_APPROVER_ROLES_FE   = new Set(['ceo'])
 
@@ -2430,7 +2410,7 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
   const isTaskOwner = TASK_OWNER_ROLES_FE.has(myRole)
 
   // Can edit PPD content in Pending/Rework/ReviewerApproved
-  const canEditPPD = isAdmin || (isSource && ['Pending','Rework','ReviewerApproved'].includes(ppd.status)) || isPM
+  const canEditPPD = isAdmin || (isSource && ['Draft','Pending','Rework','ReviewerApproved'].includes(ppd.status)) || isPM
 
   const fetchComments = useCallback(async () => {
     try {
@@ -2642,7 +2622,7 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
 
   const wfSteps = isCompleted ? [
     { s: '1. PPD Created',                                                                                     d: `${ppd.created_by} (${ROLES[ppd.created_by_role]?.label || ppd.created_by_role}) created this PPD`, st: 'done' },
-    { s: '2. Initial Review (R&D/F&D + PM)',                                                                   d: `✓ All initial reviewers approved`,                                                                   st: 'done' },
+    { s: '2. Initial Review (PM + R&D Head + F&D Team Head)',                                                                   d: `✓ All initial reviewers approved`,                                                                   st: 'done' },
     { s: '3. Source Team Submits for Approval',                                                                d: '✓ Source Team submitted PPD to Management Committee',                                               st: 'done' },
     { s: '4. Management Committee Review (R&D Head, Marketing Head, Sales Head, GDSO Head, Regulatory Head, CFO)', d: `✓ All management reviewers approved`,                                                          st: 'done' },
     { s: '5. Final Approval (CEO)',                                                                             d: '✓ CEO approved',                                                                                     st: 'done' },
@@ -2654,7 +2634,7 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
       st: 'done',
     },
     {
-      s: '2. Initial Review (R&D/F&D + PM)',
+      s: '2. Initial Review (PM + R&D Head + F&D Team Head)',
       d: isRework && ppd.rework_from_stage === 'initial'
         ? `⚠ Rework requested — task owner to fix and resubmit`
         : (isReviewerApproved || isMgmtReview || isMgmtApproved || isFinalReview || isApproved)
@@ -2704,6 +2684,13 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
   ]
 
   const myReviewerEntry = reviewers.find(r => r.role === myRole)
+  const canStage1Act    = !isAdmin && isInitialReviewer && !!myReviewerEntry && myReviewerEntry.status !== 'Approved'
+    && (isPending || (isRework && ppd.rework_from_stage === 'initial'))
+  const canMgmtApprove  = isMgmtReviewer && !isFinalApprover && isMgmtReview && myMgmtEntry?.status !== 'Approved'
+  const canMgmtRework   = isMgmtReviewer && !isFinalApprover && myMgmtEntry?.status !== 'Approved'
+    && (isMgmtReview || (isRework && ppd.rework_from_stage === 'mgmt'))
+  const canFinalAct     = isFinalApprover && (isFinalReview || isMgmtApproved)
+  const canRequestRework = !isApproved && (canStage1Act || canMgmtRework || canFinalAct)
 
   return (
     <div className="space-y-4">
@@ -2763,8 +2750,8 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
             </Button>
           )}
 
-          {/* Stage 1: fd/pm — Approve in Pending or Rework@initial */}
-          {isInitialReviewer && !isMgmtReviewer && !isFinalApprover && (isPending || (isRework && ppd.rework_from_stage === 'initial')) && (
+          {/* Stage 1: PM / R&D Head / F&D Team Head — Approve in Pending or Rework@initial */}
+          {canStage1Act && !isApproved && (
             <Button size="sm" className="gap-1 bg-emerald-600 hover:bg-emerald-700 text-white" onClick={async () => {
               setSaving(true)
               try {
@@ -2781,16 +2768,16 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
               Approve
             </Button>
           )}
-          {/* Stage 1: fd/pm — Request Rework */}
-          {isInitialReviewer && !isMgmtReviewer && !isFinalApprover && (isPending || (isRework && ppd.rework_from_stage === 'initial')) && (
+          {/* Stage 1: PM / R&D Head / F&D Team Head — Request Rework */}
+          {canStage1Act && !isApproved && (
             <Button size="sm" variant="outline" className="gap-1 border-amber-400 text-amber-700 hover:bg-amber-50"
-              onClick={() => setReworkOpen(true)} disabled={saving}>
+              onClick={openRework} disabled={saving}>
               <AlertCircle className="h-4 w-4 mr-1"/>Request Rework
             </Button>
           )}
 
           {/* Stage 3: Management Committee — Approve */}
-          {isMgmtReviewer && !isFinalApprover && (isMgmtReview || (isRework && ppd.rework_from_stage === 'mgmt')) && (
+          {canMgmtApprove && !isApproved && (
             <Button size="sm" className="gap-1 bg-emerald-700 hover:bg-emerald-800 text-white"
               onClick={handleMgmtApprove} disabled={mgmtApproving}>
               {mgmtApproving ? <RefreshCw className="h-4 w-4 animate-spin mr-1"/> : <CheckCircle2 className="h-4 w-4 mr-1"/>}
@@ -2798,15 +2785,15 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
             </Button>
           )}
           {/* Stage 3: Management Committee — Request Rework */}
-          {isMgmtReviewer && !isFinalApprover && (isMgmtReview || (isRework && ppd.rework_from_stage === 'mgmt')) && (
+          {canMgmtRework && !isApproved && (
             <Button size="sm" variant="outline" className="gap-1 border-amber-400 text-amber-700 hover:bg-amber-50"
-              onClick={() => setReworkOpen(true)} disabled={mgmtApproving}>
+              onClick={openRework} disabled={mgmtApproving}>
               <AlertCircle className="h-4 w-4 mr-1"/>Request Rework
             </Button>
           )}
 
           {/* Stage 4: CFO/CEO — Final Approve */}
-          {isFinalApprover && (isFinalReview || isMgmtApproved) && (
+          {canFinalAct && !isApproved && (
             <Button size="sm" className="gap-1 bg-emerald-800 hover:bg-emerald-900 text-white"
               onClick={handleFinalApprove} disabled={finalApproving}>
               {finalApproving ? <RefreshCw className="h-4 w-4 animate-spin mr-1"/> : <CheckCircle2 className="h-4 w-4 mr-1"/>}
@@ -2814,9 +2801,9 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
             </Button>
           )}
           {/* Stage 4: CFO/CEO — Request Rework */}
-          {isFinalApprover && (isFinalReview || isMgmtApproved) && (
+          {canFinalAct && !isApproved && (
             <Button size="sm" variant="outline" className="gap-1 border-amber-400 text-amber-700 hover:bg-amber-50"
-              onClick={() => setReworkOpen(true)} disabled={finalApproving}>
+              onClick={openRework} disabled={finalApproving}>
               <AlertCircle className="h-4 w-4 mr-1"/>Request Rework
             </Button>
           )}
@@ -2829,8 +2816,27 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
               <Send className="h-4 w-4 mr-1"/>Submit Rework Done
             </Button>
           )}
-          {/* Editable roles: Save */}
-          {canEditPPD && (
+          {/* Source Team: submit Draft to PM + R&D Head + F&D Team Head */}
+          {ppd.status === 'Draft' && (isSource || isAdmin) && (
+            <Button size="sm" className="gap-1" onClick={async () => {
+              try {
+                setPpd(await apiCall(`/api/ppd/${ppd.ppd_id}/submit`, { method: 'POST', token }))
+                toast.success('PPD submitted to Project Management, R&D Head and F&D Team Head')
+              } catch (err) { toast.error(err.message) }
+            }}>
+              <Send className="h-4 w-4 mr-1"/>Submit PPD
+            </Button>
+          )}
+          {/* R&D Head / F&D Team Head: assign own team members */}
+          <AssignTeamButton ppd={ppd} user={user} token={token} apiCall={apiCall} onSaved={setPpd} />
+          {/* Editable roles: open full-page Draft PPD form */}
+          {canEditPPD && onEditDraft && (
+            <Button variant="outline" size="sm" onClick={onEditDraft}>
+              <FileText className="h-4 w-4 mr-1"/>Edit Draft PPD
+            </Button>
+          )}
+          {/* Admin: save status override */}
+          {isAdmin && (
             <Button variant="outline" size="sm" onClick={handleSave} disabled={saving}>
               {saving ? <RefreshCw className="h-4 w-4 animate-spin mr-1"/> : <Edit className="h-4 w-4 mr-1"/>}
               Save
@@ -2959,7 +2965,7 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
         </DialogContent>
       </Dialog>
 
-      <Tabs defaultValue="details">
+      <Tabs value={detailTab} onValueChange={setDetailTab}>
         <TabsList className={`grid w-full max-w-3xl ${isAdmin ? 'grid-cols-5' : 'grid-cols-4'}`}>
           <TabsTrigger value="details">Details</TabsTrigger>
           <TabsTrigger value="reviewers">Reviewers
@@ -2976,8 +2982,8 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
             <CardHeader>
               <div className="flex items-center justify-between">
                 <div>
-                  <CardTitle>Product Details</CardTitle>
-                  <CardDescription>Structured PPD fields — required for submission</CardDescription>
+                  <CardTitle>Draft PPD</CardTitle>
+                  <CardDescription>Complete Product Development Plan — use “Edit Draft PPD” to update</CardDescription>
                 </div>
                 {myReviewerEntry && (
                   <div className="flex items-center gap-2">
@@ -2989,53 +2995,10 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
                 )}
               </div>
             </CardHeader>
-            <CardContent className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>PPD ID</Label>
-                <p className="text-sm font-mono py-2 text-muted-foreground">{ppd.ppd_id}</p>
-              </div>
-              <div className="space-y-2">
-                <Label>Brand</Label>
-                <p className="text-sm py-2">{ppd.brand}</p>
-              </div>
-              <div className="space-y-2">
-                <Label>Product Category</Label>
-                {canEditPPD
-                  ? <Input value={editForm.product_category} onChange={e => setEditForm(f => ({...f, product_category: e.target.value}))} placeholder="e.g. Nutrition Powder" />
-                  : <p className="text-sm py-2">{ppd.product_category || '—'}</p>}
-              </div>
-              <div className="space-y-2">
-                <Label>Target Consumer</Label>
-                {canEditPPD
-                  ? <Input value={editForm.target_consumer} onChange={e => setEditForm(f => ({...f, target_consumer: e.target.value}))} placeholder="e.g. Kids 5-15 yrs" />
-                  : <p className="text-sm py-2">{ppd.target_consumer || '—'}</p>}
-              </div>
-              <div className="space-y-2">
-                <Label>Market Segment</Label>
-                {canEditPPD
-                  ? <Input value={editForm.market_segment} onChange={e => setEditForm(f => ({...f, market_segment: e.target.value}))} placeholder="e.g. Premium Health" />
-                  : <p className="text-sm py-2">{ppd.market_segment || '—'}</p>}
-              </div>
-              <div className="space-y-2">
-                <Label>Expected Launch</Label>
-                {canEditPPD
-                  ? <Input value={editForm.expected_launch} onChange={e => setEditForm(f => ({...f, expected_launch: e.target.value}))} placeholder="e.g. Q4 2026" />
-                  : <p className="text-sm py-2">{ppd.expected_launch || '—'}</p>}
-              </div>
-              <div className="col-span-2 space-y-2">
-                <Label>Objective</Label>
-                {canEditPPD
-                  ? <Textarea rows={3} value={editForm.objective} onChange={e => setEditForm(f => ({...f, objective: e.target.value}))} placeholder="Product objective, target consumer, key goals..." />
-                  : <p className="text-sm py-2 whitespace-pre-line">{ppd.objective || '—'}</p>}
-              </div>
-              <div className="col-span-2 space-y-2">
-                <Label>Key Benefits / Claims</Label>
-                {canEditPPD
-                  ? <Textarea rows={3} value={editForm.key_benefits} onChange={e => setEditForm(f => ({...f, key_benefits: e.target.value}))} placeholder="• Claim 1&#10;• Claim 2" />
-                  : <p className="text-sm py-2 whitespace-pre-line">{ppd.key_benefits || '—'}</p>}
-              </div>
+            <CardContent className="space-y-6">
+              <PPDDraftView ppd={ppd} />
               {isAdmin && (
-                <div className="col-span-2 space-y-2">
+                <div className="space-y-2 border-t pt-4 max-w-sm">
                   <Label>Status (Admin Override)</Label>
                   <Select value={editForm.status} onValueChange={v => setEditForm(f => ({...f, status: v}))}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
@@ -3044,7 +3007,7 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
                 </div>
               )}
             </CardContent>
-            {canEditPPD && (
+            {isAdmin && (
               <CardFooter className="border-t pt-4">
                 <Button onClick={handleSave} disabled={saving} className="ml-auto">
                   {saving && <RefreshCw className="h-4 w-4 animate-spin mr-2" />}
@@ -3058,12 +3021,12 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
         {/* ── REVIEWERS TAB ── */}
         <TabsContent value="reviewers" className="space-y-4">
 
-          {/* Stage 1: Initial Reviewers (fd + pm) */}
+          {/* Stage 1: Initial Reviewers (PM + R&D Head + F&D Team Head) */}
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-base flex items-center gap-2">
                 <span className="text-xs px-2 py-0.5 rounded bg-slate-200 text-slate-700 font-mono">Stage 1</span>
-                Initial Review — R&amp;D/F&amp;D + PM
+                Initial Review — PM + R&amp;D Head + F&amp;D Team Head
               </CardTitle>
               <CardDescription>
                 {(isReviewerApproved || isMgmtReview || isMgmtApproved || isFinalReview || isApproved)
@@ -3115,6 +3078,9 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
               )}
             </CardContent>
           </Card>
+
+          {/* Team assignment (R&D Head / F&D Team Head) */}
+          {ppd.status !== 'Draft' && <TeamAssignmentCard ppd={ppd} user={user} token={token} apiCall={apiCall} onSaved={setPpd} />}
 
           {/* Stage 3: Management Committee (shown once submitted) */}
           {(isMgmtReview || isMgmtApproved || isFinalReview || isApproved || (isRework && ppd.rework_from_stage === 'mgmt')) && (
@@ -3257,9 +3223,9 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
         <TabsContent value="comments">
           <Card>
             <CardHeader>
-              <CardTitle>Comments &amp; Rework History</CardTitle>
+              <CardTitle>Comments</CardTitle>
               <CardDescription>
-                Comments visible to you. Rework comments are restricted to involved parties only.
+                All comments (including Rework) are visible to everyone assigned / involved in this PPD.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -3299,86 +3265,23 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh }) {
                                   : c.action_tag}
                               </span>
                             )}
-                            {c.visible_to_roles && (
-                              <span className="text-[10px] px-1 py-0.5 rounded bg-slate-200 text-slate-600 border">🔒 restricted</span>
-                            )}
                           </div>
                           <span className="text-xs text-muted-foreground shrink-0">{relTime(c.created_at)}</span>
                         </div>
-                        <p className="text-sm mt-1 whitespace-pre-line">
-                          {c.comment.split(/(\bhttps?:\/\/\S+)/g).map((part, i) =>
-                            /^https?:\/\//.test(part)
-                              ? <a key={i} href={part} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline break-all">{part}</a>
-                              : part
-                          )}
-                        </p>
-                        {c.attachment_url && (
-                          <a
-                            href={`${API_BASE}${c.attachment_url}`}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-flex items-center gap-1 mt-1.5 text-xs text-blue-600 hover:underline border border-blue-200 bg-blue-50 rounded px-2 py-0.5"
-                          >
-                            <Paperclip className="h-3 w-3" />
-                            {c.attachment_name || 'Attachment'}
-                          </a>
-                        )}
+                        <CommentBody c={c} apiBase={API_BASE} />
                       </div>
                     </div>
                   )
                 })
               )}
 
-              {/* New comment box */}
-              <div className="border rounded-lg p-3 space-y-3">
-                <Textarea
-                  placeholder="Add a comment or feedback…"
-                  rows={3}
-                  value={newComment}
-                  onChange={e => setNewComment(e.target.value)}
-                />
-
-                {/* File attachment */}
-                <div className="flex items-center gap-2">
-                  <label className="flex items-center gap-1.5 cursor-pointer text-xs text-muted-foreground hover:text-foreground border rounded px-2 py-1.5 hover:bg-muted transition-colors">
-                    <Paperclip className="h-3.5 w-3.5" />
-                    {uploading ? 'Uploading...' : 'Attach file'}
-                    <input
-                      type="file"
-                      className="hidden"
-                      accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.zip"
-                      disabled={uploading}
-                      onChange={e => {
-                        const f = e.target.files?.[0]
-                        if (f) { setAttachFile(f); setAttachResult(null); handleUpload(f) }
-                      }}
-                    />
-                  </label>
-                  {attachResult && (
-                    <div className="flex items-center gap-1 text-xs bg-green-50 border border-green-200 text-green-700 rounded px-2 py-1">
-                      <Paperclip className="h-3 w-3" />
-                      <span className="max-w-[160px] truncate">{attachResult.filename}</span>
-                      <button onClick={() => { setAttachFile(null); setAttachResult(null) }} className="ml-1 text-green-500 hover:text-red-500">✕</button>
-                    </div>
-                  )}
-                  {uploading && <RefreshCw className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
-                  <span className="text-xs text-muted-foreground ml-auto">PDF, Word, Excel, images, ZIP — max 10 MB</span>
-                </div>
-
-                <div className="flex items-center justify-between gap-2">
-                  <Select value={actionTag} onValueChange={setActionTag}>
-                      <SelectTrigger className={`w-40 h-8 text-xs ${actionTag === 'rework' ? 'border-amber-400 text-amber-700' : ''}`}><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="comment">💬 Comment</SelectItem>
-                        <SelectItem value="rework">🔁 Rework</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  <Button size="sm" onClick={handlePostComment} disabled={postingComment || uploading || !newComment.trim()}>
-                    {postingComment ? <RefreshCw className="h-4 w-4 animate-spin mr-2" /> : <MessageSquare className="h-4 w-4 mr-2"/>}
-                    Post Comment
-                  </Button>
-                </div>
-              </div>
+              {/* New comment box — rich text + attachments; team members can only comment */}
+              {TEAM_MEMBER_ROLES.has(myRole) && (
+                <p className="text-xs text-muted-foreground">You are an assigned team member — you can review and add comments. Approval is done by your Team Head.</p>
+              )}
+              <CommentComposer ppd={ppd} token={token} apiCall={apiCall}
+                allowRework={canRequestRework && !TEAM_MEMBER_ROLES.has(myRole)} reworkPreset={reworkPreset}
+                onPosted={async () => { fetchComments(); await refreshPpd() }} />
             </CardContent>
           </Card>
         </TabsContent>
@@ -3532,7 +3435,8 @@ function FormulationView({ user, token, can }) {
   const [statusFilter, setStatusFilter]   = useState('all')
   const [q, setQ]                         = useState('')
 
-  // Create dialog
+  // Full-page New / Edit Formulation: { mode: 'create' } | { mode: 'edit', formula }
+  const [formPage, setFormPage]       = useState(null)
   const [createOpen, setCreateOpen]   = useState(false)
   const [creating, setCreating]       = useState(false)
   const [createForm, setCreateForm]   = useState({
@@ -3559,8 +3463,8 @@ function FormulationView({ user, token, can }) {
   const [compareOpen, setCompareOpen] = useState(false)
   const [compareIds, setCompareIds]   = useState([])
 
-  const canEdit = ['admin','fd','rd_head'].includes(user?.role) || (can && can('Formulation','edit'))
-  const canCreate = ['admin','fd','rd_head'].includes(user?.role) || (can && can('Formulation','create'))
+  const canEdit = ['admin','fd','fd_member','rd_head'].includes(user?.role) || (can && can('Formulation','edit'))
+  const canCreate = ['admin','fd','fd_member','rd_head'].includes(user?.role) || (can && can('Formulation','create'))
   const canDelete = ['admin','rd_head'].includes(user?.role)
 
   // ── fetch ──
@@ -3751,267 +3655,26 @@ function FormulationView({ user, token, can }) {
   const removeIngredient = (i) => setIngredients(prev => prev.filter((_,idx) => idx !== i))
   const updateIngredient = (i, field, val) => setIngredients(prev => prev.map((row,idx) => idx===i ? {...row,[field]:val} : row))
 
-  return (
-    <div className="space-y-4">
+  // Full-page New / Edit Formulation
+  if (formPage) {
+    return <FormulationForm key={formPage.formula?.formula_id || 'new'} mode={formPage.mode} formula={formPage.formula}
+      ppds={ppds} initialPpdId={ppdFilter !== 'all' ? ppdFilter : ''} token={token} apiCall={apiCall}
+      onBack={() => setFormPage(null)}
+      onSaved={() => { setFormPage(null); fetchFormulas() }} />
+  }
 
-      {/* ── Header ── */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold">Formulation Development</h1>
-          <p className="text-muted-foreground text-sm">R&D / F&D workspace — formula versions, ingredients, trials & comparison</p>
-        </div>
-        <div className="flex gap-2 flex-wrap">
-          {compareIds.length >= 2 && (
-            <Button variant="outline" onClick={() => setCompareOpen(true)}>
-              <GitCompare className="h-4 w-4 mr-2"/>Compare ({compareIds.length})
-            </Button>
-          )}
-          {compareIds.length > 0 && (
-            <Button variant="ghost" size="sm" onClick={() => setCompareIds([])}>Clear selection</Button>
-          )}
-          {/* Download PPD dossier PDF — only when a PPD is selected */}
-          {ppdFilter !== 'all' && (
-            <Button variant="outline" className="gap-2 border-blue-300 text-blue-700 hover:bg-blue-50"
-              onClick={() => window.open(`${API_BASE}/api/formulation/report/${ppdFilter}?token=${encodeURIComponent(token)}`, '_blank')}>
-              <FileText className="h-4 w-4"/>Download PPD Report
-            </Button>
-          )}
-          {canEdit && (
-            <Button onClick={() => setCreateOpen(true)}><Plus className="h-4 w-4 mr-2"/>New Formula</Button>
-          )}
-        </div>
-      </div>
-
-      {/* ── Stats row ── */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-        {FORMULA_STATUSES.map(st => {
-          const count = formulas.filter(f => f.status === st).length
-          return (
-            <Card key={st} className={`cursor-pointer border-2 ${statusFilter===st?'border-primary':'border-transparent'}`}
-              onClick={() => setStatusFilter(s => s===st?'all':st)}>
-              <CardContent className="p-3">
-                <p className="text-xs text-muted-foreground">{st}</p>
-                <p className="text-2xl font-bold mt-1">{count}</p>
-              </CardContent>
-            </Card>
-          )
-        })}
-      </div>
-
-      {/* ── Filters ── */}
-      <Card>
-        <CardHeader className="pb-3">
-          <div className="flex flex-wrap gap-3 items-center">
-            <div className="relative flex-1 min-w-[180px]">
-              <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"/>
-              <Input value={q} onChange={e => setQ(e.target.value)} placeholder="Search formulas..." className="pl-9"/>
-            </div>
-            <Select value={ppdFilter} onValueChange={setPpdFilter}>
-              <SelectTrigger className="w-52"><SelectValue placeholder="All PPDs"/></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All PPDs</SelectItem>
-                {ppds.map(p => <SelectItem key={p.ppd_id} value={p.ppd_id}>{p.project_name}</SelectItem>)}
-              </SelectContent>
-            </Select>
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-44"><Filter className="h-4 w-4 mr-1"/><SelectValue/></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Statuses</SelectItem>
-                {FORMULA_STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-              </SelectContent>
-            </Select>
-            <Button variant="outline" size="sm" onClick={fetchFormulas}><RefreshCw className="h-4 w-4 mr-1"/>Refresh</Button>
-          </div>
-        </CardHeader>
-
-        {/* ── Table ── */}
-        <CardContent className="p-0">
-          {loading ? (
-            <div className="space-y-2 p-4">{[1,2,3,4].map(i=><div key={i} className="h-10 bg-slate-100 rounded animate-pulse"/>)}</div>
-          ) : formulas.length === 0 ? (
-            <div className="text-center py-16 text-muted-foreground">
-              <FlaskConical className="h-12 w-12 mx-auto mb-3 opacity-30"/>
-              <p className="font-medium">No formulas found</p>
-              <p className="text-sm">{canEdit ? 'Create your first formula using the button above' : 'No formulas assigned to your team yet'}</p>
-            </div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-8"></TableHead>
-                  <TableHead className="w-32">PPD ID</TableHead>
-                  <TableHead>Project</TableHead>
-                  <TableHead>Trial No.</TableHead>
-                  <TableHead>Approval</TableHead>
-                  <TableHead className="w-10"></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {formulas.map(f => (
-                  <TableRow key={f.formula_id} className="cursor-pointer hover:bg-muted/50"
-                    onClick={e => { if (e.target.closest('button,input,select,label,[role=checkbox]')) return; openDetail(f) }}>
-                    <TableCell onClick={e => e.stopPropagation()}>
-                      <Checkbox
-                        checked={compareIds.includes(f.formula_id)}
-                        onCheckedChange={checked => setCompareIds(prev =>
-                          checked ? [...prev, f.formula_id] : prev.filter(id => id !== f.formula_id)
-                        )}
-                      />
-                    </TableCell>
-                    <TableCell className="font-mono text-xs text-muted-foreground">{f.ppd_id||'—'}</TableCell>
-                    <TableCell className="text-sm font-medium truncate max-w-[200px]">{f.project_name||'—'}</TableCell>
-                    <TableCell className="text-xs font-medium">{f.trial_no||'—'}</TableCell>
-                    <TableCell>
-                      {f.approval_status === 'pending_approval' && (
-                        <span className="text-xs px-2 py-0.5 rounded-md font-medium bg-amber-100 text-amber-700">Pending Review</span>
-                      )}
-                      {f.approval_status === 'approved' && (
-                        <span className="text-xs px-2 py-0.5 rounded-md font-medium bg-green-100 text-green-700">Approved</span>
-                      )}
-                      {f.approval_status === 'rejected' && (
-                        <span className="text-xs px-2 py-0.5 rounded-md font-medium bg-red-100 text-red-700">Rejected</span>
-                      )}
-                      {!f.approval_status && <span className="text-xs text-muted-foreground">—</span>}
-                    </TableCell>
-                    <TableCell><ChevronRight className="h-4 w-4 text-muted-foreground"/></TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-        {formulas.length > 0 && (
-          <div className="px-6 py-2 border-t text-xs text-muted-foreground">
-            {formulas.length} formula{formulas.length!==1?'s':''} shown
-            {compareIds.length > 0 && <span className="ml-3 text-primary font-medium">{compareIds.length} selected for comparison</span>}
-          </div>
-        )}
-      </Card>
-
-      {/* ── Create Dialog ── */}
-      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>New Formula</DialogTitle>
-            <DialogDescription>Create a new formula version for a project</DialogDescription>
-          </DialogHeader>
-          <Tabs defaultValue="basic">
-            <TabsList className="w-full grid grid-cols-2">
-              <TabsTrigger value="basic">Basic Info</TabsTrigger>
-              <TabsTrigger value="ingredients">Ingredients</TabsTrigger>
-            </TabsList>
-            <TabsContent value="basic" className="space-y-4 pt-2">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="col-span-2 space-y-1.5">
-                  <Label>PPD <span className="text-red-500">*</span></Label>
-                  <Select value={createForm.ppd_id} onValueChange={v => setCreateForm(f=>({...f,ppd_id:v}))}>
-                    <SelectTrigger><SelectValue placeholder="Select PPD"/></SelectTrigger>
-                    <SelectContent>{ppds.map(p=><SelectItem key={p.ppd_id} value={p.ppd_id}>{p.ppd_id} — {p.project_name}</SelectItem>)}</SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Trial No.</Label>
-                  <Input value={createForm.trial_no} onChange={e=>setCreateForm(f=>({...f,trial_no:e.target.value}))} placeholder="e.g. T-001"/>
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Batch No.</Label>
-                  <Input value={createForm.batch_no} onChange={e=>setCreateForm(f=>({...f,batch_no:e.target.value}))} placeholder="e.g. B-2026-01"/>
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Batch Size (gm)</Label>
-                  <Input value={createForm.batch_size} onChange={e=>setCreateForm(f=>({...f,batch_size:e.target.value}))} placeholder="e.g. 5000"/>
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Unit Qty. (gm)</Label>
-                  <Input value={createForm.unit_qty} onChange={e=>setCreateForm(f=>({...f,unit_qty:e.target.value}))} placeholder="e.g. 500"/>
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Mfg Date</Label>
-                  <Input type="date" value={createForm.mfg_date} onChange={e=>setCreateForm(f=>({...f,mfg_date:e.target.value}))}/>
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Trial Taken By</Label>
-                  <Input value={createForm.trial_taken_by} onChange={e=>setCreateForm(f=>({...f,trial_taken_by:e.target.value}))} placeholder="Name(s)"/>
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Evaluated By</Label>
-                  <Input value={createForm.evaluated_by} onChange={e=>setCreateForm(f=>({...f,evaluated_by:e.target.value}))} placeholder="Name(s)"/>
-                </div>
-                <div className="col-span-2 space-y-1.5">
-                  <Label>Method of Preparation</Label>
-                  <Textarea rows={2} value={createForm.method_of_preparation} onChange={e=>setCreateForm(f=>({...f,method_of_preparation:e.target.value}))} placeholder="Describe preparation method..."/>
-                </div>
-                <div className="col-span-2 space-y-1.5">
-                  <Label>Observation / Reason of Modification</Label>
-                  <Textarea rows={2} value={createForm.observation} onChange={e=>setCreateForm(f=>({...f,observation:e.target.value}))} placeholder="Observations, reasons for modification..."/>
-                </div>
-                <div className="col-span-2 space-y-1.5">
-                  <Label>Conclusion</Label>
-                  <Textarea rows={2} value={createForm.conclusion} onChange={e=>setCreateForm(f=>({...f,conclusion:e.target.value}))} placeholder="Trial conclusion..."/>
-                </div>
-              </div>
-            </TabsContent>
-            <TabsContent value="ingredients" className="pt-2">
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <Label>Product Parameters (Ingredients)</Label>
-                  <Button size="sm" variant="outline" onClick={addIngredient}><Plus className="h-3 w-3 mr-1"/>Add Row</Button>
-                </div>
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="w-10">Sr. No.</TableHead>
-                        <TableHead>Name of Ingredients</TableHead>
-                        <TableHead>INS / CAS / INCI No.</TableHead>
-                        <TableHead>Vendor / Supplier Name</TableHead>
-                        <TableHead>Use / Function</TableHead>
-                        <TableHead>Cost Per Kg</TableHead>
-                        <TableHead>Qty (%)</TableHead>
-                        <TableHead>Qty per Unit / BOM</TableHead>
-                        <TableHead>Cost per Unit (₹)</TableHead>
-                        <TableHead className="w-10"></TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {ingredients.map((ing, i) => (
-                        <TableRow key={i}>
-                          <TableCell className="text-center text-sm font-medium text-muted-foreground">{i+1}</TableCell>
-                          <TableCell><Input value={ing.name} onChange={e=>updateIngredient(i,'name',e.target.value)} placeholder="Ingredient name" className="min-w-[130px]"/></TableCell>
-                          <TableCell><Input value={ing.ins_cas_inci} onChange={e=>updateIngredient(i,'ins_cas_inci',e.target.value)} placeholder="e.g. INS 471" className="min-w-[110px]"/></TableCell>
-                          <TableCell><Input value={ing.vendor} onChange={e=>updateIngredient(i,'vendor',e.target.value)} placeholder="Vendor name" className="min-w-[120px]"/></TableCell>
-                          <TableCell><Input value={ing.use_function} onChange={e=>updateIngredient(i,'use_function',e.target.value)} placeholder="e.g. Emulsifier" className="min-w-[110px]"/></TableCell>
-                          <TableCell><Input value={ing.cost_per_kg} onChange={e=>updateIngredient(i,'cost_per_kg',e.target.value)} placeholder="₹" className="w-20"/></TableCell>
-                          <TableCell><Input value={ing.qty_pct} onChange={e=>updateIngredient(i,'qty_pct',e.target.value)} placeholder="%" className="w-16"/></TableCell>
-                          <TableCell><Input value={ing.qty_per_unit} onChange={e=>updateIngredient(i,'qty_per_unit',e.target.value)} placeholder="gm" className="w-20"/></TableCell>
-                          <TableCell><Input value={ing.cost_per_unit} onChange={e=>updateIngredient(i,'cost_per_unit',e.target.value)} placeholder="₹" className="w-20"/></TableCell>
-                          <TableCell><Button size="sm" variant="ghost" onClick={()=>removeIngredient(i)}><Trash2 className="h-3 w-3 text-red-500"/></Button></TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              </div>
-            </TabsContent>
-          </Tabs>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button>
-            <Button onClick={handleCreate} disabled={creating}>
-              {creating && <RefreshCw className="h-4 w-4 animate-spin mr-2"/>}Create Formula
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* ── Detail / Edit Dialog ── */}
-      {selected && (
-        <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
-          <DialogContent className="max-w-4xl max-h-[92vh] overflow-y-auto">
-            <DialogHeader>
+  // Full-screen formula view (replaces the old popup)
+  if (selected && detailOpen) {
+    return (
+      <div className="space-y-4">
+            <div className="sticky top-0 z-20 -mx-1 border-b bg-background/95 px-1 py-3 backdrop-blur">
               <div className="flex items-start justify-between gap-4">
-                <div>
-                  <DialogTitle className="text-xl font-mono">{selected.formula_id}</DialogTitle>
-                  <DialogDescription className="mt-1">{selected.project_name} • {selected.version} • by {selected.created_by}</DialogDescription>
+                <div className="flex items-start gap-2">
+                  <Button variant="ghost" size="sm" onClick={() => setDetailOpen(false)}><ArrowLeft className="h-4 w-4 mr-1"/>Back</Button>
+                  <div>
+                  <h1 className="text-xl font-bold font-mono">{selected.formula_id}</h1>
+                  <p className="mt-1 text-sm text-muted-foreground">{selected.project_name} • {selected.version} • by {selected.created_by}{selected.ppd_id ? ` • PPD: ${selected.ppd_id}` : ''}</p>
+                  </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   <span className={`text-xs px-2 py-1 rounded-md font-medium whitespace-nowrap ${FORMULA_STATUS_COLORS[selected.status]||'bg-slate-100'}`}>{selected.status}</span>
@@ -4021,7 +3684,7 @@ function FormulationView({ user, token, can }) {
                   </Button>
                 </div>
               </div>
-            </DialogHeader>
+            </div>
 
             <Tabs value={activeTab} onValueChange={setActiveTab}>
               <TabsList className="w-full grid grid-cols-4">
@@ -4228,7 +3891,7 @@ function FormulationView({ user, token, can }) {
                 )}
 
                 {/* rd_head / admin — approve or reject panel */}
-                {(user?.role === 'rd_head' || user?.role === 'admin') && selected.approval_status === 'pending_approval' && (
+                {(user?.role === 'rd_head' || user?.role === 'admin') && selected.approval_status !== 'approved' && (
                   <div className="rounded-lg border border-slate-200 p-4 space-y-3 bg-slate-50">
                     <p className="text-sm font-semibold text-slate-700">R&D Head Review</p>
                     <p className="text-xs text-muted-foreground">This formula has been submitted for your approval. Add an optional comment and approve or reject.</p>
@@ -4308,13 +3971,21 @@ function FormulationView({ user, token, can }) {
               </TabsContent>
             </Tabs>
 
-            <DialogFooter className="gap-2 pt-2">
+            <div className="flex flex-wrap justify-end gap-2 border-t pt-4">
               {canDelete && (
                 <Button variant="destructive" onClick={handleDelete} disabled={deleting} className="mr-auto">
                   {deleting ? <RefreshCw className="h-4 w-4 animate-spin mr-2"/> : <Trash2 className="h-4 w-4 mr-2"/>}Delete
                 </Button>
               )}
-              <Button variant="outline" onClick={() => setDetailOpen(false)}>Close</Button>
+              <Button variant="outline" onClick={() => setDetailOpen(false)}>Back</Button>
+              {canEdit && (
+                <Button variant="outline" onClick={async () => {
+                  try {
+                    const full = await apiCall(`/api/formulation/${selected.formula_id}`, { token })
+                    setDetailOpen(false); setFormPage({ mode: 'edit', formula: full })
+                  } catch (err) { toast.error(err.message) }
+                }}><Edit className="h-4 w-4 mr-2"/>Edit Formula</Button>
+              )}
               {canEdit && (
                 <Button onClick={handleSave} disabled={saving}>
                   {saving && <RefreshCw className="h-4 w-4 animate-spin mr-2"/>}Save Changes
@@ -4333,8 +4004,8 @@ function FormulationView({ user, token, can }) {
                   Send for Approval
                 </Button>
               )}
-              {/* rd_head quick-action buttons also available in footer when pending */}
-              {(user?.role === 'rd_head' || user?.role === 'admin') && selected?.approval_status === 'pending_approval' && (
+              {/* rd_head quick-action buttons also available in footer until approved */}
+              {(user?.role === 'rd_head' || user?.role === 'admin') && selected?.approval_status !== 'approved' && (
                 <>
                   <Button variant="outline" className="border-red-300 text-red-700 hover:bg-red-50 gap-1.5"
                     disabled={reviewing} onClick={() => { setActiveTab('status'); handleReview('rejected') }}>
@@ -4348,10 +4019,149 @@ function FormulationView({ user, token, can }) {
                   </Button>
                 </>
               )}
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      )}
+            </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-4">
+
+      {/* ── Header ── */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold">Formulation Development</h1>
+          <p className="text-muted-foreground text-sm">R&D / F&D workspace — formula versions, ingredients, trials & comparison</p>
+        </div>
+        <div className="flex gap-2 flex-wrap">
+          {compareIds.length >= 2 && (
+            <Button variant="outline" onClick={() => setCompareOpen(true)}>
+              <GitCompare className="h-4 w-4 mr-2"/>Compare ({compareIds.length})
+            </Button>
+          )}
+          {compareIds.length > 0 && (
+            <Button variant="ghost" size="sm" onClick={() => setCompareIds([])}>Clear selection</Button>
+          )}
+          {/* Download PPD dossier PDF — only when a PPD is selected */}
+          {ppdFilter !== 'all' && (
+            <Button variant="outline" className="gap-2 border-blue-300 text-blue-700 hover:bg-blue-50"
+              onClick={() => window.open(`${API_BASE}/api/formulation/report/${ppdFilter}?token=${encodeURIComponent(token)}`, '_blank')}>
+              <FileText className="h-4 w-4"/>Download PPD Report
+            </Button>
+          )}
+          {canEdit && (
+            <Button onClick={() => setFormPage({ mode: 'create' })}><Plus className="h-4 w-4 mr-2"/>New Formula</Button>
+          )}
+        </div>
+      </div>
+
+      {/* ── Stats row ── */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        {FORMULA_STATUSES.map(st => {
+          const count = formulas.filter(f => f.status === st).length
+          return (
+            <Card key={st} className={`cursor-pointer border-2 ${statusFilter===st?'border-primary':'border-transparent'}`}
+              onClick={() => setStatusFilter(s => s===st?'all':st)}>
+              <CardContent className="p-3">
+                <p className="text-xs text-muted-foreground">{st}</p>
+                <p className="text-2xl font-bold mt-1">{count}</p>
+              </CardContent>
+            </Card>
+          )
+        })}
+      </div>
+
+      {/* ── Filters ── */}
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex flex-wrap gap-3 items-center">
+            <div className="relative flex-1 min-w-[180px]">
+              <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"/>
+              <Input value={q} onChange={e => setQ(e.target.value)} placeholder="Search formulas..." className="pl-9"/>
+            </div>
+            <Select value={ppdFilter} onValueChange={setPpdFilter}>
+              <SelectTrigger className="w-52"><SelectValue placeholder="All PPDs"/></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All PPDs</SelectItem>
+                {ppds.map(p => <SelectItem key={p.ppd_id} value={p.ppd_id}>{p.project_name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-44"><Filter className="h-4 w-4 mr-1"/><SelectValue/></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Statuses</SelectItem>
+                {FORMULA_STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Button variant="outline" size="sm" onClick={fetchFormulas}><RefreshCw className="h-4 w-4 mr-1"/>Refresh</Button>
+          </div>
+        </CardHeader>
+
+        {/* ── Table ── */}
+        <CardContent className="p-0">
+          {loading ? (
+            <div className="space-y-2 p-4">{[1,2,3,4].map(i=><div key={i} className="h-10 bg-slate-100 rounded animate-pulse"/>)}</div>
+          ) : formulas.length === 0 ? (
+            <div className="text-center py-16 text-muted-foreground">
+              <FlaskConical className="h-12 w-12 mx-auto mb-3 opacity-30"/>
+              <p className="font-medium">No formulas found</p>
+              <p className="text-sm">{canEdit ? 'Create your first formula using the button above' : 'No formulas assigned to your team yet'}</p>
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-8"></TableHead>
+                  <TableHead className="w-32">PPD ID</TableHead>
+                  <TableHead>Project</TableHead>
+                  <TableHead>Trial No.</TableHead>
+                  <TableHead>Approval</TableHead>
+                  <TableHead className="w-10"></TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {formulas.map(f => (
+                  <TableRow key={f.formula_id} className="cursor-pointer hover:bg-muted/50"
+                    onClick={e => { if (e.target.closest('button,input,select,label,[role=checkbox]')) return; openDetail(f) }}>
+                    <TableCell onClick={e => e.stopPropagation()}>
+                      <Checkbox
+                        checked={compareIds.includes(f.formula_id)}
+                        onCheckedChange={checked => setCompareIds(prev =>
+                          checked ? [...prev, f.formula_id] : prev.filter(id => id !== f.formula_id)
+                        )}
+                      />
+                    </TableCell>
+                    <TableCell className="font-mono text-xs text-muted-foreground">{f.ppd_id||'—'}</TableCell>
+                    <TableCell className="text-sm font-medium truncate max-w-[200px]">{f.project_name||'—'}</TableCell>
+                    <TableCell className="text-xs font-medium">{f.trial_no||'—'}</TableCell>
+                    <TableCell>
+                      {f.approval_status === 'pending_approval' && (
+                        <span className="text-xs px-2 py-0.5 rounded-md font-medium bg-amber-100 text-amber-700">Pending Review</span>
+                      )}
+                      {f.approval_status === 'approved' && (
+                        <span className="text-xs px-2 py-0.5 rounded-md font-medium bg-green-100 text-green-700">Approved</span>
+                      )}
+                      {f.approval_status === 'rejected' && (
+                        <span className="text-xs px-2 py-0.5 rounded-md font-medium bg-red-100 text-red-700">Rejected</span>
+                      )}
+                      {!f.approval_status && <span className="text-xs text-muted-foreground">—</span>}
+                    </TableCell>
+                    <TableCell><ChevronRight className="h-4 w-4 text-muted-foreground"/></TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+        {formulas.length > 0 && (
+          <div className="px-6 py-2 border-t text-xs text-muted-foreground">
+            {formulas.length} formula{formulas.length!==1?'s':''} shown
+            {compareIds.length > 0 && <span className="ml-3 text-primary font-medium">{compareIds.length} selected for comparison</span>}
+          </div>
+        )}
+      </Card>
+
+
 
       {/* ── Compare Dialog ── */}
       <Dialog open={compareOpen} onOpenChange={setCompareOpen}>
@@ -4398,21 +4208,11 @@ function FormulationView({ user, token, can }) {
 /* -------------------- LAB NOTEBOOK -------------------- */
 function LabBookView({ user, token }) {
   const [formulas, setFormulas] = useState([])
+  const [ppdTitles, setPpdTitles] = useState({})
   const [loading, setLoading]   = useState(true)
-  const [selected, setSelected] = useState(null)
-  const [detailOpen, setDetailOpen] = useState(false)
-  const [detailTab, setDetailTab] = useState('details')
-
-  // Attachment selection (rd_head only)
-  const [ppdReports, setPpdReports]       = useState([])
-  const [ppdComments, setPpdComments]     = useState([])
-  const [loadingAttach, setLoadingAttach] = useState(false)
-  const [selReports, setSelReports]       = useState([])    // selected report_ids
-  const [selComments, setSelComments]     = useState([])    // selected comment ids
-  const [generating, setGenerating]       = useState(false)
+  const [notebook, setNotebook] = useState(null)   // PPD whose E-Lab Notebook is open full-screen
 
   const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://fmcg-software.onrender.com'
-  const isRdHead = ['admin','rd_head'].includes(user?.role)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -4421,44 +4221,25 @@ function LabBookView({ user, token }) {
       setFormulas(Array.isArray(data) ? data : [])
     } catch { toast.error('Failed to load formulas') }
     finally { setLoading(false) }
+    apiCall('/api/ppd', { token })
+      .then(d => setPpdTitles(Object.fromEntries((Array.isArray(d) ? d : []).map(p => [p.ppd_id, p.ppd_title]))))
+      .catch(() => {})
   }, [token])
 
   useEffect(() => { load() }, [load])
 
-  const openDetail = async (f) => {
-    setSelected(f)
-    setDetailTab('details')
-    setSelReports([])
-    setSelComments([])
-    setDetailOpen(true)
-    // If rd_head, also load pilot reports + PPD comments for the PPD
-    if (isRdHead && f.ppd_id) {
-      setLoadingAttach(true)
-      try {
-        const [rData, cData] = await Promise.all([
-          apiCall(`/api/pilot-reports?ppd_id=${f.ppd_id}`, { token }),
-          apiCall(`/api/ppd/${f.ppd_id}/comments`, { token }),
-        ])
-        setPpdReports(Array.isArray(rData) ? rData : [])
-        setPpdComments(Array.isArray(cData) ? cData : [])
-      } catch { setPpdReports([]); setPpdComments([]) }
-      finally { setLoadingAttach(false) }
+  // One E-Lab Notebook card per PPD — each PPD can hold any number of formulas / trials
+  const notebooks = useMemo(() => {
+    const m = new Map()
+    for (const f of formulas) {
+      const key = f.ppd_id || '—'
+      const nb = m.get(key) || { ppd_id: key, project_name: f.project_name, title: ppdTitles[key] || '', count: 0, latest: f }
+      nb.count += 1
+      if ((f.updated_at || '') > (nb.latest.updated_at || '')) nb.latest = f
+      m.set(key, nb)
     }
-  }
-
-  const toggleReport  = (id) => setSelReports(p => p.includes(id) ? p.filter(x=>x!==id) : [...p, id])
-  const toggleComment = (id) => setSelComments(p => p.includes(id) ? p.filter(x=>x!==id) : [...p, id])
-
-  const handleGenerate = () => {
-    if (!selected?.ppd_id) return
-    const params = new URLSearchParams({
-      token,
-      base_url: API_BASE,
-    })
-    if (selReports.length)  params.set('report_ids',  selReports.join(','))
-    if (selComments.length) params.set('comment_ids', selComments.join(','))
-    window.open(`${API_BASE}/api/formulation/report/${selected.ppd_id}/with-attachments?${params}`, '_blank')
-  }
+    return [...m.values()]
+  }, [formulas, ppdTitles])
 
   const STATUS_COLOR = {
     'Draft':          'bg-slate-100 text-slate-700',
@@ -4468,6 +4249,12 @@ function LabBookView({ user, token }) {
     'Rejected':       'bg-red-100 text-red-700',
   }
 
+  // Full-screen E-Lab Notebook (no popup)
+  if (notebook) {
+    return <ElabNotebook ppd={notebook} user={user} token={token} apiCall={apiCall} apiBase={API_BASE}
+      onBack={() => { setNotebook(null); load() }} />
+  }
+
   return (
     <div className="space-y-6">
       {/* ── Header ── */}
@@ -4475,7 +4262,7 @@ function LabBookView({ user, token }) {
         <div>
           <h1 className="text-2xl font-bold">E-Lab Notebook</h1>
           <p className="text-muted-foreground text-sm">
-            {loading ? 'Loading…' : `${formulas.length} formula record${formulas.length !== 1 ? 's' : ''} — click any card to view details`}
+            {loading ? 'Loading…' : `${notebooks.length} PPD notebook${notebooks.length !== 1 ? 's' : ''} · ${formulas.length} formula / trial record${formulas.length !== 1 ? 's' : ''} — click a card to open the full E-Lab Notebook`}
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={load}>
@@ -4490,7 +4277,7 @@ function LabBookView({ user, token }) {
             <div key={i} className="h-36 rounded-xl bg-slate-100 animate-pulse" />
           ))}
         </div>
-      ) : formulas.length === 0 ? (
+      ) : notebooks.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-24 text-muted-foreground">
           <FileText className="h-12 w-12 mb-3 opacity-30" />
           <p className="font-medium">No formulas found</p>
@@ -4498,33 +4285,32 @@ function LabBookView({ user, token }) {
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {formulas.map(f => (
+          {notebooks.map(nb => (
             <div
-              key={f.formula_id}
-              onClick={() => openDetail(f)}
+              key={nb.ppd_id}
+              onClick={() => setNotebook(nb)}
               className="group relative flex flex-col gap-3 p-4 bg-white border border-slate-200 rounded-xl cursor-pointer
                          hover:border-primary/50 hover:shadow-md transition-all duration-150"
             >
-              {/* Top row: formula_id + status badge */}
+              {/* Top row: PPD ID + latest status */}
               <div className="flex items-center justify-between gap-2">
-                <span className="font-mono text-xs font-semibold text-primary truncate">{f.formula_id}</span>
-                <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium whitespace-nowrap ${STATUS_COLOR[f.status] || 'bg-slate-100 text-slate-600'}`}>
-                  {f.status}
+                <span className="font-mono text-xs font-semibold text-primary truncate">{nb.ppd_id}</span>
+                <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium whitespace-nowrap ${STATUS_COLOR[nb.latest.status] || 'bg-slate-100 text-slate-600'}`}>
+                  {nb.latest.status}
                 </span>
               </div>
 
-              {/* Middle: PPD name */}
+              {/* Middle: product name */}
               <div>
                 <p className="text-[10px] text-muted-foreground uppercase tracking-wide mb-0.5">Product</p>
-                <p className="text-sm font-medium leading-snug line-clamp-2">{f.project_name}</p>
-                <p className="text-xs text-muted-foreground font-mono mt-0.5">{f.ppd_id || '—'}</p>
+                <p className="text-sm font-medium leading-snug line-clamp-2">{nb.project_name} - Trials</p>
+                {nb.title && <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{nb.title}</p>}
               </div>
 
-              {/* Bottom row: Version + Type */}
+              {/* Bottom row: trial count */}
               <div className="flex items-center gap-2 mt-auto pt-2 border-t border-slate-100">
-                <span className="text-[11px] font-mono bg-slate-100 text-slate-700 px-2 py-0.5 rounded">{f.version}</span>
-                <span className="text-[11px] text-muted-foreground">{f.formula_type}</span>
-                {/* Detail icon — visible on hover */}
+                <span className="text-[11px] font-mono bg-slate-100 text-slate-700 px-2 py-0.5 rounded">{nb.count} trial{nb.count !== 1 ? 's' : ''}</span>
+                <span className="text-[11px] text-muted-foreground truncate">Latest: {nb.latest.formula_id}</span>
                 <span className="ml-auto opacity-0 group-hover:opacity-100 transition-opacity text-primary">
                   <Eye className="h-4 w-4" />
                 </span>
@@ -4532,256 +4318,6 @@ function LabBookView({ user, token }) {
             </div>
           ))}
         </div>
-      )}
-
-      {/* ── Detail Dialog ── */}
-      {selected && (
-        <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
-          <DialogContent className="max-w-3xl max-h-[92vh] overflow-y-auto">
-            <DialogHeader>
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <DialogTitle className="font-mono text-lg">{selected.formula_id}</DialogTitle>
-                  <DialogDescription className="mt-1">{selected.project_name} • {selected.version} • PPD: {selected.ppd_id}</DialogDescription>
-                </div>
-                <span className={`text-xs px-2 py-1 rounded-md font-medium whitespace-nowrap shrink-0 ${STATUS_COLOR[selected.status] || 'bg-slate-100 text-slate-600'}`}>
-                  {selected.status}
-                </span>
-              </div>
-            </DialogHeader>
-
-            <Tabs value={detailTab} onValueChange={setDetailTab}>
-              <TabsList className={`w-full grid ${isRdHead ? 'grid-cols-3' : 'grid-cols-1'}`}>
-                <TabsTrigger value="details">Formula Details</TabsTrigger>
-                {isRdHead && <TabsTrigger value="reports">Report Files {ppdReports.length > 0 && `(${ppdReports.length})`}</TabsTrigger>}
-                {isRdHead && <TabsTrigger value="comments">PPD Comments {ppdComments.filter(c=>c.attachment_url).length > 0 && `(${ppdComments.filter(c=>c.attachment_url).length} with files)`}</TabsTrigger>}
-              </TabsList>
-
-              {/* ── Tab 1: Formula Details ── */}
-              <TabsContent value="details" className="space-y-4 pt-2 text-sm">
-                <div className="grid grid-cols-2 gap-3">
-                  {[
-                    { label: 'PPD ID',          value: selected.ppd_id },
-                    { label: 'Trial No.',        value: selected.trial_no },
-                    { label: 'Batch No.',        value: selected.batch_no },
-                    { label: 'Batch Size (gm)',  value: selected.batch_size },
-                    { label: 'Unit Qty (gm)',    value: selected.unit_qty },
-                    { label: 'Mfg Date',         value: selected.mfg_date },
-                    { label: 'Trial Taken By',   value: selected.trial_taken_by },
-                    { label: 'Evaluated By',     value: selected.evaluated_by },
-                  ].map(({ label, value }) => (
-                    <div key={label} className="bg-slate-50 rounded-lg p-3 border">
-                      <p className="text-xs text-muted-foreground">{label}</p>
-                      <p className="font-medium mt-0.5">{value || '—'}</p>
-                    </div>
-                  ))}
-                </div>
-
-                {selected.approval_status && (
-                  <div className={`rounded-lg border p-3 ${
-                    selected.approval_status === 'pending_approval' ? 'bg-amber-50 border-amber-200' :
-                    selected.approval_status === 'approved'         ? 'bg-green-50 border-green-200' :
-                                                                      'bg-red-50 border-red-200'
-                  }`}>
-                    <p className={`text-xs font-semibold uppercase tracking-wide ${
-                      selected.approval_status === 'pending_approval' ? 'text-amber-700' :
-                      selected.approval_status === 'approved'         ? 'text-green-700' : 'text-red-700'
-                    }`}>
-                      {selected.approval_status === 'pending_approval' && '⏳ Pending R&D Head Review'}
-                      {selected.approval_status === 'approved'         && '✓ Approved by R&D Head'}
-                      {selected.approval_status === 'rejected'         && '✗ Rejected by R&D Head'}
-                    </p>
-                    {selected.approved_by && <p className="text-xs text-muted-foreground mt-1">By: {selected.approved_by}</p>}
-                    {selected.approval_comment && <p className="text-sm mt-1 italic">"{selected.approval_comment}"</p>}
-                  </div>
-                )}
-
-                {[
-                  { label: 'Method of Preparation', value: selected.method_of_preparation },
-                  { label: 'Observation',            value: selected.observation },
-                  { label: 'Conclusion',             value: selected.conclusion },
-                ].filter(f => f.value).map(({ label, value }) => (
-                  <div key={label} className="bg-slate-50 rounded-lg p-3 border">
-                    <p className="text-xs text-muted-foreground mb-1">{label}</p>
-                    <p className="text-sm whitespace-pre-wrap">{value}</p>
-                  </div>
-                ))}
-
-                {(selected.ingredients || []).length > 0 && (
-                  <div>
-                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Ingredients ({selected.ingredients.length})</p>
-                    <div className="overflow-x-auto rounded-lg border">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead className="w-8">Sr.</TableHead>
-                            <TableHead>Ingredient</TableHead>
-                            <TableHead>Vendor</TableHead>
-                            <TableHead>Function</TableHead>
-                            <TableHead>Qty (%)</TableHead>
-                            <TableHead>Cost/Unit (₹)</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {selected.ingredients.map((ing, i) => (
-                            <TableRow key={i}>
-                              <TableCell className="text-center text-xs text-muted-foreground">{i + 1}</TableCell>
-                              <TableCell className="font-medium text-sm">{ing.name || '—'}</TableCell>
-                              <TableCell className="text-sm">{ing.vendor || '—'}</TableCell>
-                              <TableCell className="text-sm">{ing.use_function || '—'}</TableCell>
-                              <TableCell className="text-sm">{ing.qty_pct || '—'}</TableCell>
-                              <TableCell className="text-sm">{ing.cost_per_unit || '—'}</TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  </div>
-                )}
-
-                <div className="grid grid-cols-2 gap-3 text-xs text-muted-foreground pt-1">
-                  <div><span className="font-medium">Created by:</span> {selected.created_by} ({selected.created_by_role})</div>
-                  <div><span className="font-medium">Created:</span> {selected.created_at ? new Date(selected.created_at).toLocaleString('en-IN') : '—'}</div>
-                </div>
-              </TabsContent>
-
-              {/* ── Tab 2: Report Files (rd_head only) ── */}
-              {isRdHead && (
-                <TabsContent value="reports" className="pt-2">
-                  <div className="mb-3 flex items-center justify-between">
-                    <p className="text-sm text-muted-foreground">Select reports to append to the E-Lab PDF. Tick the files you want included.</p>
-                    {selReports.length > 0 && (
-                      <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full font-medium">{selReports.length} selected</span>
-                    )}
-                  </div>
-                  {loadingAttach ? (
-                    <div className="space-y-2">{[1,2,3].map(i=><div key={i} className="h-10 bg-slate-100 rounded animate-pulse"/>)}</div>
-                  ) : ppdReports.length === 0 ? (
-                    <div className="text-center py-10 text-muted-foreground text-sm">
-                      <FileText className="h-8 w-8 mx-auto mb-2 opacity-30"/>
-                      <p>No pilot reports found for PPD {selected.ppd_id}</p>
-                    </div>
-                  ) : (
-                    <div className="rounded-lg border overflow-hidden">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead className="w-10"></TableHead>
-                            <TableHead>Report ID</TableHead>
-                            <TableHead>Type</TableHead>
-                            <TableHead>File Name</TableHead>
-                            <TableHead>Uploaded By</TableHead>
-                            <TableHead>Status</TableHead>
-                            <TableHead>Date</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {ppdReports.map(r => (
-                            <TableRow key={r.report_id} className={`cursor-pointer ${selReports.includes(r.report_id) ? 'bg-primary/5' : ''}`}
-                              onClick={() => toggleReport(r.report_id)}>
-                              <TableCell onClick={e => e.stopPropagation()}>
-                                <Checkbox checked={selReports.includes(r.report_id)}
-                                  onCheckedChange={() => toggleReport(r.report_id)}/>
-                              </TableCell>
-                              <TableCell className="font-mono text-xs">{r.report_id}</TableCell>
-                              <TableCell className="text-sm">{r.report_type || '—'}</TableCell>
-                              <TableCell className="text-sm max-w-[150px] truncate" title={r.file_name}>{r.file_name || '—'}</TableCell>
-                              <TableCell className="text-sm">{r.created_by || '—'}</TableCell>
-                              <TableCell>
-                                <span className={`text-xs px-2 py-0.5 rounded-md font-medium ${
-                                  r.status === 'approved' ? 'bg-green-100 text-green-700' :
-                                  r.status === 'rejected' ? 'bg-red-100 text-red-700' :
-                                  'bg-amber-100 text-amber-700'}`}>
-                                  {r.status}
-                                </span>
-                              </TableCell>
-                              <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
-                                {r.created_at ? new Date(r.created_at).toLocaleDateString('en-IN') : '—'}
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  )}
-                </TabsContent>
-              )}
-
-              {/* ── Tab 3: PPD Comments (rd_head only) ── */}
-              {isRdHead && (
-                <TabsContent value="comments" className="pt-2">
-                  <div className="mb-3 flex items-center justify-between">
-                    <p className="text-sm text-muted-foreground">Select comments that have attached files to include in the E-Lab PDF.</p>
-                    {selComments.length > 0 && (
-                      <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full font-medium">{selComments.length} selected</span>
-                    )}
-                  </div>
-                  {loadingAttach ? (
-                    <div className="space-y-2">{[1,2,3].map(i=><div key={i} className="h-10 bg-slate-100 rounded animate-pulse"/>)}</div>
-                  ) : ppdComments.length === 0 ? (
-                    <div className="text-center py-10 text-muted-foreground text-sm">
-                      <MessageSquare className="h-8 w-8 mx-auto mb-2 opacity-30"/>
-                      <p>No comments found for PPD {selected.ppd_id}</p>
-                    </div>
-                  ) : (
-                    <ScrollArea className="h-80">
-                      <div className="space-y-2 pr-2">
-                        {ppdComments.map(c => {
-                          const hasFile = !!c.attachment_url
-                          const isSelected = selComments.includes(String(c.id))
-                          return (
-                            <div key={c.id}
-                              className={`flex items-start gap-3 rounded-lg border p-3 ${hasFile ? 'cursor-pointer hover:bg-slate-50' : 'opacity-60'} ${isSelected ? 'bg-primary/5 border-primary/30' : ''}`}
-                              onClick={() => hasFile && toggleComment(String(c.id))}>
-                              <Checkbox
-                                checked={isSelected}
-                                disabled={!hasFile}
-                                onCheckedChange={e => { if (typeof e === 'object' && e.stopPropagation) e.stopPropagation(); hasFile && toggleComment(String(c.id)) }}
-                                onClick={e => e.stopPropagation()}
-                                className="mt-0.5"
-                              />
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <span className="text-xs font-semibold">{c.user_name}</span>
-                                  <Badge variant="outline" className="text-[10px] py-0">{c.user_role}</Badge>
-                                  <span className="text-xs text-muted-foreground">{c.created_at ? new Date(c.created_at).toLocaleDateString('en-IN') : '—'}</span>
-                                  {hasFile && (
-                                    <span className="flex items-center gap-1 text-xs text-primary font-medium">
-                                      <Paperclip className="h-3 w-3"/>{c.attachment_name || 'attachment'}
-                                    </span>
-                                  )}
-                                </div>
-                                <p className="text-sm text-muted-foreground mt-0.5 line-clamp-2">{c.comment}</p>
-                              </div>
-                            </div>
-                          )
-                        })}
-                      </div>
-                    </ScrollArea>
-                  )}
-                </TabsContent>
-              )}
-            </Tabs>
-
-            <DialogFooter className="gap-2 pt-2 flex-wrap">
-              {/* Generate with attachments — rd_head only */}
-              {isRdHead && (selReports.length > 0 || selComments.length > 0) && (
-                <Button
-                  className="gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white mr-auto"
-                  disabled={generating}
-                  onClick={handleGenerate}>
-                  <Download className="h-3.5 w-3.5"/>
-                  Generate E-Lab Report with {selReports.length + selComments.length} Attachment{selReports.length + selComments.length !== 1 ? 's' : ''}
-                </Button>
-              )}
-              <Button variant="outline" className="gap-1.5 text-xs border-blue-300 text-blue-700 hover:bg-blue-50"
-                onClick={() => window.open(`${API_BASE}/api/formulation/report/${selected.ppd_id}?token=${encodeURIComponent(token)}`, '_blank')}>
-                <FileText className="h-3.5 w-3.5"/>Download PPD Report
-              </Button>
-              <Button onClick={() => setDetailOpen(false)}>Close</Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
       )}
     </div>
   )
@@ -5955,15 +5491,14 @@ function ArtworkView({ user, token, can }) {
 
 /* -------------------- MASTER DATA (SAP) -------------------- */
 function MasterDataView({ user, token }) {
-  const [tab, setTab]         = useState('pm')
+  const INCI_MANAGERS = ['admin','rd_head','fd']
+  const [tab, setTab]         = useState('inci')
   const [data, setData]       = useState({})
   const [loading, setLoading] = useState(true)
   const [search, setSearch]   = useState('')
 
-  const canAdd = ['admin','production','packaging','pm'].includes(user?.role)
-
   // Map tab → config_type key in DB
-  const TYPE_MAP = { pm:'sap_pm', bom:'sap_bom', sfg:'sap_sfg', pkg:'sap_pkg' }
+  const TYPE_MAP = { inci:'inci', code:'code_rm' }
 
   const loadTab = useCallback(async (t) => {
     setLoading(true)
@@ -5977,29 +5512,9 @@ function MasterDataView({ user, token }) {
   useEffect(() => { loadTab(tab) }, [tab, loadTab])
 
   const TABS = [
-    { key:'pm',  label:'PM Codes',      desc:'Raw material & packaging material codes' },
-    { key:'bom', label:'BOM Codes',     desc:'Bill of Material codes per formula' },
-    { key:'sfg', label:'SFG Codes',     desc:'Semi-Finished Goods codes' },
-    { key:'pkg', label:'Packaging BOM', desc:'Packaging material bill of materials' },
+    { key:'inci', label:'INCI Number' },
+    { key:'code', label:'Code Master' },
   ]
-
-  const COL_LABELS = {
-    pm:  ['PM Code','Description','Category','UOM','Vendor'],
-    bom: ['BOM Code','Description','Project','Version'],
-    sfg: ['SFG Code','Description','UOM','Storage'],
-    pkg: ['PKG Code','Description','Type','Material','Vendor'],
-  }
-
-  const getRow = (item, t) => {
-    const m = item.meta || {}
-    switch(t) {
-      case 'pm':  return [item.key, item.label, m.category||'—', m.uom||'—', m.vendor||'—']
-      case 'bom': return [item.key, item.label, m.project||'—', m.version||'—']
-      case 'sfg': return [item.key, item.label, m.uom||'—', m.storage||'—']
-      case 'pkg': return [item.key, item.label, m.type||'—', m.material||'—', m.vendor||'—']
-      default:    return [item.key, item.label]
-    }
-  }
 
   const rows = (data[tab] || []).filter(item =>
     !search || item.key.toLowerCase().includes(search.toLowerCase()) || item.label.toLowerCase().includes(search.toLowerCase())
@@ -6009,13 +5524,8 @@ function MasterDataView({ user, token }) {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold">Master Data (SAP)</h1>
-          <p className="text-muted-foreground text-sm">
-            {user?.role === 'pm' ? 'PM codes & BOM for your projects' :
-             user?.role === 'production' ? 'BOM, SFG, and production codes' :
-             user?.role === 'packaging' ? 'Packaging BOM and material codes' :
-             'Synchronized SAP master codes — PM, BOM, SFG, Packaging'}
-          </p>
+          <h1 className="text-2xl font-bold">Master Data</h1>
+          <p className="text-muted-foreground text-sm">INCI Number and Code Master (Raw Material List)</p>
         </div>
         <div className="flex gap-2">
           <div className="relative">
@@ -6031,66 +5541,188 @@ function MasterDataView({ user, token }) {
           {TABS.map(t=><TabsTrigger key={t.key} value={t.key}>{t.label}</TabsTrigger>)}
         </TabsList>
 
-        {TABS.map(tabDef => (
-          <TabsContent key={tabDef.key} value={tabDef.key}>
-            <Card>
-              <CardHeader className="pb-3">
-                <div className="flex justify-between items-center">
-                  <div>
-                    <CardTitle className="text-base">{tabDef.label}</CardTitle>
-                    <CardDescription>{tabDef.desc}</CardDescription>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className="text-xs text-muted-foreground">{rows.length} record{rows.length !== 1 ? 's' : ''}</span>
-                    <Badge variant="outline" className="text-xs font-mono">SAP Synced</Badge>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent className="p-0">
-                {loading
-                  ? <div className="p-8 text-center text-muted-foreground text-sm">Loading…</div>
-                  : (
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          {COL_LABELS[tabDef.key].map(h => <TableHead key={h}>{h}</TableHead>)}
-                          <TableHead>Created</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {rows.length === 0
-                          ? <TableRow><TableCell colSpan={COL_LABELS[tabDef.key].length + 1} className="text-center text-muted-foreground py-8">
-                              No {tabDef.label} found — click Sync or add via Master Configuration
-                            </TableCell></TableRow>
-                          : rows.map(item => {
-                              const cells = getRow(item, tabDef.key)
-                              return (
-                                <TableRow key={item.id} className="hover:bg-muted/40">
-                                  <TableCell className="font-mono text-xs font-semibold">{cells[0]}</TableCell>
-                                  {cells.slice(1).map((c, i) => (
-                                    <TableCell key={i} className="text-sm">{c}</TableCell>
-                                  ))}
-                                  <TableCell className="text-xs text-muted-foreground">
-                                    {item.created_at ? new Date(item.created_at).toLocaleDateString() : 'Today'}
-                                  </TableCell>
-                                </TableRow>
-                              )
-                            })}
-                      </TableBody>
-                    </Table>
-                  )}
-              </CardContent>
-              {canAdd && (
-                <div className="px-4 py-3 border-t bg-slate-50 flex justify-between items-center">
-                  <p className="text-xs text-muted-foreground">Codes synced from SAP. To add codes go to <strong>Master Configuration</strong> in admin.</p>
-                  <Badge variant="secondary" className="text-xs">Last sync: Today</Badge>
-                </div>
-              )}
-            </Card>
-          </TabsContent>
-        ))}
+        <TabsContent value="inci">
+          <InciMaster rows={rows} loading={loading} token={token} canManage={INCI_MANAGERS.includes(user?.role)} onChanged={() => loadTab('inci')} />
+        </TabsContent>
+        <TabsContent value="code">
+          <CodeMaster rows={rows} loading={loading} token={token} canManage={INCI_MANAGERS.includes(user?.role)} onChanged={() => loadTab('code')} />
+        </TabsContent>
       </Tabs>
     </div>
+  )
+}
+
+
+/** Master Data → Code Master: Raw Material List - RMs - Food (key = Material Code, label = Ingredient) */
+function CodeMaster({ rows, loading, token, canManage, onChanged }) {
+  const blank = { label:'', inci_name:'', key:'' }
+  const [form, setForm]     = useState(blank)
+  const [editItem, setEditItem] = useState(null)
+  const [busy, setBusy]     = useState(false)
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
+  const reset = () => { setForm(blank); setEditItem(null) }
+
+  const save = async () => {
+    if (!form.label.trim() || !form.key.trim()) return toast.error('Ingredient and Material Code are required')
+    setBusy(true)
+    try {
+      const body = { key: form.key.trim(), label: form.label.trim(), meta: { ...(editItem?.meta || {}), inci_name: form.inci_name.trim() } }
+      if (editItem) await apiCall(`/api/master-config/${editItem.id}`, { method:'PUT', token, body })
+      else await apiCall('/api/master-config', { method:'POST', token, body: { config_type:'code_rm', ...body } })
+      toast.success(editItem ? 'Raw material updated' : 'Raw material added')
+      reset(); onChanged()
+    } catch (err) { toast.error(err.message) }
+    finally { setBusy(false) }
+  }
+  const remove = async (item) => {
+    if (!confirm(`Delete ${item.label} (${item.key})?`)) return
+    try { await apiCall(`/api/master-config/${item.id}`, { method:'DELETE', token }); toast.success('Raw material deleted'); onChanged() }
+    catch (err) { toast.error(err.message) }
+  }
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base">Raw Material List - RMs - Food</CardTitle>
+        <CardDescription>Code Master for raw materials</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {canManage && (
+          <div className="grid gap-3 rounded-lg border bg-slate-50 p-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="space-y-1"><Label>Ingredient *</Label><Input value={form.label} onChange={e=>set('label', e.target.value)} placeholder="e.g. Whey Protein Concentrate"/></div>
+            <div className="space-y-1"><Label>INCI Name</Label><Input value={form.inci_name} onChange={e=>set('inci_name', e.target.value)} placeholder="e.g. Whey Protein"/></div>
+            <div className="space-y-1"><Label>Material Code *</Label><Input value={form.key} onChange={e=>set('key', e.target.value)} placeholder="e.g. RM-1001"/></div>
+            <div className="flex items-end gap-2">
+              <Button onClick={save} disabled={busy} className="flex-1">{busy && <RefreshCw className="h-4 w-4 animate-spin mr-2"/>}{editItem ? 'Update' : 'Add'}</Button>
+              {editItem && <Button variant="outline" onClick={reset}>Cancel</Button>}
+            </div>
+          </div>
+        )}
+        {loading ? <div className="p-8 text-center text-muted-foreground text-sm">Loading…</div> : (
+          <Table>
+            <TableHeader><TableRow>
+              <TableHead className="w-16">No.</TableHead><TableHead>Ingredient</TableHead><TableHead>INCI Name</TableHead><TableHead>Material Code</TableHead>
+              {canManage && <TableHead className="w-28"/>}
+            </TableRow></TableHeader>
+            <TableBody>
+              {rows.length === 0
+                ? <TableRow><TableCell colSpan={canManage ? 5 : 4} className="text-center text-muted-foreground py-8">No raw materials yet</TableCell></TableRow>
+                : rows.map((item, i) => (
+                  <TableRow key={item.id}>
+                    <TableCell className="text-sm">{i + 1}</TableCell>
+                    <TableCell className="text-sm">{item.label}</TableCell>
+                    <TableCell className="text-sm">{item.meta?.inci_name || '—'}</TableCell>
+                    <TableCell className="font-mono text-xs font-semibold">{item.key}</TableCell>
+                    {canManage && (
+                      <TableCell className="text-right whitespace-nowrap">
+                        <Button size="sm" variant="ghost" onClick={()=>{ setEditItem(item); setForm({ label:item.label, inci_name:item.meta?.inci_name||'', key:item.key }) }}><Edit className="h-4 w-4"/></Button>
+                        <Button size="sm" variant="ghost" className="text-red-600" onClick={()=>remove(item)}><Trash2 className="h-4 w-4"/></Button>
+                      </TableCell>
+                    )}
+                  </TableRow>
+                ))}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+/** INCI master quantity columns: per-100 g and per-pack quantity for each pack size */
+const INCI_PACKS = [['200','200 g'],['400','400 g'],['600','600 g'],['1kg','1 kg'],['800','800 g'],['300','300 g']]
+const INCI_QTY_COLS = INCI_PACKS.flatMap(([k, l]) => [{ key:`q100_${k}`, label:'Q/100g', pack:l }, { key:`q_${k}`, label:`Q/${l}`, pack:l }])
+
+/** Master Data → INCI Number: INCI numbers for the formulation Ingredients table */
+function InciMaster({ rows, loading, token, canManage, onChanged }) {
+  const blank = { key:'', label:'', material_code:'', ...Object.fromEntries(INCI_QTY_COLS.map(c => [c.key, ''])) }
+  const [form, setForm]     = useState(blank)
+  const [editId, setEditId] = useState(null)
+  const [editMeta, setEditMeta] = useState({})
+  const [busy, setBusy]     = useState(false)
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
+
+  const save = async () => {
+    if (!form.key.trim() || !form.label.trim()) return toast.error('Ingredient and INCI are required')
+    setBusy(true)
+    try {
+      const { key, label, ...rest } = form
+      const meta = { ...editMeta, ...Object.fromEntries(Object.entries(rest).map(([k, v]) => [k, String(v ?? '').trim()])) }
+      const body = { key: key.trim(), label: label.trim(), meta }
+      if (editId) await apiCall(`/api/master-config/${editId}`, { method:'PUT', token, body })
+      else await apiCall('/api/master-config', { method:'POST', token, body: { config_type:'inci', ...body } })
+      toast.success(editId ? 'INCI entry updated' : 'INCI entry added')
+      setForm(blank); setEditId(null); setEditMeta({}); onChanged()
+    } catch (err) { toast.error(err.message) }
+    finally { setBusy(false) }
+  }
+  const remove = async (item) => {
+    if (!confirm(`Delete ${item.key} — ${item.label}?`)) return
+    try { await apiCall(`/api/master-config/${item.id}`, { method:'DELETE', token }); toast.success('INCI entry deleted'); onChanged() }
+    catch (err) { toast.error(err.message) }
+  }
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base">INCI Number</CardTitle>
+        <CardDescription>INCI numbers available in the formulation Ingredients table</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {canManage && (
+          <div className="space-y-3 rounded-lg border bg-slate-50 p-3">
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div className="space-y-1"><Label>Ingredient *</Label><Input value={form.label} onChange={e=>set('label', e.target.value)} placeholder="e.g. Citric Acid"/></div>
+              <div className="space-y-1"><Label>INCI *</Label><Input value={form.key} onChange={e=>set('key', e.target.value)} placeholder="e.g. INS 330"/></div>
+              <div className="space-y-1"><Label>Material Code</Label><Input value={form.material_code} onChange={e=>set('material_code', e.target.value)} placeholder="e.g. RM-1001"/></div>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
+              {INCI_PACKS.map(([k, l]) => (
+                <div key={k} className="space-y-1 rounded-md border bg-white p-2">
+                  <p className="text-xs font-semibold text-muted-foreground">{l} pack</p>
+                  <Input value={form[`q100_${k}`]} onChange={e=>set(`q100_${k}`, e.target.value)} placeholder="Q/100g" className="h-8"/>
+                  <Input value={form[`q_${k}`]} onChange={e=>set(`q_${k}`, e.target.value)} placeholder={`Q/${l}`} className="h-8"/>
+                </div>
+              ))}
+            </div>
+            <div className="flex justify-end gap-2">
+              {editId && <Button variant="outline" onClick={()=>{ setForm(blank); setEditId(null); setEditMeta({}) }}>Cancel</Button>}
+              <Button onClick={save} disabled={busy}>{busy && <RefreshCw className="h-4 w-4 animate-spin mr-2"/>}{editId ? 'Update' : 'Add'}</Button>
+            </div>
+          </div>
+        )}
+        {loading ? <div className="p-8 text-center text-muted-foreground text-sm">Loading…</div> : (
+          <div className="overflow-x-auto">
+          <Table>
+            <TableHeader><TableRow>
+              <TableHead>No.</TableHead><TableHead>Ingredient</TableHead><TableHead>INCI</TableHead><TableHead>Material Code</TableHead>
+              {INCI_QTY_COLS.map(c => <TableHead key={c.key} className="whitespace-nowrap text-right">{c.label}</TableHead>)}
+              {canManage && <TableHead className="w-28"/>}
+            </TableRow></TableHeader>
+            <TableBody>
+              {rows.length === 0
+                ? <TableRow><TableCell colSpan={4 + INCI_QTY_COLS.length + (canManage ? 1 : 0)} className="text-center text-muted-foreground py-8">No INCI numbers yet</TableCell></TableRow>
+                : rows.map((item, i) => (
+                  <TableRow key={item.id}>
+                    <TableCell className="text-sm">{i + 1}</TableCell>
+                    <TableCell className="text-sm whitespace-nowrap">{item.label}</TableCell>
+                    <TableCell className="font-mono text-xs font-semibold">{item.key}</TableCell>
+                    <TableCell className="text-sm">{item.meta?.material_code || '—'}</TableCell>
+                    {INCI_QTY_COLS.map(c => <TableCell key={c.key} className="text-sm text-right">{item.meta?.[c.key] || '—'}</TableCell>)}
+                    {canManage && (
+                      <TableCell className="text-right whitespace-nowrap">
+                        <Button size="sm" variant="ghost" onClick={()=>{ const m = item.meta || {}; setEditId(item.id); setEditMeta(m); setForm({ ...blank, key:item.key, label:item.label, ...Object.fromEntries(Object.keys(blank).filter(k => k in m).map(k => [k, m[k] ?? ''])) }) }}><Edit className="h-4 w-4"/></Button>
+                        <Button size="sm" variant="ghost" className="text-red-600" onClick={()=>remove(item)}><Trash2 className="h-4 w-4"/></Button>
+                      </TableCell>
+                    )}
+                  </TableRow>
+                ))}
+            </TableBody>
+          </Table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   )
 }
 

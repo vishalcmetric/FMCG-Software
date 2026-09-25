@@ -11,7 +11,7 @@ from models import (
     LoginRequest, TokenResponse,
     SignupRequest, ForgotPasswordRequest, VerifyOtpRequest, ResetPasswordRequest,
 )
-from orm_models import User, OtpToken
+from orm_models import User, OtpToken, AuditLog
 from email_utils import send_otp_email, generate_otp
 from config import get_settings
 
@@ -37,6 +37,8 @@ DEMO_USERS = {
     "adl@fmcgsoftware.com":            {"name": "Dr. Suresh ADL",     "role": "adl",            "department": "ADL Lab"},
     "pmsa@fmcgsoftware.com":           {"name": "Meena PMSA",         "role": "pmsa",           "department": "PM & SA"},
     "sa@fmcgsoftware.com":             {"name": "Kavita SA",          "role": "sa",             "department": "Scientific Affairs"},
+    "rd_team@fmcgsoftware.com":        {"name": "Karan Joshi",        "role": "rd_team",        "department": "R&D"},
+    "fd_member@fmcgsoftware.com":      {"name": "Pooja Desai",        "role": "fd_member",      "department": "F&D"},
     "demo.user@fmcgsoftware.com":      {"name": "Demo User",          "role": "admin",          "department": "IT"},
 }
 
@@ -114,6 +116,16 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
             name = email.split("@")[0].replace(".", " ").title()
         else:
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid email or password")
+
+    # Record team-member sign-ins so R&D Head / F&D Team Head can assign them (Assign Team list)
+    if role in ("rd_team", "fd_member"):
+        try:
+            db.add(AuditLog(user_name=name, user_email=email, action="LOGIN",
+                            action_label=f"signed in as {role}", entity="auth",
+                            involved_roles=role, time_ago="just now"))
+            await db.commit()
+        except Exception as e:
+            print(f"Login audit warning: {e}")
 
     token = create_access_token({"sub": email, "name": name, "role": role})
     return TokenResponse(access_token=token, user={"email": email, "name": name, "role": role})

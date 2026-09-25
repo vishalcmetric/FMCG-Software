@@ -89,6 +89,34 @@ class ResetPasswordRequest(BaseModel):
     new_password: str
 
 # ── PPD ───────────────────────────────────────────────────────────────────────
+class PPDDraftForm(BaseModel):
+    """Draft PPD form — all optional (existing API rule: only project_name + brand required)."""
+    project_type: Optional[str] = ""
+    date: Optional[str] = ""
+    project_leader: Optional[str] = ""
+    marketing: Optional[str] = ""
+    rd_product: Optional[str] = ""
+    rd_packaging: Optional[str] = ""
+    legal_regulatory: Optional[str] = ""
+    overall_goal: Optional[str] = ""
+    consumer_target_group: Optional[str] = ""
+    consumer_evidence: Optional[str] = ""
+    flavour: Optional[str] = ""
+    attributes: Optional[str] = ""
+    business_logic: Optional[str] = ""
+    product_description: Optional[str] = ""
+    performance_claims: Optional[str] = ""
+    benchmark: Optional[str] = ""
+    primary_pack_description: Optional[str] = ""
+    patent_legal_requirements: Optional[str] = ""
+    legal_regulatory_considerations: Optional[str] = ""
+    target_objective: Optional[str] = ""
+    minimum_objective: Optional[str] = ""
+    assumptions: Optional[str] = ""
+    constraints: Optional[str] = ""
+    risks: Optional[str] = ""
+    attachments: Optional[dict] = None   # {field_key: [{url, filename, size}]}
+
 class PPDCreate(BaseModel):
     project_name: str
     brand: str
@@ -99,8 +127,13 @@ class PPDCreate(BaseModel):
     expected_launch: Optional[str] = None
     objective: Optional[str] = None
     key_benefits: Optional[str] = None
+    draft_form: Optional[PPDDraftForm] = None
+    submit: Optional[bool] = False       # False = Save as Draft; True = submit to Stage-1 reviewers
 
 class PPDUpdate(BaseModel):
+    project_name: Optional[str] = None
+    brand: Optional[str] = None
+    draft_form: Optional[PPDDraftForm] = None
     product_category: Optional[str] = None
     target_consumer: Optional[str] = None
     market_segment: Optional[str] = None
@@ -115,6 +148,7 @@ class PPDCommentCreate(BaseModel):
     action_tag: str = "comment"       # "comment" | "approve" | "rework_done" | "rework_reply"
     attachment_url: Optional[str] = None
     attachment_name: Optional[str] = None
+    attachments: Optional[List[dict]] = None   # [{url, filename, size}]
 
 class PPDReworkRequest(BaseModel):
     comment: str                      # required — what needs to be fixed
@@ -138,6 +172,8 @@ class FormulaCreate(BaseModel):
     observation: Optional[str] = None
     conclusion: Optional[str] = None
     ingredients: Optional[List[dict]] = None
+    rich_html: Optional[dict] = None     # {method_of_preparation|observation|conclusion: HTML}
+    attachments: Optional[dict] = None   # {field: [{url, filename, size}]}
 
 class FormulaUpdate(BaseModel):
     status: Optional[str] = None
@@ -152,6 +188,8 @@ class FormulaUpdate(BaseModel):
     observation: Optional[str] = None
     conclusion: Optional[str] = None
     ingredients: Optional[List[dict]] = None
+    rich_html: Optional[dict] = None     # {method_of_preparation|observation|conclusion: HTML}
+    attachments: Optional[dict] = None   # {field: [{url, filename, size}]}
 
 class FormulaCommentCreate(BaseModel):
     comment: str

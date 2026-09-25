@@ -8,22 +8,74 @@ Rules:
   - All mutations fire notifications to all roles.
 """
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, func
+from sqlalchemy import select, func, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_db, fmt_ist
 from auth import get_current_user
 from models import FormulaCreate, FormulaUpdate, FormulaCommentCreate, FormulaApprovalDecision
-from orm_models import Formula, FormulaComment, PPDSubmission, AuditLog, LabExperiment, SensoryEvaluation, CostingRecord, Notification
+from orm_models import FormulaIngredient, Formula, FormulaComment, PPDSubmission, AuditLog, LabExperiment, SensoryEvaluation, CostingRecord, Notification, MasterConfig
 from sqlalchemy import delete as sa_delete
 from notify import notify_roles
+from formula_ingredients import clean_row, row_out
+from ppd_fields import html_to_text, text_to_html
 from datetime import datetime, timezone
 
 router = APIRouter(prefix="/api/formulation", tags=["formulation"])
 
 FORMULA_STATUSES = ["Draft", "In Testing", "Sensory Pass", "Recommended", "Rejected"]
-ALLOWED_CREATE_ROLES = {"admin", "fd", "rd_head"}
+ALLOWED_CREATE_ROLES = {"admin", "fd", "fd_member", "rd_head"}   # F&D Team (head + members), R&D Head
 
 ALL_ROLES = "admin,source,pm,fd,rd_head,marketing,regulatory,packaging,adl,pmsa,sa,mgmt,ceo,production"
+
+
+RICH_FIELDS = ("method_of_preparation", "observation", "conclusion")
+
+
+def _apply_rich(f: Formula, rich) -> None:
+    """Rich-text fields: column = plain text as typed, formatted HTML kept in rich_html."""
+    if rich is None:
+        return
+    keep = {}
+    for k in RICH_FIELDS:
+        if k in rich:
+            html = (rich.get(k) or "").strip()
+            setattr(f, k, html_to_text(html) or None)
+            if html:
+                keep[k] = html
+        elif (f.rich_html or {}).get(k):
+            keep[k] = f.rich_html[k]
+    f.rich_html = keep
+
+
+def _rich_out(f: Formula) -> dict:
+    out = {}
+    for k in RICH_FIELDS:
+        text, html = getattr(f, k) or "", (f.rich_html or {}).get(k)
+        out[k] = html if html and html_to_text(html) == text else text_to_html(text)
+    return out
+
+
+_ING_TABLE_OK = False
+
+
+async def _ing_table(db: AsyncSession) -> bool:
+    """True once the formula_ingredients table exists (it cannot be created while the DB disk is full)."""
+    global _ING_TABLE_OK
+    if not _ING_TABLE_OK:
+        _ING_TABLE_OK = bool((await db.execute(text(
+            "SELECT 1 FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'formula_ingredients'"
+        ))).first())
+    return _ING_TABLE_OK
+
+
+async def _save_ingredients(db: AsyncSession, f: Formula, rows) -> None:
+    """Replace the formula's ingredient rows (Sr. No. assigned automatically) and keep the JSON mirror."""
+    clean = [r for r in (clean_row(x) for x in (rows or [])) if r]
+    if await _ing_table(db):
+        await db.execute(sa_delete(FormulaIngredient).where(FormulaIngredient.formula_id == f.formula_id))
+        for n, r in enumerate(clean, 1):
+            db.add(FormulaIngredient(formula_id=f.formula_id, sr_no=n, **r))
+    f.ingredients = [row_out(r, n) for n, r in enumerate(clean, 1)]
 
 
 def _formula_out(f: Formula) -> dict:
@@ -45,6 +97,8 @@ def _formula_out(f: Formula) -> dict:
         "observation":           f.observation,
         "conclusion":            f.conclusion,
         "ingredients":           f.ingredients or [],
+        "rich_html":             _rich_out(f),
+        "attachments":           f.attachments or {},
         "approval_status":       f.approval_status,
         "approval_comment":      f.approval_comment,
         "approved_by":           f.approved_by,
@@ -95,6 +149,61 @@ async def list_formulas(
     return [_formula_out(f) for f in result.scalars().all()]
 
 
+# ── ALL TRIALS OF ONE PPD (E-Lab Notebook) ────────────────────────────────────
+
+async def _ppd_trials(db: AsyncSession, ppd_id: str) -> list[dict]:
+    """Every formula/trial of a PPD in creation order, each with its own ingredient rows."""
+    formulas = (await db.execute(select(Formula).where(Formula.ppd_id == ppd_id)
+                                 .order_by(Formula.created_at.asc(), Formula.id.asc()))).scalars().all()
+    rows_by_formula = {}
+    if formulas and await _ing_table(db):
+        rows = (await db.execute(select(FormulaIngredient)
+                                 .where(FormulaIngredient.formula_id.in_([f.formula_id for f in formulas]))
+                                 .order_by(FormulaIngredient.formula_id, FormulaIngredient.sr_no))).scalars().all()
+        for r in rows:
+            rows_by_formula.setdefault(r.formula_id, []).append(row_out(r.__dict__, r.sr_no))
+    codes = await _material_codes(db) if formulas else {}
+    out = []
+    for f in formulas:
+        d = _formula_out(f)
+        if rows_by_formula.get(f.formula_id):
+            d["ingredients"] = rows_by_formula[f.formula_id]
+        d["ingredients"] = [{**i, "material_code": codes.get((i.get("name") or "").strip().lower(), "")} for i in d["ingredients"]]
+        out.append(d)
+    return out
+
+
+async def _material_codes(db: AsyncSession) -> dict:
+    """Ingredient name (lower-case) → Material Code from Master Data (Code Master first, then INCI Number)."""
+    rows = (await db.execute(select(MasterConfig).where(MasterConfig.config_type.in_(("inci", "code_rm")),
+                                                        MasterConfig.is_active == True))).scalars().all()  # noqa: E712
+    codes = {}
+    for r in sorted(rows, key=lambda r: r.config_type != "code_rm"):          # code_rm wins over inci
+        code = r.key if r.config_type == "code_rm" else (r.meta or {}).get("material_code")
+        name = (r.label or "").strip().lower()
+        if name and code and name not in codes:
+            codes[name] = code
+    return codes
+
+
+def elab_header(p: PPDSubmission) -> dict:
+    """PPD values shown in the E-Lab Notebook sheet header."""
+    return {"ppd_id": p.ppd_id, "project_name": p.project_name, "title": p.ppd_title or "",
+            "objective": p.target_objective or p.overall_goal or "", "packaging": p.primary_pack_description or ""}
+
+
+@router.get("/by-ppd/{ppd_id}")
+async def list_ppd_trials(
+    ppd_id: str,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    p = (await db.execute(select(PPDSubmission).where(PPDSubmission.ppd_id == ppd_id))).scalars().first()
+    if not p:
+        raise HTTPException(404, f"PPD {ppd_id} not found")
+    return {"ppd": elab_header(p), "trials": await _ppd_trials(db, ppd_id)}
+
+
 # ── GET ONE ───────────────────────────────────────────────────────────────────
 
 @router.get("/{formula_id}")
@@ -107,7 +216,12 @@ async def get_formula(
     f = result.scalars().first()
     if not f:
         raise HTTPException(404, "Formula not found")
-    return _formula_out(f)
+    out = _formula_out(f)
+    rows = (await db.execute(select(FormulaIngredient).where(FormulaIngredient.formula_id == formula_id)
+                             .order_by(FormulaIngredient.sr_no))).scalars().all() if await _ing_table(db) else []
+    if rows:
+        out["ingredients"] = [row_out(r.__dict__, r.sr_no) for r in rows]
+    return out
 
 
 # ── CREATE ────────────────────────────────────────────────────────────────────
@@ -120,7 +234,7 @@ async def create_formula(
 ):
     role = current_user.get("role", "fd")
     if role not in ALLOWED_CREATE_ROLES:
-        raise HTTPException(403, "Only admin, fd, or rd_head can create formulas")
+        raise HTTPException(403, "Only admin, F&D Team, or R&D Head can create formulas")
 
     # Look up PPD to get project_name
     ppd_result = await db.execute(select(PPDSubmission).where(PPDSubmission.ppd_id == body.ppd_id))
@@ -150,11 +264,15 @@ async def create_formula(
         method_of_preparation=body.method_of_preparation,
         observation=body.observation,
         conclusion=body.conclusion,
-        ingredients=body.ingredients or [],
+        ingredients=[],
+        attachments=body.attachments or {},
         created_by=current_user.get("name", ""),
         created_by_role=role,
     )
+    _apply_rich(formula, body.rich_html)
     db.add(formula)
+    await db.flush()
+    await _save_ingredients(db, formula, body.ingredients)
     db.add(AuditLog(
         user_name=current_user.get("name", ""),
         user_email=current_user.get("sub", ""),
@@ -193,7 +311,7 @@ async def update_formula(
 ):
     role = current_user.get("role", "fd")
     if role not in ALLOWED_CREATE_ROLES:
-        raise HTTPException(403, "Only admin, fd, or rd_head can update formulas")
+        raise HTTPException(403, "Only admin, F&D Team, or R&D Head can update formulas")
 
     result = await db.execute(select(Formula).where(Formula.formula_id == formula_id))
     f = result.scalars().first()
@@ -210,7 +328,7 @@ async def update_formula(
     # Bump version on content edits
     content_fields = {"trial_no", "batch_no", "batch_size", "unit_qty", "mfg_date",
                       "trial_taken_by", "evaluated_by", "method_of_preparation",
-                      "observation", "conclusion", "ingredients"}
+                      "observation", "conclusion", "ingredients", "rich_html", "attachments"}
     if any(field in updates for field in content_fields):
         try:
             major, minor = f.version.lstrip("v").split(".")
@@ -218,8 +336,14 @@ async def update_formula(
         except Exception:
             pass
 
+    rows = updates.pop("ingredients", None)
+    rich = updates.pop("rich_html", None)
     for field, value in updates.items():
         setattr(f, field, value)
+    if rich is not None:
+        _apply_rich(f, rich)
+    if rows is not None:
+        await _save_ingredients(db, f, rows)
 
     change_parts = []
     if "status" in updates:   change_parts.append(f"status → {updates['status']}")
@@ -297,6 +421,8 @@ async def delete_formula(
 
     # Delete notifications referencing this formula so they don't show as stale
     await db.execute(sa_delete(Notification).where(Notification.entity_id == formula_id))
+    if await _ing_table(db):
+        await db.execute(sa_delete(FormulaIngredient).where(FormulaIngredient.formula_id == formula_id))
 
     await db.delete(f)
     db.add(AuditLog(
@@ -461,6 +587,8 @@ async def review_formula(
     if not f:
         raise HTTPException(404, "Formula not found")
 
+    if f.approval_status == "approved" and body.decision == "approved":
+        raise HTTPException(400, "This formula is already approved")
     if f.approval_status not in ("pending_approval", None):
         # Allow re-review only if it was previously reviewed (admin override scenario)
         pass  # proceed anyway — rd_head can always change decision

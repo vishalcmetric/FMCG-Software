@@ -13,7 +13,15 @@ from typing import Optional
 
 router = APIRouter(prefix="/api/master-config", tags=["master-config"])
 
-VALID_TYPES = {"brand", "project_type", "raw_material", "department"}
+VALID_TYPES = {"brand", "project_type", "raw_material", "department", "inci", "code_rm"}
+# INCI master data and Code Master (Raw Material List - RMs - Food) — managed by these roles
+INCI_MANAGERS = {"admin", "rd_head", "fd"}
+MANAGED_TYPES = {"inci", "code_rm"}
+
+
+def _check_inci(config_type: str, user: dict) -> None:
+    if config_type in MANAGED_TYPES and user.get("role") not in INCI_MANAGERS:
+        raise HTTPException(403, "Only System Administrator, R&D Head or F&D Team Head can manage INCI / Code Master data")
 
 DEFAULT_SEEDS = [
     # Brands
@@ -52,6 +60,7 @@ class ConfigCreate(BaseModel):
 
 
 class ConfigUpdate(BaseModel):
+    key: Optional[str] = None
     label: Optional[str] = None
     meta: Optional[dict] = None
     is_active: Optional[bool] = None
@@ -92,8 +101,15 @@ async def list_config(
 async def create_config(body: ConfigCreate, current_user: dict = Depends(require_admin), db: AsyncSession = Depends(get_db)):
     if body.config_type not in VALID_TYPES:
         raise HTTPException(400, f"config_type must be one of {VALID_TYPES}")
+    _check_inci(body.config_type, current_user)
     existing = await db.execute(select(MasterConfig).where(MasterConfig.config_type == body.config_type, MasterConfig.key == body.key))
-    if existing.scalars().first():
+    found = existing.scalars().first()
+    if found and body.config_type in MANAGED_TYPES and not found.is_active:
+        # re-adding a previously deleted INCI number reactivates it
+        found.label, found.meta, found.is_active = body.label, body.meta or {}, True
+        await db.commit()
+        return _out(found)
+    if found:
         raise HTTPException(400, "Key already exists for this config type")
     c = MasterConfig(config_type=body.config_type, key=body.key, label=body.label,
                      meta=body.meta or {}, sort_order=body.sort_order or 0)
@@ -109,6 +125,11 @@ async def update_config(config_id: int, body: ConfigUpdate, current_user: dict =
     c = result.scalars().first()
     if not c:
         raise HTTPException(404, "Config not found")
+    _check_inci(c.config_type, current_user)
+    if body.key is not None and body.key != c.key:
+        dup = await db.execute(select(MasterConfig).where(MasterConfig.config_type == c.config_type, MasterConfig.key == body.key))
+        if dup.scalars().first():
+            raise HTTPException(409, f"'{body.key}' already exists")
     for field, value in body.model_dump(exclude_none=True).items():
         setattr(c, field, value)
     await db.commit()
@@ -121,6 +142,7 @@ async def delete_config(config_id: int, current_user: dict = Depends(require_adm
     c = result.scalars().first()
     if not c:
         raise HTTPException(404, "Config not found")
+    _check_inci(c.config_type, current_user)
     c.is_active = False  # soft-delete
     await db.commit()
     return {"ok": True}

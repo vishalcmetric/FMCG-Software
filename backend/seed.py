@@ -57,14 +57,14 @@ TASKS = [
 # ─────────────────────────────────────────────────────────────
 REVIEWERS_PARTIAL = [
     {"role":"marketing",  "team_label":"Marketing Team",   "head_name":"Neeraj Kapoor",  "status":"Reviewed",  "comment":"Positioning looks strong. Ensure chocolate flavor is distinct from Milo.",    "updated_at":(NOW-timedelta(hours=3)).isoformat()},
-    {"role":"fd",         "team_label":"R&D / F&D Team",   "head_name":"Priya Sharma",   "status":"In Progress","comment":"",                                                                           "updated_at":""},
+    {"role":"fd",         "team_label":"F&D Team Head",    "head_name":"Priya Sharma",   "status":"In Progress","comment":"",                                                                           "updated_at":""},
     {"role":"regulatory", "team_label":"Regulatory Team",  "head_name":"Amit Verma",     "status":"Pending",   "comment":"",                                                                           "updated_at":""},
     {"role":"packaging",  "team_label":"Packaging Team",   "head_name":"Rajesh Nair",    "status":"Pending",   "comment":"",                                                                           "updated_at":""},
     {"role":"sa",         "team_label":"SA Team",          "head_name":"Kavita SA",      "status":"Pending",   "comment":"",                                                                           "updated_at":""},
 ]
 REVIEWERS_APPROVED = [
     {"role":"marketing",  "team_label":"Marketing Team",   "head_name":"Neeraj Kapoor",  "status":"Approved",  "comment":"Approved — launch Q3 2026.",                                                 "updated_at":(NOW-timedelta(days=2)).isoformat()},
-    {"role":"fd",         "team_label":"R&D / F&D Team",   "head_name":"Priya Sharma",   "status":"Approved",  "comment":"Formula finalized, stability data attached.",                                "updated_at":(NOW-timedelta(days=3)).isoformat()},
+    {"role":"fd",         "team_label":"F&D Team Head",    "head_name":"Priya Sharma",   "status":"Approved",  "comment":"Formula finalized, stability data attached.",                                "updated_at":(NOW-timedelta(days=3)).isoformat()},
     {"role":"regulatory", "team_label":"Regulatory Team",  "head_name":"Amit Verma",     "status":"Approved",  "comment":"All ingredients FSSAI-compliant.",                                           "updated_at":(NOW-timedelta(days=2)).isoformat()},
     {"role":"packaging",  "team_label":"Packaging Team",   "head_name":"Rajesh Nair",    "status":"Reviewed",  "comment":"Pack design v3 approved.",                                                   "updated_at":(NOW-timedelta(days=1)).isoformat()},
     {"role":"sa",         "team_label":"SA Team",          "head_name":"Kavita SA",      "status":"Approved",  "comment":"All claims substantiated.",                                                  "updated_at":(NOW-timedelta(days=1)).isoformat()},

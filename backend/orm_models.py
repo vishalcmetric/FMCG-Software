@@ -3,9 +3,10 @@ SQLAlchemy ORM table definitions — MySQL.
 All tables use Integer primary keys with auto-increment.
 """
 from sqlalchemy import (
-    Column, Integer, String, Text, DateTime, Boolean,
+    Column, Integer, String, Text, Date, DateTime, Boolean, Numeric,
     JSON, ForeignKey, Index, Enum as SAEnum
 )
+from sqlalchemy.dialects.mysql import MEDIUMTEXT
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from database import Base
@@ -53,6 +54,7 @@ class Task(Base):
     project_id      = Column(String(20), index=True)
     ppd_id          = Column(String(50), index=True)
     assigned_role   = Column(String(50), index=True)
+    assigned_to_email = Column(String(255), nullable=True, index=True)   # set = personal task (assigned team member)
     type            = Column(String(50))
     status          = Column(String(20), default="pending", index=True)
     priority        = Column(String(20), default="Medium")
@@ -134,6 +136,38 @@ class PPDSubmission(Base):
     expected_launch     = Column(String(50))
     objective           = Column(Text)
     key_benefits        = Column(Text)
+    # ── Draft PPD form fields (one column each; `date` is stored as ppd_date) ──
+    project_type        = Column(String(150))
+    date                = Column("ppd_date", Date)
+    project_leader      = Column(String(150))
+    marketing           = Column(String(150))
+    rd_product          = Column(String(150))
+    rd_packaging        = Column(String(150))
+    legal_regulatory    = Column(String(150))
+    overall_goal        = Column(MEDIUMTEXT)
+    consumer_target_group = Column(MEDIUMTEXT)
+    consumer_evidence   = Column(MEDIUMTEXT)
+    flavour             = Column(MEDIUMTEXT)
+    attributes          = Column(MEDIUMTEXT)
+    business_logic      = Column(MEDIUMTEXT)
+    product_description = Column(MEDIUMTEXT)
+    performance_claims  = Column(MEDIUMTEXT)
+    benchmark           = Column(MEDIUMTEXT)
+    primary_pack_description = Column(MEDIUMTEXT)
+    patent_legal_requirements = Column(MEDIUMTEXT)
+    legal_regulatory_considerations = Column(MEDIUMTEXT)
+    target_objective    = Column(MEDIUMTEXT)
+    minimum_objective   = Column(MEDIUMTEXT)
+    assumptions         = Column(MEDIUMTEXT)
+    constraints         = Column(MEDIUMTEXT)
+    risks               = Column(MEDIUMTEXT)
+    draft_attachments   = Column(JSON, nullable=True)   # {field_key: [{url, filename, size}]}
+    # Stage-1 team assignment by R&D Head / F&D Team Head: [{email, name}]
+    rd_assignees        = Column(JSON, nullable=True)
+    fd_assignees        = Column(JSON, nullable=True)
+    draft_rich_html     = Column(JSON, nullable=True)   # {field_key: formatted HTML}; columns hold plain text
+    # Legacy: first Draft PPD release stored the form as JSON here (read as fallback, never deleted)
+    draft_form          = Column(JSON, nullable=True)
 
     status              = Column(String(50), default="Pending", index=True)
     ppd_version         = Column(String(10), default="v1.0")
@@ -144,7 +178,7 @@ class PPDSubmission(Base):
     teams_involved      = Column(String(500), default="admin,source,pm,fd")
 
     # Full post-approval visibility — set at creation, applied when PPD is Approved
-    full_teams_involved = Column(String(500), default="admin,source,pm,fd,rd_head,marketing_head,sales_head,gdso_head,regulatory,cfo,marketing,packaging,adl,pmsa,sa,ceo,production")
+    full_teams_involved = Column(String(500), default="admin,source,pm,fd,fd_member,rd_team,regulatory_team,rd_head,marketing_head,sales_head,gdso_head,regulatory,cfo,marketing,packaging,adl,pmsa,sa,ceo,production")
 
     # Owner / submitter info
     created_by          = Column(String(150))
@@ -182,6 +216,8 @@ class PPDComment(Base):
     attachment_name   = Column(String(255), nullable=True)      # original filename for display
     rework_resolved   = Column(Boolean, default=False)          # True once rework is completed & resubmitted
     visible_to_roles  = Column(String(500), nullable=True)      # NULL = all; CSV of role keys if restricted
+    user_email        = Column(String(255), nullable=True)
+    attachments       = Column(JSON, nullable=True)             # [{url, filename, size}] (multiple files)
     created_at        = Column(DateTime, server_default=func.now(), index=True)
 
 
@@ -217,7 +253,9 @@ class Formula(Base):
     method_of_preparation = Column(Text, nullable=True)
     observation           = Column(Text, nullable=True)
     conclusion            = Column(Text, nullable=True)
-    ingredients           = Column(JSON, default=list)
+    ingredients           = Column(JSON, default=list)          # mirror of formula_ingredients rows (read by PDF / legacy UI)
+    rich_html             = Column(JSON, nullable=True)         # {field: formatted HTML}; text columns hold plain text
+    attachments           = Column(JSON, nullable=True)         # {field: [{url, filename, size}]}
     # Approval workflow columns (added via migration on existing deployments)
     approval_status       = Column(String(20), nullable=True)   # "pending_approval" | "approved" | "rejected"
     approval_comment      = Column(Text, nullable=True)         # rd_head's remark
@@ -232,6 +270,24 @@ class Formula(Base):
         Index("ix_formula_ppd", "ppd_id"),
     )
 
+
+
+class FormulaIngredient(Base):
+    """One row of the formulation Ingredients table (Form Overview)."""
+    __tablename__ = "formula_ingredients"
+
+    id             = Column(Integer, primary_key=True, autoincrement=True)
+    formula_id     = Column(String(30), ForeignKey("formulas.formula_id", ondelete="CASCADE"), nullable=False, index=True)
+    sr_no          = Column(Integer, nullable=False)
+    name           = Column(String(255), nullable=False)          # Name of Ingredients
+    ins_cas_inci   = Column(String(100), nullable=True)           # INS / CAS / INCI No.
+    vendor         = Column(String(255), nullable=True)           # Vendor / Supplier Name
+    use_function   = Column(String(255), nullable=True)           # Use / Function
+    cost_per_kg    = Column(Numeric(14, 4), nullable=True)        # Cost Per Kg
+    qty_pct        = Column(Numeric(9, 4), nullable=True)         # Quantity in Percentage (%)
+    qty_per_unit   = Column(Numeric(14, 4), nullable=True)        # Quantity per Unit or BOM
+    cost_per_unit  = Column(Numeric(14, 4), nullable=True)        # Cost per Unit (in INR)
+    created_at     = Column(DateTime, server_default=func.now())
 
 class FormulaComment(Base):
     __tablename__ = "formula_comments"

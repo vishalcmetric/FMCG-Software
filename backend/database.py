@@ -91,7 +91,7 @@ async def create_tables():
     await _migrate_columns()
 
 
-ALL_ROLES = "admin,source,pm,fd,rd_head,marketing_head,sales_head,gdso_head,regulatory,cfo,marketing,packaging,adl,pmsa,sa,ceo,production"
+ALL_ROLES = "admin,source,pm,fd,fd_member,rd_team,regulatory_team,rd_head,marketing_head,sales_head,gdso_head,regulatory,cfo,marketing,packaging,adl,pmsa,sa,ceo,production"
 
 
 async def _migrate_columns() -> None:
@@ -100,6 +100,40 @@ async def _migrate_columns() -> None:
         # (table, column, column_definition)
         ("ppd_submissions",  "mgmt_approvals",   "JSON NULL"),
         ("ppd_submissions",  "ppd_title",         "VARCHAR(255) NULL"),
+        ("ppd_submissions",  "draft_form",        "JSON NULL"),
+        ("ppd_submissions",  "project_type",      "VARCHAR(150) NULL"),
+        ("ppd_submissions",  "ppd_date",          "DATE NULL"),
+        ("ppd_submissions",  "project_leader", "VARCHAR(150) NULL"),
+        ("ppd_submissions",  "marketing", "VARCHAR(150) NULL"),
+        ("ppd_submissions",  "rd_product", "VARCHAR(150) NULL"),
+        ("ppd_submissions",  "rd_packaging", "VARCHAR(150) NULL"),
+        ("ppd_submissions",  "legal_regulatory", "VARCHAR(150) NULL"),
+        ("ppd_submissions",  "overall_goal", "MEDIUMTEXT NULL"),
+        ("ppd_submissions",  "consumer_target_group", "MEDIUMTEXT NULL"),
+        ("ppd_submissions",  "consumer_evidence", "MEDIUMTEXT NULL"),
+        ("ppd_submissions",  "flavour", "MEDIUMTEXT NULL"),
+        ("ppd_submissions",  "attributes", "MEDIUMTEXT NULL"),
+        ("ppd_submissions",  "business_logic", "MEDIUMTEXT NULL"),
+        ("ppd_submissions",  "product_description", "MEDIUMTEXT NULL"),
+        ("ppd_submissions",  "performance_claims", "MEDIUMTEXT NULL"),
+        ("ppd_submissions",  "benchmark", "MEDIUMTEXT NULL"),
+        ("ppd_submissions",  "primary_pack_description", "MEDIUMTEXT NULL"),
+        ("ppd_submissions",  "patent_legal_requirements", "MEDIUMTEXT NULL"),
+        ("ppd_submissions",  "legal_regulatory_considerations", "MEDIUMTEXT NULL"),
+        ("ppd_submissions",  "target_objective", "MEDIUMTEXT NULL"),
+        ("ppd_submissions",  "minimum_objective", "MEDIUMTEXT NULL"),
+        ("ppd_submissions",  "assumptions", "MEDIUMTEXT NULL"),
+        ("ppd_submissions",  "constraints", "MEDIUMTEXT NULL"),
+        ("ppd_submissions",  "risks", "MEDIUMTEXT NULL"),
+        ("ppd_submissions",  "draft_attachments", "JSON NULL"),
+        ("ppd_submissions",  "draft_rich_html",   "JSON NULL"),
+        ("ppd_submissions",  "rd_assignees",      "JSON NULL"),
+        ("ppd_submissions",  "fd_assignees",      "JSON NULL"),
+        ("ppd_comments",     "user_email",        "VARCHAR(255) NULL"),
+        ("ppd_comments",     "attachments",       "JSON NULL"),
+        ("tasks",            "assigned_to_email", "VARCHAR(255) NULL"),
+        ("formulas",         "rich_html",         "JSON NULL"),
+        ("formulas",         "attachments",       "JSON NULL"),
         ("lab_experiments",  "formula_id",        "VARCHAR(30) NULL"),
         ("lab_experiments",  "version",           "VARCHAR(10) NULL"),
         ("lab_experiments",  "ppd_id",            "VARCHAR(50) NULL"),
@@ -195,11 +229,147 @@ async def _migrate_columns() -> None:
             except Exception as e:
                 print(f"Warning: {_tbl} project_id nullable migration failed ({e})")
 
+        # Backfill Draft PPD columns from the JSON draft_form written by the first Draft PPD release
+        _draft_cols = [("project_type", "project_type"), ("ppd_date", "date")] + [
+            (k, k) for k in ("project_leader", "marketing", "rd_product", "rd_packaging", "legal_regulatory", "overall_goal", "consumer_target_group", "consumer_evidence", "flavour", "attributes", "business_logic", "product_description", "performance_claims", "benchmark", "primary_pack_description", "patent_legal_requirements", "legal_regulatory_considerations", "target_objective", "minimum_objective", "assumptions", "constraints", "risks")
+        ]
+        try:
+            for col, key in _draft_cols:
+                await cur.execute(
+                    f"UPDATE `ppd_submissions` SET `{col}` = NULLIF(JSON_UNQUOTE(JSON_EXTRACT(`draft_form`, '$.{key}')), '') "
+                    f"WHERE `{col}` IS NULL AND `draft_form` IS NOT NULL "
+                    f"AND NULLIF(JSON_UNQUOTE(JSON_EXTRACT(`draft_form`, '$.{key}')), '') IS NOT NULL"
+                )
+            await cur.execute(
+                "UPDATE `ppd_submissions` SET `draft_attachments` = "
+                "COALESCE(JSON_EXTRACT(`draft_form`, '$.attachments'), JSON_OBJECT()) "
+                "WHERE `draft_attachments` IS NULL AND `draft_form` IS NOT NULL AND JSON_LENGTH(`draft_form`) > 0"
+            )
+            await conn.commit()
+        except Exception as e:
+            print(f"Warning: Draft PPD column backfill failed ({e})")
+
+        # Rich-text columns: convert stored HTML to plain text, keeping the HTML in draft_rich_html
+        try:
+            import json
+            from ppd_fields import RICH_KEYS, html_to_text
+            cols = ", ".join(f"`{k}`" for k in RICH_KEYS)
+            await cur.execute(f"SELECT `id`, `draft_rich_html`, {cols} FROM `ppd_submissions`")
+            for row in await cur.fetchall():
+                rich = json.loads(row[1]) if row[1] else {}
+                sets = {}
+                for k, v in zip(RICH_KEYS, row[2:]):
+                    if v and "<" in v:
+                        rich.setdefault(k, v)
+                        sets[k] = html_to_text(v) or None
+                if sets:
+                    assign = ", ".join(f"`{k}` = %s" for k in sets)
+                    await cur.execute(
+                        f"UPDATE `ppd_submissions` SET {assign}, `draft_rich_html` = %s WHERE `id` = %s",
+                        (*sets.values(), json.dumps(rich), row[0]),
+                    )
+            await conn.commit()
+        except Exception as e:
+            print(f"Warning: Draft PPD plain-text migration failed ({e})")
+
+        # Role split: combined "R&D / F&D Team" label is now "F&D Team Head" (role key fd unchanged)
+        try:
+            await cur.execute(
+                "UPDATE `ppd_submissions` SET `reviewers` = CAST(REPLACE(CAST(`reviewers` AS CHAR), "
+                "'R&D / F&D Team', 'F&D Team Head') AS JSON) WHERE CAST(`reviewers` AS CHAR) LIKE '%R&D / F&D Team%'"
+            )
+            await cur.execute(
+                "UPDATE `ppd_submissions` SET `reviewers` = CAST(REPLACE(CAST(`reviewers` AS CHAR), "
+                "'\"Project Management\"', '\"Project Management Team\"') AS JSON) "
+                "WHERE CAST(`reviewers` AS CHAR) LIKE '%\"Project Management\"%'"
+            )
+            await conn.commit()
+        except Exception as e:
+            print(f"Warning: reviewer label rename failed ({e})")
+
+        # New Stage-1 flow (PM + R&D Head + F&D Team Head): bring PPDs still in Stage 1 into it
+        # so R&D Head can see, assign R&D Team members and approve them (same as F&D Team Head).
+        try:
+            import json as _json
+            await cur.execute("SELECT `ppd_id`, `project_name`, `teams_involved`, `reviewers` FROM `ppd_submissions` "
+                              "WHERE `status` = 'Pending' OR (`status` = 'Rework' AND `rework_from_stage` = 'initial')")
+            for ppd_id, pname, teams, revs in await cur.fetchall():
+                revs = _json.loads(revs) if revs else []
+                team_set = set(filter(None, (teams or "").split(",")))
+                if any(r.get("role") == "rd_head" for r in revs) and "rd_head" in team_set:
+                    continue
+                if not any(r.get("role") == "rd_head" for r in revs):
+                    revs.insert(0, {"role": "rd_head", "team_label": "R&D Head", "status": "Pending", "comment": "", "updated_at": ""})
+                team_set.add("rd_head")
+                await cur.execute("UPDATE `ppd_submissions` SET `reviewers` = %s, `teams_involved` = %s WHERE `ppd_id` = %s",
+                                  (_json.dumps(revs), ",".join(sorted(team_set)), ppd_id))
+                await cur.execute("SELECT COUNT(*) FROM `tasks` WHERE `ppd_id`=%s AND `assigned_role`='rd_head' AND `type`='ppd_review'", (ppd_id,))
+                if not (await cur.fetchone())[0]:
+                    await cur.execute("INSERT INTO `tasks` (`title`,`project_name`,`ppd_id`,`assigned_role`,`type`,`status`,`priority`,`due_label`) "
+                                      "VALUES (%s,%s,%s,'rd_head','ppd_review','pending','High','Today')",
+                                      (f"Review PPD {ppd_id} — {pname}", pname, ppd_id))
+            await conn.commit()
+        except Exception as e:
+            print(f"Warning: Stage-1 R&D Head migration failed ({e})")
+
+        # Formula ingredients: copy legacy JSON rows into formula_ingredients (one-time)
+        try:
+            import json as _json
+            from formula_ingredients import clean_row
+            await cur.execute("SELECT f.`formula_id`, f.`ingredients` FROM `formulas` f "
+                              "WHERE f.`ingredients` IS NOT NULL AND JSON_LENGTH(f.`ingredients`) > 0 "
+                              "AND NOT EXISTS (SELECT 1 FROM `formula_ingredients` i WHERE i.`formula_id` = f.`formula_id`)")
+            for fid, raw in await cur.fetchall():
+                rows = [r for r in (clean_row(x) for x in (_json.loads(raw) or [])) if r]
+                for n, r in enumerate(rows, 1):
+                    await cur.execute(
+                        "INSERT INTO `formula_ingredients` (`formula_id`,`sr_no`,`name`,`ins_cas_inci`,`vendor`,`use_function`,"
+                        "`cost_per_kg`,`qty_pct`,`qty_per_unit`,`cost_per_unit`) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                        (fid, n, r["name"], r["ins_cas_inci"], r["vendor"], r["use_function"],
+                         r["cost_per_kg"], r["qty_pct"], r["qty_per_unit"], r["cost_per_unit"]))
+            await conn.commit()
+        except Exception as e:
+            print(f"Warning: formula ingredient backfill failed ({e})")
+
+        # Master Data access: R&D Head + F&D Team Head manage INCI master data
+        try:
+            import json as _json
+            await cur.execute("SELECT `id`, `permissions` FROM `role_permissions` WHERE `module` = 'Master Data' AND `role` IN ('rd_head','fd')")
+            for pid_, perms in await cur.fetchall():
+                perms = _json.loads(perms) if perms else {}
+                if not (perms.get("view") and perms.get("create") and perms.get("edit")):
+                    perms.update({"view": True, "create": True, "edit": True})
+                    await cur.execute("UPDATE `role_permissions` SET `permissions` = %s WHERE `id` = %s", (_json.dumps(perms), pid_))
+            await conn.commit()
+        except Exception as e:
+            print(f"Warning: Master Data permission update failed ({e})")
+
+        # Personal review tasks for team members assigned before tasks existed
+        try:
+            import json as _json
+            await cur.execute("SELECT `ppd_id`, `project_name`, `rd_assignees`, `fd_assignees` FROM `ppd_submissions` "
+                              "WHERE (`rd_assignees` IS NOT NULL OR `fd_assignees` IS NOT NULL) "
+                              "AND `status` NOT IN ('Approved','Completed')")
+            for ppd_id, pname, rd, fd in await cur.fetchall():
+                for raw, mrole, label in ((rd, "rd_team", "R&D Team"), (fd, "fd_member", "F&D Team")):
+                    for m in (_json.loads(raw) if raw else []):
+                        email = (m.get("email") or "").lower()
+                        await cur.execute("SELECT COUNT(*) FROM `tasks` WHERE `ppd_id`=%s AND `type`='ppd_team_review' "
+                                          "AND `assigned_to_email`=%s", (ppd_id, email))
+                        if email and not (await cur.fetchone())[0]:
+                            await cur.execute(
+                                "INSERT INTO `tasks` (`title`,`project_name`,`ppd_id`,`assigned_role`,`assigned_to_email`,"
+                                "`type`,`status`,`priority`,`due_label`) VALUES (%s,%s,%s,%s,%s,'ppd_team_review','pending','High','Today')",
+                                (f"Review PPD {ppd_id} — {pname} ({label})", pname, ppd_id, mrole, email))
+            await conn.commit()
+        except Exception as e:
+            print(f"Warning: team review task backfill failed ({e})")
+
         # Backfill PPD submissions with empty reviewers if NULL
         _default_reviewers = (
-            '[{"role":"fd","team_label":"R&D / F&D Team","head_name":"",'
+            '[{"role":"fd","team_label":"F&D Team Head","head_name":"",'
             '"status":"Pending","comment":"","updated_at":""},'
-            '{"role":"pm","team_label":"Project Management","head_name":"",'
+            '{"role":"pm","team_label":"Project Management Team","head_name":"",'
             '"status":"Pending","comment":"","updated_at":""}]'
         )
         try:
@@ -213,7 +383,7 @@ async def _migrate_columns() -> None:
             print(f"Warning: ppd_submissions reviewers backfill failed ({e})")
 
         # Backfill full_teams_involved for existing rows that don't have it set yet
-        _all_roles = "admin,source,pm,fd,rd_head,marketing_head,sales_head,gdso_head,regulatory,cfo,marketing,packaging,adl,pmsa,sa,ceo,production"
+        _all_roles = "admin,source,pm,fd,fd_member,rd_team,regulatory_team,rd_head,marketing_head,sales_head,gdso_head,regulatory,cfo,marketing,packaging,adl,pmsa,sa,ceo,production"
         try:
             await cur.execute(
                 "UPDATE `ppd_submissions` SET `full_teams_involved` = %s "

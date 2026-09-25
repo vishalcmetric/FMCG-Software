@@ -8,6 +8,7 @@ from database import get_db, fmt_ist
 from auth import get_current_user
 from models import DashboardResponse, StatCard, PendingTask, ActivityItem, PipelineStage
 from orm_models import PPDSubmission, Task, AuditLog
+from sqlalchemy import cast, String
 from datetime import datetime, timedelta
 from database import IST
 
@@ -22,16 +23,30 @@ _MGMT_ROLES = ("mgmt", "ceo", "rd_head", "regulatory", "marketing", "sa")
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
-def _ppd_filter(q, role: str):
-    """Apply visibility filter based on role — only show PPDs in teams_involved."""
+# Team members see PPDs they were assigned to by their Team Head
+_MEMBER_ASSIGNEES = {"rd_team": "rd_assignees", "fd_member": "fd_assignees"}
+
+
+def _ppd_filter(q, role: str, email: str = ""):
+    """Apply visibility filter based on role — only show PPDs in teams_involved (or assigned to this member)."""
     if role in _FULL_ROLES:
         return q  # admin sees all
+    field = _MEMBER_ASSIGNEES.get(role)
+    if field and email:
+        return q.where(PPDSubmission.teams_involved.contains(role)
+                       | cast(getattr(PPDSubmission, field), String).contains(f'"{email.lower()}"'))
     return q.where(PPDSubmission.teams_involved.contains(role))
+
+
+def _my_tasks(stmt, role: str, email: str):
+    """Role tasks, plus personal tasks only for the assigned user."""
+    return stmt.where(Task.assigned_role == role).where(
+        Task.assigned_to_email.is_(None) | (Task.assigned_to_email == (email or "").lower()))
 
 
 async def _build_stats(db: AsyncSession, role: str, user_email: str) -> list[StatCard]:
     active_ppds = (await db.execute(
-        _ppd_filter(select(func.count()).select_from(PPDSubmission), role)
+        _ppd_filter(select(func.count()).select_from(PPDSubmission), role, user_email)
         .where(PPDSubmission.status.in_([
             "Pending", "Rework", "ReviewerApproved",
             "MgmtReview", "MgmtApproved", "FinalReview"
@@ -49,16 +64,16 @@ async def _build_stats(db: AsyncSession, role: str, user_email: str) -> list[Sta
         .where(Task.ppd_id.in_(active_ppd_ids))
     )
     if role not in _FULL_ROLES:
-        pending_q = pending_q.where(Task.assigned_role == role)
+        pending_q = _my_tasks(pending_q, role, user_email)
     pending_approvals = (await db.execute(pending_q)).scalar() or 0
 
     under_review = (await db.execute(
-        _ppd_filter(select(func.count()).select_from(PPDSubmission), role)
+        _ppd_filter(select(func.count()).select_from(PPDSubmission), role, user_email)
         .where(PPDSubmission.status.in_(["Pending", "Rework"]))
     )).scalar() or 0
 
     approved = (await db.execute(
-        _ppd_filter(select(func.count()).select_from(PPDSubmission), role)
+        _ppd_filter(select(func.count()).select_from(PPDSubmission), role, user_email)
         .where(PPDSubmission.status == "Approved")
     )).scalar() or 0
 
@@ -70,10 +85,10 @@ async def _build_stats(db: AsyncSession, role: str, user_email: str) -> list[Sta
     ]
 
 
-async def _build_ppds(db: AsyncSession, role: str) -> list[dict]:
+async def _build_ppds(db: AsyncSession, role: str, email: str = "") -> list[dict]:
     """Return the most recent PPDs visible to this role, for the dashboard PPD section."""
     stmt = (
-        _ppd_filter(select(PPDSubmission), role)
+        _ppd_filter(select(PPDSubmission), role, email)
         .order_by(PPDSubmission.updated_at.desc())
         .limit(5)
     )
@@ -105,7 +120,7 @@ async def _build_tasks(db: AsyncSession, role: str, user_email: str) -> list[Pen
         .where(Task.ppd_id.in_(active_ppd_ids))   # skip orphaned + terminal-state tasks
     )
     if role not in _FULL_ROLES:
-        stmt = stmt.where(Task.assigned_role == role)
+        stmt = _my_tasks(stmt, role, user_email)
     stmt = stmt.order_by(Task.due_date).limit(20)
 
     result = await db.execute(stmt)
@@ -193,7 +208,7 @@ async def get_dashboard(
     stats       = await _build_stats(db, role, email)
     tasks       = await _build_tasks(db, role, email)
     activity    = await _build_activity(db, role)
-    recent_ppds = await _build_ppds(db, role)
+    recent_ppds = await _build_ppds(db, role, email)
 
     return DashboardResponse(
         stats=stats,
