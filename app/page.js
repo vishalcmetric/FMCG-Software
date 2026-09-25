@@ -1110,10 +1110,10 @@ function ViewRouter({ view, setView, user, token, userPerms, can, dashboardKey, 
     case 'labbook':      return guard('Lab Notebook',<div className={p}><LabBookView user={user} token={token} can={can} /></div>)
     case 'plant':        return guard('Plant Trials',<div className={p}><PlantTrialsView user={user} token={token} can={can} /></div>)
     case 'pilot_trial':  return guard('Pilot Trial', <div className={p}><PilotTrialView user={user} token={token} /></div>)
-    case 'regulatory':   return guard('Regulatory',  <div className={p}><RegulatoryView user={user} token={token} can={can} /></div>)
+    case 'regulatory':   return guard('Regulatory',  <div className={p}><ModuleDocsView user={user} token={token} module="regulatory" title="Regulatory Compliance" subtitle="Upload and view regulatory documents for each PPD" uploadRoles={['admin','regulatory','rd_head']} /></div>)
     case 'sensory':      return guard('Sensory',     <div className={p}><SensoryView user={user} token={token} can={can} /></div>)
-    case 'costing':      return guard('Costing',     <div className={p}><CostingView user={user} token={token} can={can} /></div>)
-    case 'claim':        return guard('Claim',       <div className={p}><ClaimView user={user} token={token} can={can} /></div>)
+    case 'costing':      return guard('Costing',     <div className={p}><ModuleDocsView user={user} token={token} module="costing" title="Costing & Packaging Feasibility" subtitle="Upload and view costing & packaging feasibility documents for each PPD" uploadRoles={['admin','packaging','rd_head','mgmt']} /></div>)
+    case 'claim':        return guard('Claim',       <div className={p}><ModuleDocsView user={user} token={token} module="claim" title="Claim Substantiation" subtitle="Upload and view claim substantiation documents for each PPD" uploadRoles={['admin','sa','rd_head','regulatory']} /></div>)
     case 'artwork':      return guard('Artwork',     <div className={p}><ArtworkView user={user} token={token} can={can} /></div>)
     case 'master':       return guard('Master Data', <div className={p}><MasterDataView user={user} token={token} can={can} /></div>)
     case 'reports':      return guard('Reports',     <div className={p}><ReportsView user={user} token={token} /></div>)
@@ -4721,6 +4721,150 @@ function SensoryView({ user, token, can }) {
               </div>
               {selected.notes && <div className="p-3 bg-slate-50 rounded text-sm">{selected.notes}</div>}
             </CardContent>
+          </>)}
+        </Card>
+      </div>
+      )}
+    </div>
+  )
+}
+
+/* -------------------- MODULE DOCUMENTS (Costing / Regulatory) -------------------- */
+// Select a PPD → upload documents. Click a PPD → view its documents.
+function ModuleDocsView({ user, token, module, title, subtitle, uploadRoles }) {
+  const [docs, setDocs] = useState([])
+  const [ppds, setPpds] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [selectedPpd, setSelectedPpd] = useState(null)
+  const [showUpload, setShowUpload] = useState(false)
+  const [uploadPpd, setUploadPpd] = useState('')
+  const [files, setFiles] = useState([])
+  const [uploading, setUploading] = useState(false)
+
+  const canUpload = uploadRoles.includes(user?.role)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const [dData, pData] = await Promise.all([apiCall(`/api/module-docs?module=${module}`, { token }), apiCall('/api/ppd', { token })])
+      setDocs(Array.isArray(dData) ? dData : [])
+      setPpds(Array.isArray(pData) ? pData : [])
+    } catch(e) { toast.error('Failed to load') }
+    finally { setLoading(false) }
+  }, [token, module])
+
+  useEffect(() => { load() }, [load])
+
+  // PPDs that have documents, newest upload first
+  const groups = useMemo(() => {
+    const m = new Map()
+    docs.forEach(d => {
+      if (!m.has(d.ppd_id)) m.set(d.ppd_id, { ppd_id: d.ppd_id, project_name: d.project_name, docs: [] })
+      m.get(d.ppd_id).docs.push(d)
+    })
+    return [...m.values()]
+  }, [docs])
+
+  useEffect(() => {
+    if (!selectedPpd && groups.length) setSelectedPpd(groups[0].ppd_id)
+  }, [groups, selectedPpd])
+
+  const current = groups.find(g => g.ppd_id === selectedPpd)
+
+  const handleUpload = async () => {
+    if (!uploadPpd) return toast.error('Select a PPD')
+    if (!files.length) return toast.error('Select at least one document')
+    setUploading(true)
+    try {
+      const fd = new FormData()
+      fd.append('module', module)
+      fd.append('ppd_id', uploadPpd)
+      files.forEach(f => fd.append('files', f))
+      const res = await fetch('/api/module-docs', { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd })
+      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || 'Upload failed') }
+      toast.success(`${files.length} document(s) uploaded`)
+      setShowUpload(false); setFiles([])
+      setSelectedPpd(uploadPpd); setUploadPpd('')
+      load()
+    } catch(e) { toast.error(e.message || 'Upload failed') }
+    finally { setUploading(false) }
+  }
+
+  const handleDelete = async (d) => {
+    if (!window.confirm(`Delete ${d.file_name}?`)) return
+    try {
+      await apiCall(`/api/module-docs/${d.id}`, { method: 'DELETE', token })
+      toast.success('Document deleted')
+      load()
+    } catch(e) { toast.error(e.message || 'Failed') }
+  }
+
+  const fmtSize = n => n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round((n || 0) / 1024))} KB`
+
+  return (
+    <div className="space-y-4">
+      <div className="flex justify-between items-center">
+        <div><h1 className="text-2xl font-bold">{title}</h1><p className="text-muted-foreground text-sm">{subtitle}</p></div>
+        {canUpload && <Button onClick={() => setShowUpload(true)}><Upload className="h-4 w-4 mr-2"/>Upload</Button>}
+      </div>
+
+      <Dialog open={showUpload} onOpenChange={v => { setShowUpload(v); if (!v) setFiles([]) }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader><DialogTitle>Upload Documents</DialogTitle><DialogDescription>Select the PPD and choose the documents to upload (PDF, Word, Excel, images, ZIP — max 10 MB each).</DialogDescription></DialogHeader>
+          <div className="space-y-3">
+            <div><Label>PPD</Label>
+              <Select value={uploadPpd} onValueChange={setUploadPpd}>
+                <SelectTrigger><SelectValue placeholder="Select PPD"/></SelectTrigger>
+                <SelectContent>{ppds.map(p => <SelectItem key={p.ppd_id} value={p.ppd_id}>{p.ppd_id} — {p.project_name}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            <div><Label>Documents</Label>
+              <Input type="file" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.zip" onChange={e => setFiles(Array.from(e.target.files || []))}/>
+              {files.length > 0 && <div className="mt-2 space-y-1">{files.map((f, i) => <div key={i} className="text-xs text-muted-foreground flex items-center gap-1"><Paperclip className="h-3 w-3"/>{f.name} ({fmtSize(f.size)})</div>)}</div>}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowUpload(false)}>Cancel</Button>
+            <Button disabled={uploading} onClick={handleUpload}>{uploading ? 'Uploading…' : 'Upload'}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {loading ? <Card><CardContent className="p-8 text-center text-muted-foreground">Loading…</CardContent></Card> : (
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <Card className="lg:col-span-1">
+          <CardHeader><CardTitle>PPDs</CardTitle></CardHeader>
+          <CardContent className="p-0"><ScrollArea className="h-[500px]"><div className="p-2 space-y-1">
+            {groups.length === 0 ? <div className="p-4 text-muted-foreground text-sm">No documents uploaded yet</div> :
+            groups.map(g => (
+              <div key={g.ppd_id} onClick={() => setSelectedPpd(g.ppd_id)}
+                className={`p-3 rounded-lg cursor-pointer hover:bg-slate-100 ${selectedPpd === g.ppd_id ? 'bg-primary/5 border border-primary/20' : ''}`}>
+                <div className="flex justify-between"><span className="text-xs font-mono text-muted-foreground">{g.ppd_id}</span><Badge variant="outline" className="text-[10px]">{g.docs.length} doc{g.docs.length > 1 ? 's' : ''}</Badge></div>
+                <div className="text-sm font-medium truncate">{g.project_name}</div>
+              </div>
+            ))}
+          </div></ScrollArea></CardContent>
+        </Card>
+        <Card className="lg:col-span-2">
+          {!current ? <CardContent className="p-12 text-center text-muted-foreground">Select a PPD to view its documents</CardContent> : (
+          <>
+            <CardHeader><CardTitle>{current.ppd_id}</CardTitle><CardDescription>{current.project_name} • {current.docs.length} document(s)</CardDescription></CardHeader>
+            <CardContent className="p-0"><Table>
+              <TableHeader><TableRow><TableHead>Document</TableHead><TableHead>Uploaded By</TableHead><TableHead>Date</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
+              <TableBody>
+                {current.docs.map(d => (
+                  <TableRow key={d.id}>
+                    <TableCell><div className="flex items-center gap-2"><FileText className="h-4 w-4 text-muted-foreground shrink-0"/><span className="text-sm font-medium break-all">{d.file_name}</span></div><div className="text-xs text-muted-foreground ml-6">{fmtSize(d.file_size)}</div></TableCell>
+                    <TableCell className="text-sm">{d.uploaded_by || '—'}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground">{d.created_at || '—'}</TableCell>
+                    <TableCell className="text-right whitespace-nowrap">
+                      <Button size="sm" variant="ghost" onClick={() => window.open(`${API_BASE}${d.file_url}`, '_blank')}><Eye className="h-4 w-4 mr-1"/>View</Button>
+                      {(user?.role === 'admin' || user?.name === d.uploaded_by) && <Button size="sm" variant="ghost" className="text-red-600" onClick={() => handleDelete(d)}><Trash2 className="h-4 w-4"/></Button>}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table></CardContent>
           </>)}
         </Card>
       </div>

@@ -537,3 +537,21 @@ class PilotReport(Base):
     updated_at      = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
     __table_args__ = (Index("ix_pilot_report_ppd", "ppd_id"),)
+
+
+# ── Module Documents (Costing / Regulatory uploads, linked to a PPD) ─────────
+class ModuleDocument(Base):
+    __tablename__ = "module_documents"
+
+    id               = Column(Integer, primary_key=True, autoincrement=True)
+    module           = Column(String(30), nullable=False)      # "costing" | "regulatory"
+    ppd_id           = Column(String(50), nullable=False)
+    project_name     = Column(String(255))
+    file_name        = Column(String(255))
+    file_url         = Column(String(500))
+    file_size        = Column(Integer, default=0)
+    uploaded_by      = Column(String(150))
+    uploaded_by_role = Column(String(50))
+    created_at       = Column(DateTime, server_default=func.now())
+
+    __table_args__ = (Index("ix_module_doc_module_ppd", "module", "ppd_id"),)
