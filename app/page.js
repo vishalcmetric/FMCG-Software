@@ -217,7 +217,7 @@ function BrandPanel() {
             <Sparkles className="h-7 w-7 text-primary" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold">Pharma FMCG Software</h1>
+            <h1 className="text-2xl font-bold">FMCG Software</h1>
             <p className="text-sm opacity-80">FMCG Product Development Platform</p>
           </div>
         </div>
@@ -2750,8 +2750,8 @@ function PPDDetail({ ppd: initialPpd, user, token, onBack, onRefresh, onEditDraf
             </Button>
           )}
 
-          {/* Stage 1: PM / R&D Head / F&D Team Head — Approve in Pending or Rework@initial */}
-          {canStage1Act && !isApproved && (
+          {/* Stage 1: PM / R&D Head / F&D Team Head — Approve only in Pending (hidden while in Rework) */}
+          {canStage1Act && isPending && !isApproved && (
             <Button size="sm" className="gap-1 bg-emerald-600 hover:bg-emerald-700 text-white" onClick={async () => {
               setSaving(true)
               try {

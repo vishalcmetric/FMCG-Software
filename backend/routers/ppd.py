@@ -662,6 +662,10 @@ async def update_reviewers(
                         new_status = ns
                         break
 
+        # While in Rework, nobody can approve until the Source Team marks Rework Done
+        if new_status == "Approved" and p.status == "Rework":
+            raise HTTPException(400, "This PPD is in Rework — approval is available after the Source Team marks Rework Done")
+
         p.reviewers = current_reviewers
         flag_modified(p, "reviewers")
 
