@@ -42,8 +42,12 @@ async def save_upload(db: AsyncSession, url: str, data: bytes) -> None:
     async with aiofiles.open(full, "wb") as out:
         await out.write(data)
     rel = _rel(url)
-    await db.execute(delete(StoredFile).where(StoredFile.path == rel))
-    db.add(StoredFile(path=rel, content_type=content_type_for(rel), size=len(data), content=data))
+    try:                                              # DB copy is best-effort — never block the upload
+        async with db.begin_nested():
+            await db.execute(delete(StoredFile).where(StoredFile.path == rel))
+            db.add(StoredFile(path=rel, content_type=content_type_for(rel), size=len(data), content=data))
+    except Exception as e:
+        print(f"[filestore] DB copy of {rel} not saved: {e}")
 
 
 async def load_upload(db: AsyncSession, url: str) -> tuple[bytes, str] | None:
