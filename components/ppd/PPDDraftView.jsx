@@ -2,6 +2,7 @@
 
 import { FileText } from 'lucide-react'
 import { BASIC_FIELDS, TEAM_FIELDS, RICH_SECTIONS, sanitizeHtml } from './ppdFields'
+import { FileLink } from './FilePreview'
 
 const Empty = () => <span className="text-muted-foreground">—</span>
 
@@ -10,10 +11,10 @@ function Attachments({ items }) {
   return (
     <div className="mt-2 flex flex-wrap gap-2">
       {items.map(a => (
-        <a key={a.url} href={a.url} target="_blank" rel="noreferrer"
+        <FileLink key={a.url} file={a}
           className="inline-flex items-center gap-1.5 rounded-md border bg-muted/40 px-2 py-1 text-xs hover:underline">
           <FileText className="h-3.5 w-3.5 text-muted-foreground" />{a.filename}
-        </a>
+        </FileLink>
       ))}
     </div>
   )

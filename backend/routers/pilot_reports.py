@@ -1,7 +1,7 @@
 """
 Pilot Reports router.
 
-Upload roles : production, packaging, regulatory, sa, admin
+Upload roles : every role (report goes to R&D Head for approval)
 Review role  : rd_head (approve / reject each report)
 Closure flow :
   rd_head → POST /submit-for-closure  (notifies pm)
@@ -14,22 +14,32 @@ from database import get_db, fmt_ist, now_ist_naive
 from auth import get_current_user
 from orm_models import PilotReport, PPDSubmission, AuditLog
 from notify import notify_roles
+from filestore import save_upload, load_upload, delete_upload
+from routers.ppd import _can_access
 from pydantic import BaseModel
 from typing import Optional
 import os, uuid, aiofiles
 from datetime import datetime, timezone
 
-from fastapi.responses import FileResponse
+from fastapi.responses import Response
 
 router = APIRouter(prefix="/api/pilot-reports", tags=["pilot-reports"])
 
-UPLOAD_ROLES  = {"admin", "production", "packaging", "regulatory", "sa"}
+UPLOAD_ROLES  = {"admin", "source", "pm", "fd", "rd_head", "marketing_head", "sales_head", "gdso_head", "regulatory", "cfo", "packaging", "adl", "pmsa", "sa", "ceo", "production"}
 REVIEW_ROLE   = {"admin", "rd_head"}
 CLOSURE_ROLE  = {"admin", "rd_head"}
 PM_ROLE       = {"admin", "pm"}
 
-UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "..", "uploads", "pilot_reports")
-os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+
+def _can_see(r: PilotReport, ppd, user: dict) -> bool:
+    """Pending/rejected: uploader, R&D Head, admin. Approved: everyone assigned to the PPD."""
+    role = user.get("role", "")
+    if role in REVIEW_ROLE:
+        return True
+    if r.created_by_role == role and (r.created_by or "") == user.get("name", ""):
+        return True
+    return r.status == "approved" and ppd is not None and _can_access(ppd, user)
 
 ALL_ROLES = "admin,source,pm,fd,rd_head,marketing_head,sales_head,gdso_head,regulatory,cfo,packaging,adl,pmsa,sa,ceo,production"
 
@@ -69,8 +79,10 @@ async def list_reports(
     if status != "all":
         stmt = stmt.where(PilotReport.status == status)
     stmt = stmt.order_by(PilotReport.created_at.desc()).limit(200)
-    result = await db.execute(stmt)
-    return [_out(r) for r in result.scalars().all()]
+    reports = (await db.execute(stmt)).scalars().all()
+    ids = {r.ppd_id for r in reports}
+    ppds = {p.ppd_id: p for p in (await db.execute(select(PPDSubmission).where(PPDSubmission.ppd_id.in_(ids)))).scalars().all()} if ids else {}
+    return [_out(r) for r in reports if _can_see(r, ppds.get(r.ppd_id), current_user)]
 
 
 # ── DOWNLOAD (proxied through Next.js) ───────────────────────────────────────
@@ -86,20 +98,17 @@ async def download_report(
     if not rpt:
         raise HTTPException(404, "Report not found")
 
-    # Reconstruct the absolute path from the stored relative URL
-    # file_url is like /uploads/pilot_reports/abc.docx
-    rel = rpt.file_url.lstrip("/")          # uploads/pilot_reports/abc.docx
-    abs_path = os.path.join(os.path.dirname(__file__), "..", rel)
-    abs_path = os.path.normpath(abs_path)
+    ppd = (await db.execute(select(PPDSubmission).where(PPDSubmission.ppd_id == rpt.ppd_id))).scalars().first()
+    if not _can_see(rpt, ppd, current_user):
+        raise HTTPException(403, "This report is visible after R&D Head approval")
 
-    if not os.path.isfile(abs_path):
+    found = await load_upload(db, rpt.file_url or "") if rpt.file_url else None
+    if not found:
         raise HTTPException(404, "File not found on server")
-
-    return FileResponse(
-        path=abs_path,
-        filename=rpt.file_name or "report",
-        media_type="application/octet-stream",
-    )
+    data, _ctype = found
+    from urllib.parse import quote
+    return Response(content=data, media_type="application/octet-stream",
+                    headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(rpt.file_name or 'report')}"})
 
 
 # ── UPLOAD ────────────────────────────────────────────────────────────────────
@@ -115,7 +124,7 @@ async def upload_report(
 ):
     role = current_user.get("role", "")
     if role not in UPLOAD_ROLES:
-        raise HTTPException(403, "Only production, packaging, regulatory, or scientific affairs can upload reports")
+        raise HTTPException(403, "Your role cannot upload reports")
 
     ppd_res = await db.execute(select(PPDSubmission).where(PPDSubmission.ppd_id == ppd_id))
     ppd = ppd_res.scalars().first()
@@ -125,11 +134,9 @@ async def upload_report(
     # Save file
     ext = os.path.splitext(file.filename or "report")[-1] or ".pdf"
     safe_name = f"{uuid.uuid4().hex}{ext}"
-    file_path  = os.path.join(UPLOAD_DIR, safe_name)
-    async with aiofiles.open(file_path, "wb") as f_out:
-        content = await file.read()
-        await f_out.write(content)
+    content = await file.read()
     file_url = f"/uploads/pilot_reports/{safe_name}"
+    await save_upload(db, file_url, content)          # disk + DB copy (survives redeploys)
 
     # Generate report ID
     seq = ((await db.execute(select(func.count()).select_from(PilotReport).where(PilotReport.ppd_id == ppd_id))).scalar() or 0) + 1
@@ -245,13 +252,7 @@ async def delete_report(
 
     # Remove file from disk if it exists
     if rpt.file_url:
-        rel = rpt.file_url.lstrip("/")
-        abs_path = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", rel))
-        if os.path.isfile(abs_path):
-            try:
-                os.remove(abs_path)
-            except Exception:
-                pass
+        await delete_upload(db, rpt.file_url)
 
     db.add(AuditLog(
         user_name=current_user.get("name", ""),

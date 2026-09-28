@@ -49,6 +49,7 @@ import re
 import html as _html
 from sqlalchemy import delete as sa_delete
 from notify import notify_roles
+from filestore import save_upload
 from datetime import datetime
 
 router = APIRouter(prefix="/api/ppd", tags=["ppd"])
@@ -1557,15 +1558,15 @@ async def upload_attachment(
     if len(contents) > MAX_FILE_SIZE:
         raise HTTPException(400, "File exceeds 10 MB limit")
 
-    save_dir = os.path.join(UPLOAD_DIR, ppd_id)
-    os.makedirs(save_dir, exist_ok=True)
     unique_name = f"{uuid.uuid4().hex}{ext}"
-    save_path = os.path.join(save_dir, unique_name)
+    url = f"/uploads/ppd/{ppd_id}/{unique_name}"
+    try:
+        await save_upload(db, url, contents)          # disk + DB copy (survives redeploys)
+    except ValueError:
+        raise HTTPException(400, "Invalid PPD id")
+    await db.commit()
 
-    async with aiofiles.open(save_path, "wb") as f:
-        await f.write(contents)
-
-    return {"ok": True, "url": f"/uploads/ppd/{ppd_id}/{unique_name}", "filename": file.filename, "size": len(contents)}
+    return {"ok": True, "url": url, "filename": file.filename, "size": len(contents)}
 
 
 # ── DELETE (admin only) ───────────────────────────────────────────────────────

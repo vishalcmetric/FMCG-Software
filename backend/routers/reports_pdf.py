@@ -12,7 +12,7 @@ GET /api/formulation/report/{ppd_id}?token=<jwt>
         – Status, sensory score, cost
     • Re-downloading always reflects fresh DB data.
 """
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -312,8 +312,10 @@ def _build_story(ppd: PPDSubmission, formulas: list[Formula], S: dict) -> list:
     return story
 
 
-def _generate_pdf(ppd: PPDSubmission, formulas: list[Formula]) -> bytes:
-    """Build complete PDF bytes with footer — wraps _build_story."""
+def _generate_pdf(ppd: PPDSubmission, formulas: list[Formula], comments: list | None = None,
+                  reports: list | None = None, base_url: str = "") -> bytes:
+    """Build complete PDF bytes with footer — wraps _build_story.
+    comments / reports given → adds the Comments and Reports sections (links only)."""
     buf = BytesIO()
     doc = SimpleDocTemplate(
         buf,
@@ -325,6 +327,8 @@ def _generate_pdf(ppd: PPDSubmission, formulas: list[Formula]) -> bytes:
     )
     S = _build_styles()
     story = _build_story(ppd, formulas, S)
+    if comments is not None or reports is not None:
+        _comments_reports_sections(story, S, comments or [], reports or [], base_url)
 
     # Footer
     story.append(Spacer(1, 10))
@@ -479,9 +483,111 @@ def _rte_to_rl(html: str) -> str:
     h = re.sub(r"(<br/>\s*)+$", "", h)
     return h or "—"
 
+
+# ── PPD REPORT: Comments + Reports sections (links to original files only) ───
+
+def _abs_url(u: str, base: str) -> str:
+    u = (u or "").strip()
+    if u.startswith("/"):
+        return f"{base}{u}"
+    return u if re.match(r"(?i)^(https?://|mailto:)", u) else ""
+
+
+def _link(url: str, text: str) -> str:
+    from xml.sax.saxutils import escape
+    return f'<a href="{escape(url, {chr(34): "&quot;"})}" color="blue"><u>{escape(text or url)}</u></a>'
+
+
+def _comment_para(c, base: str, style) -> list:
+    """Comment text with its links kept clickable; images listed as links (not embedded)."""
+    from xml.sax.saxutils import escape
+    raw = c.comment or ""
+    links, images = [], []
+    if re.search(r"<[a-z][\s\S]*>", raw, re.I):
+        def keep_a(m):
+            url = _abs_url(m.group(1), base)
+            text = re.sub(r"<[^>]+>", "", m.group(2)).strip() or m.group(1)
+            if not url:
+                return text
+            links.append((url, text))
+            return f"@@LINK{len(links) - 1}@@"
+
+        def keep_img(m):
+            url = _abs_url(m.group(1), base)
+            if url:
+                images.append(url)
+            return ""
+        h = re.sub(r"(?is)<a\b[^>]*href=[\"']([^\"']+)[\"'][^>]*>(.*?)</a>", keep_a, raw)
+        h = re.sub(r"(?is)<img\b[^>]*src=[\"']([^\"']+)[\"'][^>]*>", keep_img, h)
+        body = _rte_to_rl(h)
+        for i, (url, text) in enumerate(links):
+            body = body.replace(f"@@LINK{i}@@", _link(url, text))
+    else:
+        parts = re.split(r"(https?://\S+)", raw)
+        body = "".join(_link(p, p) if re.match(r"https?://", p) else escape(p).replace("\n", "<br/>") for p in parts) or "—"
+    out = []
+    try:
+        out.append(Paragraph(body, style))
+    except Exception:                                   # malformed markup → plain text, never break the PDF
+        out.append(Paragraph(escape(re.sub(r"<[^>]+>", " ", raw)).strip() or "—", style))
+    for n, url in enumerate(images, 1):
+        out.append(Paragraph(f"Image {n}: " + _link(url, url.rsplit("/", 1)[-1] or url), style))
+    return out
+
+
+def _comments_reports_sections(story: list, S: dict, comments: list, reports: list, base: str):
+    from xml.sax.saxutils import escape
+    fmt = lambda d: d.strftime("%d %b %Y %H:%M") if d else "—"
+
+    # ── 4. COMMENTS ──
+    story.append(Spacer(1, 8))
+    story.append(Paragraph("4. Comments", S["section"]))
+    if not comments:
+        story.append(Paragraph("No comments on this PPD.", S["body"]))
+    for c in comments:
+        tag = " &nbsp;·&nbsp; <b>Rework</b>" if (c.action_tag or "") == "rework" else ""
+        block = [Paragraph(f"<b>{escape(c.user_name or '—')}</b> ({escape(c.user_role or '—')}) &nbsp;·&nbsp; {fmt(c.created_at)}{tag}", S["label"])]
+        block += _comment_para(c, base, S["body"])
+        files = c.attachments or ([{"url": c.attachment_url, "filename": c.attachment_name}] if c.attachment_url else [])
+        for f in files:
+            url = _abs_url((f or {}).get("url", ""), base)
+            if url:
+                block.append(Paragraph("Attachment: " + _link(url, (f or {}).get("filename") or url.rsplit("/", 1)[-1]), S["body"]))
+        block.append(HRFlowable(width="100%", thickness=0.4, color=BORDER, spaceBefore=3, spaceAfter=4))
+        story.append(KeepTogether(block))
+
+    # ── 5. REPORTS ──
+    story.append(Spacer(1, 8))
+    story.append(Paragraph("5. Reports", S["section"]))
+    if not reports:
+        story.append(Paragraph("No reports uploaded against this PPD.", S["body"]))
+        return
+    P = lambda t: Paragraph(escape(str(t)) if t not in (None, "") else "—", S["body"])
+    rows = [[Paragraph(f"<b>{h}</b>", S["label"]) for h in ("Report", "File Name", "Uploaded By", "Uploaded On", "Status", "Link")]]
+    for r in reports:
+        url = _abs_url(r.file_url or "", base)
+        rows.append([P(f"{r.report_id} ({r.report_type or '—'})"), P(r.file_name), P(f"{r.created_by or '—'} ({r.created_by_role or '—'})"),
+                     P(fmt(r.created_at)), P((r.status or "—").title()),
+                     Paragraph(_link(url, "Open file"), S["body"]) if url else P("")])
+    t = Table(rows, colWidths=[38*mm, 34*mm, 30*mm, 22*mm, 22*mm, 20*mm], hAlign="LEFT", repeatRows=1)
+    t.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), PRIMARY), ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, LIGHT_BG]), ("GRID", (0, 0), (-1, -1), 0.4, BORDER),
+        ("TOPPADDING", (0, 0), (-1, -1), 3), ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ("LEFTPADDING", (0, 0), (-1, -1), 4), ("FONTSIZE", (0, 0), (-1, -1), 7), ("VALIGN", (0, 0), (-1, -1), "TOP"),
+    ]))
+    story.append(t)
+
+
+def _base_url(request: Request) -> str:
+    proto = request.headers.get("x-forwarded-proto", request.url.scheme).split(",")[0].strip()
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host") or request.url.netloc
+    return f"{proto}://{host}"
+
 @router.get("/report/{ppd_id}")
 async def download_ppd_report(
     ppd_id: str,
+    request: Request,
     token: str = Query("", description="JWT — passed as query param for browser direct download"),
     db: AsyncSession = Depends(get_db),
 ):
@@ -514,8 +620,14 @@ async def download_ppd_report(
     )
     formulas = list(form_res.scalars().all())
 
+    # Comments + reports of this PPD (only links to the original files go into the PDF)
+    comments = list((await db.execute(select(PPDComment).where(PPDComment.ppd_id == ppd_id)
+                                      .order_by(PPDComment.created_at.asc(), PPDComment.id.asc()))).scalars().all())
+    reports = list((await db.execute(select(PilotReport).where(PilotReport.ppd_id == ppd_id)
+                                     .order_by(PilotReport.created_at.asc()))).scalars().all())
+
     # Build PDF in memory
-    pdf_bytes = _generate_pdf(ppd, formulas)
+    pdf_bytes = _generate_pdf(ppd, formulas, comments, reports, _base_url(request))
 
     filename = f"PPD_Dossier_{ppd_id}.pdf"
     return StreamingResponse(
@@ -644,6 +756,58 @@ async def download_elab_notebook(
     buf.seek(0)
     return StreamingResponse(buf, media_type="application/pdf",
                              headers={"Content-Disposition": f'attachment; filename="{ppd_id}_E-Lab-Notebook.pdf"'})
+
+
+@router.get("/report-merge")
+async def download_merged_formulas(
+    ids: str = Query(..., description="Comma-separated formula_id values (only these go into the PDF)"),
+    token: str = Query("", description="JWT — passed as query param for browser direct download"),
+    db: AsyncSession = Depends(get_db),
+):
+    """ONE PDF with ONLY the selected formulas, in the E-Lab table layout (grouped per PPD)."""
+    from reportlab.lib.pagesizes import landscape
+    from reportlab.platypus import PageBreak
+    from routers.formulation import _ppd_trials
+    try:
+        current_user = decode_token(token) if token else {"role": "admin", "sub": "", "name": ""}
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid or missing token")
+    wanted = list(dict.fromkeys(i.strip() for i in ids.split(",") if i.strip()))
+    if not wanted:
+        raise HTTPException(400, "Select at least one formula")
+    trials = await _ppd_trials(db, "", wanted)
+    if not trials:
+        raise HTTPException(404, "Selected formulas not found")
+    role = current_user.get("role", "")
+    story, groups = [], {}
+    for t in trials:
+        groups.setdefault(t.get("ppd_id") or "", []).append(t)
+    for n, (pid, group) in enumerate(groups.items()):
+        ppd = (await db.execute(select(PPDSubmission).where(PPDSubmission.ppd_id == pid))).scalars().first()
+        if ppd is None:
+            ppd = PPDSubmission(ppd_id=pid or "—", project_name=group[0].get("project_name") or "", ppd_title="")
+        elif role not in ELAB_ROLES and role not in (ppd.teams_involved or "").split(","):
+            raise HTTPException(403, f"You are not assigned to {pid}")
+        if n:
+            story.append(PageBreak())
+        story += _elab_story(ppd, group)
+    generated = datetime.now(IST).strftime("%d %b %Y %H:%M IST")
+
+    def _footer(canvas, doc):
+        canvas.saveState()
+        canvas.setFont("Helvetica", 7)
+        canvas.setFillColor(TEXT_MUTED)
+        canvas.drawString(12 * mm, 7 * mm, f"Merged formulas  ·  {len(trials)} formula(s)  ·  generated {generated}")
+        canvas.drawRightString(landscape(A4)[0] - 12 * mm, 7 * mm, f"Page {doc.page}")
+        canvas.restoreState()
+
+    buf = BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=landscape(A4), leftMargin=12 * mm, rightMargin=12 * mm,
+                            topMargin=12 * mm, bottomMargin=14 * mm, title="Merged Formulas")
+    doc.build(story, onFirstPage=_footer, onLaterPages=_footer)
+    buf.seek(0)
+    return StreamingResponse(buf, media_type="application/pdf",
+                             headers={"Content-Disposition": f'attachment; filename="Merged_Formulas_{len(trials)}.pdf"'})
 
 
 @router.get("/report/{ppd_id}/with-attachments")

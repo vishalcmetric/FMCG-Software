@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import RichTextEditor from './RichTextEditor'
 import { sanitizeHtml, htmlToText } from './ppdFields'
+import { FileLink, FilePreviewDialog } from './FilePreview'
 
 /* R&D and F&D are separate teams: each head assigns only their own members */
 export const TEAMS = {
@@ -144,12 +145,19 @@ export function TeamAssignmentCard({ ppd, user, token, apiCall, onSaved }) {
 export function CommentBody({ c, apiBase = '' }) {
   const isHtml = /<[a-z][\s\S]*>/i.test(c.comment || '')
   const files = c.attachments?.length ? c.attachments : (c.attachment_url ? [{ url: c.attachment_url, filename: c.attachment_name }] : [])
+  const [preview, setPreview] = useState(null)
+  // Links to uploaded files inside the comment text open in the preview instead of a broken tab
+  const onContentClick = e => {
+    const a = e.target.closest?.('a[href]')
+    const href = a?.getAttribute('href') || ''
+    if (href.includes('/uploads/')) { e.preventDefault(); setPreview({ url: href, filename: (a.textContent || '').trim() || href.split('/').pop() }) }
+  }
   return (
     <>
       {isHtml
-        ? <div className="rte-content mt-1 text-sm" dangerouslySetInnerHTML={{ __html: sanitizeHtml(c.comment) }} />
+        ? <div className="rte-content mt-1 text-sm" onClick={onContentClick} dangerouslySetInnerHTML={{ __html: sanitizeHtml(c.comment) }} />
         : (
-          <p className="mt-1 whitespace-pre-line text-sm">
+          <p className="mt-1 whitespace-pre-line text-sm" onClick={onContentClick}>
             {(c.comment || '').split(/(\bhttps?:\/\/\S+)/g).map((part, i) =>
               /^https?:\/\//.test(part)
                 ? <a key={i} href={part} target="_blank" rel="noreferrer" className="break-all text-blue-600 hover:underline">{part}</a>
@@ -158,14 +166,10 @@ export function CommentBody({ c, apiBase = '' }) {
         )}
       {files.length > 0 && (
         <div className="mt-1.5 flex flex-wrap gap-1.5">
-          {files.map((f, i) => (
-            <a key={f.url || i} href={`${apiBase}${f.url}`} target="_blank" rel="noreferrer"
-              className="inline-flex items-center gap-1 rounded border border-blue-200 bg-blue-50 px-2 py-0.5 text-xs text-blue-600 hover:underline">
-              <Paperclip className="h-3 w-3" />{f.filename || 'Attachment'}
-            </a>
-          ))}
+          {files.map((f, i) => <FileLink key={f.url || i} file={f} />)}
         </div>
       )}
+      <FilePreviewDialog file={preview} onClose={() => setPreview(null)} />
       {c.created_at && (
         <p className="mt-1 text-[11px] text-muted-foreground">
           {c.user_name} · {new Date(c.created_at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}

@@ -10,6 +10,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { sanitizeHtml } from '@/components/ppd/ppdFields'
+import { FileLink } from '@/components/ppd/FilePreview'
 
 /* E-Lab Notebook sheet layout (Form Overview → Formulation Development) — same as the PDF export */
 const BASIC = [['trial_no', 'Trial No.'], ['batch_no', 'Batch No.'], ['batch_size', 'Batch Size (gm)'], ['unit_qty', 'Unit Qty. (gm)'], ['mfg_date', 'Mfg Date']]
@@ -74,9 +75,9 @@ function TrialSheet({ t, n, total, ppd }) {
                   {(t.attachments?.[k] || []).length > 0 && (
                     <div className="mt-1 flex flex-wrap gap-2">
                       {t.attachments[k].map(a => (
-                        <a key={a.url} href={a.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
+                        <FileLink key={a.url} file={a} className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
                           <Paperclip className="h-3 w-3" />{a.filename}
-                        </a>
+                        </FileLink>
                       ))}
                     </div>
                   )}

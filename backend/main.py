@@ -1,7 +1,11 @@
 """
 FastAPI main application — FMCG Software Platform (MySQL edition)
 """
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends, HTTPException
+from fastapi.responses import Response
+from sqlalchemy.ext.asyncio import AsyncSession
+from database import get_db
+from filestore import load_upload
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
@@ -56,7 +60,17 @@ app.add_middleware(
 # Serve uploaded files as static assets
 _uploads_dir = os.path.join(os.path.dirname(__file__), "uploads")
 os.makedirs(_uploads_dir, exist_ok=True)
-app.mount("/uploads", StaticFiles(directory=_uploads_dir), name="uploads")
+
+
+
+@app.get("/uploads/{file_path:path}", include_in_schema=False)
+async def serve_upload(file_path: str, db: AsyncSession = Depends(get_db)):
+    """Uploaded files: from disk, or from the DB copy when the disk was wiped (Render redeploy)."""
+    found = await load_upload(db, file_path)
+    if not found:
+        raise HTTPException(404, "File not found")
+    data, ctype = found
+    return Response(content=data, media_type=ctype, headers={"Content-Disposition": "inline", "Cache-Control": "private, max-age=3600"})
 
 app.include_router(auth.router)
 app.include_router(dashboard.router)

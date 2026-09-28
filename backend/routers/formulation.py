@@ -151,10 +151,14 @@ async def list_formulas(
 
 # ── ALL TRIALS OF ONE PPD (E-Lab Notebook) ────────────────────────────────────
 
-async def _ppd_trials(db: AsyncSession, ppd_id: str) -> list[dict]:
-    """Every formula/trial of a PPD in creation order, each with its own ingredient rows."""
-    formulas = (await db.execute(select(Formula).where(Formula.ppd_id == ppd_id)
+async def _ppd_trials(db: AsyncSession, ppd_id: str, formula_ids: list[str] | None = None) -> list[dict]:
+    """Every formula/trial of a PPD in creation order, each with its own ingredient rows.
+    formula_ids given → only those formulas (any PPD), in that order."""
+    where = Formula.formula_id.in_(formula_ids) if formula_ids is not None else Formula.ppd_id == ppd_id
+    formulas = (await db.execute(select(Formula).where(where)
                                  .order_by(Formula.created_at.asc(), Formula.id.asc()))).scalars().all()
+    if formula_ids is not None:
+        formulas = sorted(formulas, key=lambda f: formula_ids.index(f.formula_id))
     rows_by_formula = {}
     if formulas and await _ing_table(db):
         rows = (await db.execute(select(FormulaIngredient)

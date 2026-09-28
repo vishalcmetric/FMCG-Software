@@ -6,7 +6,7 @@ from sqlalchemy import (
     Column, Integer, String, Text, Date, DateTime, Boolean, Numeric,
     JSON, ForeignKey, Index, Enum as SAEnum
 )
-from sqlalchemy.dialects.mysql import MEDIUMTEXT
+from sqlalchemy.dialects.mysql import MEDIUMTEXT, LONGBLOB
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from database import Base
@@ -555,3 +555,16 @@ class ModuleDocument(Base):
     created_at       = Column(DateTime, server_default=func.now())
 
     __table_args__ = (Index("ix_module_doc_module_ppd", "module", "ppd_id"),)
+
+
+# ── Stored Files (copy of every uploaded file, so /uploads/... still opens
+#    after a server restart / redeploy wipes the local disk) ────────────────
+class StoredFile(Base):
+    __tablename__ = "stored_files"
+
+    id           = Column(Integer, primary_key=True, autoincrement=True)
+    path         = Column(String(500), unique=True, nullable=False)   # e.g. "ppd/PPD-ZW-2026-001/abc.pdf"
+    content_type = Column(String(150))
+    size         = Column(Integer, default=0)
+    content      = Column(LONGBLOB, nullable=False)
+    created_at   = Column(DateTime, server_default=func.now())

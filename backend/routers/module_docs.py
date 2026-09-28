@@ -9,8 +9,9 @@ from database import get_db, fmt_ist
 from auth import get_current_user
 from orm_models import ModuleDocument, PPDSubmission, AuditLog
 from routers.ppd import ALLOWED_EXTENSIONS, MAX_FILE_SIZE
+from filestore import save_upload, delete_upload
 from typing import List
-import os, uuid, aiofiles
+import os, uuid
 
 router = APIRouter(prefix="/api/module-docs", tags=["module-docs"])
 
@@ -19,7 +20,6 @@ UPLOAD_ROLES = {
     "regulatory": {"admin", "regulatory", "rd_head"},
     "claim":      {"admin", "sa", "rd_head", "regulatory"},
 }
-UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "..", "uploads", "module_docs")
 
 
 def _out(d: ModuleDocument) -> dict:
@@ -80,16 +80,13 @@ async def upload_docs(
             raise HTTPException(400, f"{f.filename} exceeds 10 MB limit")
         items.append((f.filename, ext, data))
 
-    save_dir = os.path.join(UPLOAD_DIR, module, ppd_id)
-    os.makedirs(save_dir, exist_ok=True)
     docs = []
     for name, ext, data in items:
-        unique = f"{uuid.uuid4().hex}{ext}"
-        async with aiofiles.open(os.path.join(save_dir, unique), "wb") as out:
-            await out.write(data)
+        url = f"/uploads/module_docs/{module}/{ppd_id}/{uuid.uuid4().hex}{ext}"
+        await save_upload(db, url, data)              # disk + DB copy (survives redeploys)
         d = ModuleDocument(
             module=module, ppd_id=ppd_id, project_name=ppd.project_name,
-            file_name=(name or "document")[:255], file_url=f"/uploads/module_docs/{module}/{ppd_id}/{unique}",
+            file_name=(name or "document")[:255], file_url=url,
             file_size=len(data), uploaded_by=current_user.get("name", "")[:150], uploaded_by_role=role,
         )
         db.add(d)
@@ -116,12 +113,8 @@ async def delete_doc(
         raise HTTPException(404, "Document not found")
     if current_user.get("role") != "admin" and current_user.get("name", "") != d.uploaded_by:
         raise HTTPException(403, "Only the uploader or admin can delete this document")
-    path = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", (d.file_url or "").lstrip("/")))
-    if os.path.isfile(path):
-        try:
-            os.remove(path)
-        except Exception:
-            pass
+    if d.file_url:
+        await delete_upload(db, d.file_url)
     await db.delete(d)
     await db.commit()
     return {"ok": True}

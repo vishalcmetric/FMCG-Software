@@ -22,6 +22,7 @@ import PPDDraftView from '@/components/ppd/PPDDraftView'
 import FormulationForm from '@/components/formulation/FormulationForm'
 import ElabNotebook from '@/components/formulation/ElabNotebook'
 import { AssignTeamButton, TeamAssignmentCard, CommentBody, CommentComposer, TEAM_MEMBER_ROLES } from '@/components/ppd/PPDCollab'
+import { FileLink } from '@/components/ppd/FilePreview'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import {
   LayoutDashboard, FolderKanban, FileText, FlaskConical, Notebook, Factory, ShieldCheck, TestTube2,
@@ -3462,6 +3463,7 @@ function FormulationView({ user, token, can }) {
   // Compare
   const [compareOpen, setCompareOpen] = useState(false)
   const [compareIds, setCompareIds]   = useState([])
+  const compareCache = useRef({})
 
   const canEdit = ['admin','fd','fd_member','rd_head'].includes(user?.role) || (can && can('Formulation','edit'))
   const canCreate = ['admin','fd','fd_member','rd_head'].includes(user?.role) || (can && can('Formulation','create'))
@@ -3624,7 +3626,8 @@ function FormulationView({ user, token, can }) {
   }
 
   // ── compare helpers ──
-  const compareList = formulas.filter(f => compareIds.includes(f.formula_id))
+  formulas.forEach(f => { if (compareIds.includes(f.formula_id)) compareCache.current[f.formula_id] = f })
+  const compareList = compareIds.map(id => formulas.find(f => f.formula_id === id) || compareCache.current[id]).filter(Boolean)
   const COMPARE_FIELDS = [
     { key:'trial_no',              label:'Trial No.' },
     { key:'batch_no',              label:'Batch No.' },
@@ -4039,6 +4042,11 @@ function FormulationView({ user, token, can }) {
               <GitCompare className="h-4 w-4 mr-2"/>Compare ({compareIds.length})
             </Button>
           )}
+          {compareIds.length >= 1 && (
+            <Button variant="outline" onClick={() => window.open(`${API_BASE}/api/formulation/report-merge?ids=${encodeURIComponent(compareIds.join(','))}&token=${encodeURIComponent(token)}`, '_blank')}>
+              <Layers className="h-4 w-4 mr-2"/>Merge ({compareIds.length})
+            </Button>
+          )}
           {compareIds.length > 0 && (
             <Button variant="ghost" size="sm" onClick={() => setCompareIds([])}>Clear selection</Button>
           )}
@@ -4163,44 +4171,57 @@ function FormulationView({ user, token, can }) {
 
 
 
-      {/* ── Compare Dialog ── */}
-      <Dialog open={compareOpen} onOpenChange={setCompareOpen}>
-        <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Formula Comparison</DialogTitle>
-            <DialogDescription>{compareList.length} formulas selected</DialogDescription>
-          </DialogHeader>
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-36">Parameter</TableHead>
-                  {compareList.map(f => (
-                    <TableHead key={f.formula_id}>
-                      <div className="font-mono text-xs">{f.formula_id}</div>
-                      <div className="font-normal text-xs text-muted-foreground">{f.version}</div>
-                    </TableHead>
+      {/* ── Compare: full-screen view (no popup) — all selected formulas fit the width, text wraps ── */}
+      {compareOpen && (
+        <div className="fixed inset-0 z-50 flex flex-col bg-background">
+          <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <Button variant="ghost" size="sm" onClick={() => setCompareOpen(false)}><ArrowLeft className="h-4 w-4 mr-1"/>Back</Button>
+              <div className="min-w-0">
+                <h2 className="text-lg font-bold">Formula Comparison</h2>
+                <p className="text-xs text-muted-foreground">{compareList.length} formulas selected</p>
+              </div>
+            </div>
+            <Button variant="outline" size="sm" onClick={() => window.open(`${API_BASE}/api/formulation/report-merge?ids=${encodeURIComponent(compareIds.join(','))}&token=${encodeURIComponent(token)}`, '_blank')}>
+              <Layers className="h-4 w-4 mr-2"/>Merge PDF
+            </Button>
+          </div>
+          <div className="flex-1 overflow-y-auto overflow-x-hidden p-4">
+            <table className="w-full table-fixed border-collapse text-sm">
+              <colgroup>
+                <col style={{ width: compareList.length > 4 ? '9rem' : '11rem' }} />
+                {compareList.map(f => <col key={f.formula_id} />)}
+              </colgroup>
+              <thead className="sticky top-0 z-10">
+                <tr>
+                  <th className="border bg-slate-100 p-2 text-left align-bottom text-xs font-semibold">Parameter</th>
+                  {compareList.map((f, i) => (
+                    <th key={f.formula_id} className={`border p-2 text-left align-top ${i % 2 ? 'bg-sky-50' : 'bg-emerald-50'}`}>
+                      <div className="text-[10px] font-semibold uppercase text-muted-foreground">Formula {i + 1}</div>
+                      <div className="break-all font-mono text-xs font-semibold">{f.formula_id}</div>
+                      <div className="break-words text-xs font-normal text-muted-foreground">{f.version}{f.project_name ? ` · ${f.project_name}` : ''}</div>
+                    </th>
                   ))}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
+                </tr>
+              </thead>
+              <tbody>
                 {COMPARE_FIELDS.map(({key,label}) => (
-                  <TableRow key={key}>
-                    <TableCell className="font-medium text-sm">{label}</TableCell>
-                    {compareList.map(f => (
-                      <TableCell key={f.formula_id} className={`text-sm ${key==='status'?'':''}`}>
+                  <tr key={key}>
+                    <td className="border bg-slate-50 p-2 align-top font-medium break-words">{label}</td>
+                    {compareList.map((f, i) => (
+                      <td key={f.formula_id} className={`border p-2 align-top whitespace-pre-wrap break-words [overflow-wrap:anywhere] ${i % 2 ? 'bg-sky-50/30' : ''}`}>
                         {key === 'status'
                           ? <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${FORMULA_STATUS_COLORS[f[key]]||'bg-slate-100'}`}>{f[key]||'—'}</span>
                           : f[key] || '—'}
-                      </TableCell>
+                      </td>
                     ))}
-                  </TableRow>
+                  </tr>
                 ))}
-              </TableBody>
-            </Table>
+              </tbody>
+            </table>
           </div>
-        </DialogContent>
-      </Dialog>
+        </div>
+      )}
     </div>
   )
 }
@@ -4858,7 +4879,7 @@ function ModuleDocsView({ user, token, module, title, subtitle, uploadRoles }) {
                     <TableCell className="text-sm">{d.uploaded_by || '—'}</TableCell>
                     <TableCell className="text-xs text-muted-foreground">{d.created_at || '—'}</TableCell>
                     <TableCell className="text-right whitespace-nowrap">
-                      <Button size="sm" variant="ghost" onClick={() => window.open(`${API_BASE}${d.file_url}`, '_blank')}><Eye className="h-4 w-4 mr-1"/>View</Button>
+                      <FileLink file={{ url: d.file_url, filename: d.file_name }} className="inline-flex"><Button size="sm" variant="ghost"><Eye className="h-4 w-4 mr-1"/>View</Button></FileLink>
                       {(user?.role === 'admin' || user?.name === d.uploaded_by) && <Button size="sm" variant="ghost" className="text-red-600" onClick={() => handleDelete(d)}><Trash2 className="h-4 w-4"/></Button>}
                     </TableCell>
                   </TableRow>
@@ -5872,186 +5893,149 @@ function InciMaster({ rows, loading, token, canManage, onChanged }) {
 
 /* -------------------- REPORTS -------------------- */
 function ReportsView({ user, token }) {
-  const UPLOAD_ROLES = ['production','packaging','regulatory','sa','admin']
-  const canUpload = UPLOAD_ROLES.includes(user?.role)
-  const [ppds, setPpds]             = useState([])
-  const [reports, setReports]       = useState([])
-  const [loading, setLoading]       = useState(true)
-  const [ppdFilter, setPpdFilter]   = useState('all')
-  const [uploadOpen, setUploadOpen] = useState(false)
-  const [uploading, setUploading]   = useState(false)
-  const [uploadForm, setUploadForm] = useState({ ppd_id:'', report_type:'Stability', notes:'' })
-  const [uploadFile, setUploadFile] = useState(null)
-  const REPORT_TYPES = ['Stability','QC Analysis','Regulatory Compliance','Production Trial','Batch Report','Safety Data','Other']
+  const canUpload = !!user?.role
+  const canReview = ['admin','rd_head'].includes(user?.role)
+  const [reports, setReports] = useState([])
+  const [ppds, setPpds] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [selectedPpd, setSelectedPpd] = useState(null)
+  const [showUpload, setShowUpload] = useState(false)
+  const [uploadPpd, setUploadPpd] = useState('')
+  const [files, setFiles] = useState([])
+  const [uploading, setUploading] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const [rData, pData] = await Promise.all([
-        apiCall(`/api/pilot-reports${ppdFilter !== 'all' ? `?ppd_id=${ppdFilter}` : ''}`, { token }),
-        apiCall('/api/ppd', { token }),
-      ])
+      const [rData, pData] = await Promise.all([apiCall('/api/pilot-reports', { token }), apiCall('/api/ppd', { token })])
       setReports(Array.isArray(rData) ? rData : [])
       setPpds(Array.isArray(pData) ? pData : [])
     } catch { toast.error('Failed to load reports') }
     finally { setLoading(false) }
-  }, [token, ppdFilter])
+  }, [token])
 
   useEffect(() => { load() }, [load])
 
+  // PPDs that have reports
+  const groups = useMemo(() => {
+    const m = new Map()
+    reports.forEach(r => {
+      if (!m.has(r.ppd_id)) m.set(r.ppd_id, { ppd_id: r.ppd_id, project_name: r.project_name, docs: [] })
+      m.get(r.ppd_id).docs.push(r)
+    })
+    return [...m.values()]
+  }, [reports])
+
+  useEffect(() => {
+    if ((!selectedPpd || !groups.some(g => g.ppd_id === selectedPpd)) && groups.length) setSelectedPpd(groups[0].ppd_id)
+  }, [groups, selectedPpd])
+
+  const current = groups.find(g => g.ppd_id === selectedPpd)
+
   const handleUpload = async () => {
-    if (!uploadForm.ppd_id) return toast.error('Select a PPD')
-    if (!uploadFile) return toast.error('Select a file to upload')
+    if (!uploadPpd) return toast.error('Select a PPD')
+    if (!files.length) return toast.error('Select at least one document')
     setUploading(true)
     try {
-      const fd = new FormData()
-      fd.append('ppd_id', uploadForm.ppd_id)
-      fd.append('report_type', uploadForm.report_type)
-      fd.append('notes', uploadForm.notes)
-      fd.append('file', uploadFile)
-      const res = await fetch('/api/pilot-reports', {
-        method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd,
-      })
-      if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.detail || 'Upload failed') }
+      for (const f of files) {
+        const fd = new FormData()
+        fd.append('ppd_id', uploadPpd)
+        fd.append('file', f)
+        const res = await fetch('/api/pilot-reports', { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd })
+        if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || 'Upload failed') }
+      }
       toast.success('Report submitted — R&D Head has been notified')
-      setUploadOpen(false)
-      setUploadForm({ ppd_id:'', report_type:'Stability', notes:'' })
-      setUploadFile(null)
+      setShowUpload(false); setFiles([])
+      setSelectedPpd(uploadPpd); setUploadPpd('')
       load()
-    } catch(e) { toast.error(e.message) }
+    } catch(e) { toast.error(e.message || 'Upload failed') }
     finally { setUploading(false) }
   }
 
+  const handleReview = async (r, decision) => {
+    const comment = decision === 'rejected' ? window.prompt('Reason for rejection (optional):', '') : ''
+    if (comment === null) return
+    try {
+      await apiCall(`/api/pilot-reports/${r.report_id}/review`, { method: 'POST', token, body: { decision, comment } })
+      toast.success(`Report ${decision}`)
+      load()
+    } catch(e) { toast.error(e.message || 'Failed') }
+  }
+
+  const fmtSize = n => n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round((n || 0) / 1024))} KB`
   const statusBadge = s => s==='approved'?'bg-emerald-100 text-emerald-700':s==='rejected'?'bg-red-100 text-red-700':'bg-amber-100 text-amber-700'
 
   return (
     <div className="space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Reports</h1>
-          <p className="text-muted-foreground text-sm">Pilot trial reports submitted for R&D Head review</p>
-        </div>
-        <div className="flex gap-2">
-          {canUpload && (
-            <Button onClick={() => setUploadOpen(true)}><Upload className="h-4 w-4 mr-2"/>Upload Report</Button>
-          )}
-          <Button variant="outline" size="sm" onClick={load}><RefreshCw className="h-4 w-4 mr-1"/>Refresh</Button>
-        </div>
+      <div className="flex justify-between items-center">
+        <div><h1 className="text-2xl font-bold">Reports</h1><p className="text-muted-foreground text-sm">Upload reports for each PPD — visible to the PPD team after R&D Head approval</p></div>
+        {canUpload && <Button onClick={() => setShowUpload(true)}><Upload className="h-4 w-4 mr-2"/>Upload</Button>}
       </div>
 
-      {/* PPD filter */}
-      <Select value={ppdFilter} onValueChange={setPpdFilter}>
-        <SelectTrigger className="w-64"><SelectValue placeholder="All PPDs"/></SelectTrigger>
-        <SelectContent>
-          <SelectItem value="all">All PPDs</SelectItem>
-          {ppds.map(p=><SelectItem key={p.ppd_id} value={p.ppd_id}>{p.ppd_id} — {p.project_name}</SelectItem>)}
-        </SelectContent>
-      </Select>
-
-      {/* Reports table */}
-      <Card>
-        <CardContent className="p-0">
-          {loading ? (
-            <div className="space-y-2 p-4">{[1,2,3].map(i=><div key={i} className="h-10 bg-slate-100 rounded animate-pulse"/>)}</div>
-          ) : reports.length === 0 ? (
-            <div className="text-center py-14 text-muted-foreground">
-              <ClipboardList className="h-10 w-10 mx-auto mb-3 opacity-30"/>
-              <p className="font-medium">No reports yet</p>
-              {canUpload && <p className="text-sm">Upload a report using the button above</p>}
+      <Dialog open={showUpload} onOpenChange={v => { setShowUpload(v); if (!v) setFiles([]) }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader><DialogTitle>Upload Report</DialogTitle><DialogDescription>Select the PPD and choose the report to upload. R&D Head will be notified for approval.</DialogDescription></DialogHeader>
+          <div className="space-y-3">
+            <div><Label>PPD</Label>
+              <Select value={uploadPpd} onValueChange={setUploadPpd}>
+                <SelectTrigger><SelectValue placeholder="Select PPD"/></SelectTrigger>
+                <SelectContent>{ppds.map(p => <SelectItem key={p.ppd_id} value={p.ppd_id}>{p.ppd_id} — {p.project_name}</SelectItem>)}</SelectContent>
+              </Select>
             </div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Report ID</TableHead>
-                  <TableHead>PPD / Project</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>File</TableHead>
-                  <TableHead>Submitted By</TableHead>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Review Comment</TableHead>
-                </TableRow>
-              </TableHeader>
+            <div><Label>Documents</Label>
+              <Input type="file" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.png,.jpg,.jpeg,.zip" onChange={e => setFiles(Array.from(e.target.files || []))}/>
+              {files.length > 0 && <div className="mt-2 space-y-1">{files.map((f, i) => <div key={i} className="text-xs text-muted-foreground flex items-center gap-1"><Paperclip className="h-3 w-3"/>{f.name} ({fmtSize(f.size)})</div>)}</div>}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowUpload(false)}>Cancel</Button>
+            <Button disabled={uploading} onClick={handleUpload}>{uploading ? 'Uploading…' : 'Upload'}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {loading ? <Card><CardContent className="p-8 text-center text-muted-foreground">Loading…</CardContent></Card> : (
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <Card className="lg:col-span-1">
+          <CardHeader><CardTitle>PPDs</CardTitle></CardHeader>
+          <CardContent className="p-0"><ScrollArea className="h-[500px]"><div className="p-2 space-y-1">
+            {groups.length === 0 ? <div className="p-4 text-muted-foreground text-sm">No reports uploaded yet</div> :
+            groups.map(g => (
+              <div key={g.ppd_id} onClick={() => setSelectedPpd(g.ppd_id)}
+                className={`p-3 rounded-lg cursor-pointer hover:bg-slate-100 ${selectedPpd === g.ppd_id ? 'bg-primary/5 border border-primary/20' : ''}`}>
+                <div className="flex justify-between"><span className="text-xs font-mono text-muted-foreground">{g.ppd_id}</span><Badge variant="outline" className="text-[10px]">{g.docs.length} doc{g.docs.length > 1 ? 's' : ''}</Badge></div>
+                <div className="text-sm font-medium truncate">{g.project_name}</div>
+              </div>
+            ))}
+          </div></ScrollArea></CardContent>
+        </Card>
+        <Card className="lg:col-span-2">
+          {!current ? <CardContent className="p-12 text-center text-muted-foreground">Select a PPD to view its reports</CardContent> : (
+          <>
+            <CardHeader><CardTitle>{current.ppd_id}</CardTitle><CardDescription>{current.project_name} • {current.docs.length} document(s)</CardDescription></CardHeader>
+            <CardContent className="p-0"><Table>
+              <TableHeader><TableRow><TableHead>Document</TableHead><TableHead>Uploaded By</TableHead><TableHead>Date</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
               <TableBody>
-                {reports.map(r => (
+                {current.docs.map(r => (
                   <TableRow key={r.report_id}>
-                    <TableCell className="font-mono text-xs">{r.report_id}</TableCell>
-                    <TableCell>
-                      <div className="font-medium text-sm">{r.project_name}</div>
-                      <div className="text-xs text-muted-foreground font-mono">{r.ppd_id}</div>
+                    <TableCell><div className="flex items-center gap-2"><FileText className="h-4 w-4 text-muted-foreground shrink-0"/><span className="text-sm font-medium break-all">{r.file_name}</span></div>{r.review_comment && <div className="text-xs text-muted-foreground ml-6">Comment: {r.review_comment}</div>}</TableCell>
+                    <TableCell className="text-sm">{r.created_by || '—'}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground">{r.created_at || '—'}</TableCell>
+                    <TableCell><span className={`text-xs px-2 py-0.5 rounded-md font-medium capitalize ${statusBadge(r.status)}`}>{r.status}</span></TableCell>
+                    <TableCell className="text-right whitespace-nowrap">
+                      <FileLink file={{ url: r.file_url, filename: r.file_name }} className="inline-flex"><Button size="sm" variant="ghost"><Eye className="h-4 w-4 mr-1"/>View</Button></FileLink>
+                      {canReview && r.status === 'Pending' && <>
+                        <Button size="sm" variant="ghost" className="text-emerald-700" onClick={() => handleReview(r, 'approved')}><CheckCircle2 className="h-4 w-4 mr-1"/>Approve</Button>
+                        <Button size="sm" variant="ghost" className="text-red-600" onClick={() => handleReview(r, 'rejected')}><XCircle className="h-4 w-4 mr-1"/>Reject</Button>
+                      </>}
                     </TableCell>
-                    <TableCell className="text-sm">{r.report_type}</TableCell>
-                    <TableCell>
-                      {r.file_url
-                        ? <a href={`/api/pilot-reports/${r.report_id}/download`} target="_blank" rel="noreferrer" className="text-xs text-blue-600 hover:underline flex items-center gap-1"><Paperclip className="h-3 w-3"/>{r.file_name||'Download'}</a>
-                        : <span className="text-xs text-muted-foreground">—</span>}
-                    </TableCell>
-                    <TableCell className="text-sm">
-                      <div>{r.created_by}</div>
-                      <div className="text-xs text-muted-foreground">{r.created_by_role}</div>
-                    </TableCell>
-                    <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
-                      {r.created_at ? new Date(r.created_at).toLocaleDateString('en-IN') : '—'}
-                    </TableCell>
-                    <TableCell>
-                      <span className={`text-xs px-2 py-0.5 rounded-md font-medium capitalize ${statusBadge(r.status)}`}>{r.status}</span>
-                    </TableCell>
-                    <TableCell className="text-xs text-muted-foreground max-w-[160px] truncate">{r.review_comment||'—'}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
-            </Table>
-          )}
-        </CardContent>
-        {reports.length > 0 && (
-          <div className="px-4 py-2 border-t text-xs text-muted-foreground">{reports.length} report{reports.length!==1?'s':''} shown</div>
-        )}
-      </Card>
-
-      {/* Upload Dialog */}
-      {canUpload && (
-        <Dialog open={uploadOpen} onOpenChange={setUploadOpen}>
-          <DialogContent className="max-w-md">
-            <DialogHeader>
-              <DialogTitle>Upload Report</DialogTitle>
-              <DialogDescription>R&D Head will be notified for review upon submission.</DialogDescription>
-            </DialogHeader>
-            <div className="space-y-3">
-              <div>
-                <Label>PPD <span className="text-red-500">*</span></Label>
-                <Select value={uploadForm.ppd_id} onValueChange={v=>setUploadForm(f=>({...f,ppd_id:v}))}>
-                  <SelectTrigger><SelectValue placeholder="Select PPD"/></SelectTrigger>
-                  <SelectContent>{ppds.map(p=><SelectItem key={p.ppd_id} value={p.ppd_id}>{p.ppd_id} — {p.project_name}</SelectItem>)}</SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label>Report Type</Label>
-                <Select value={uploadForm.report_type} onValueChange={v=>setUploadForm(f=>({...f,report_type:v}))}>
-                  <SelectTrigger><SelectValue/></SelectTrigger>
-                  <SelectContent>{REPORT_TYPES.map(t=><SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label>File <span className="text-red-500">*</span></Label>
-                <Input type="file" onChange={e=>setUploadFile(e.target.files?.[0]||null)}
-                  accept=".pdf,.doc,.docx,.xlsx,.xls,.csv,.txt,.jpg,.jpeg,.png"/>
-              </div>
-              <div>
-                <Label>Notes</Label>
-                <Textarea rows={2} value={uploadForm.notes} onChange={e=>setUploadForm(f=>({...f,notes:e.target.value}))} placeholder="Any additional notes..."/>
-              </div>
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={()=>setUploadOpen(false)}>Cancel</Button>
-              <Button onClick={handleUpload} disabled={uploading}>
-                {uploading ? <RefreshCw className="h-4 w-4 animate-spin mr-2"/> : <Upload className="h-4 w-4 mr-2"/>}
-                Submit Report
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+            </Table></CardContent>
+          </>)}
+        </Card>
+      </div>
       )}
     </div>
   )
@@ -6218,10 +6202,10 @@ function PilotTrialView({ user, token }) {
                     <TableCell className="text-sm">{r.report_type}</TableCell>
                     <TableCell>
                       {r.file_url ? (
-                        <a href={`/api/pilot-reports/${r.report_id}/download`} target="_blank" rel="noreferrer"
+                        <FileLink file={{ url: r.file_url, filename: r.file_name }}
                           className="text-xs text-blue-600 hover:underline flex items-center gap-1">
                           <Paperclip className="h-3 w-3"/>{r.file_name || 'Download'}
-                        </a>
+                        </FileLink>
                       ) : <span className="text-xs text-muted-foreground">—</span>}
                     </TableCell>
                     <TableCell className="text-sm">
