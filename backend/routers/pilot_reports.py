@@ -25,7 +25,7 @@ from fastapi.responses import Response
 
 router = APIRouter(prefix="/api/pilot-reports", tags=["pilot-reports"])
 
-UPLOAD_ROLES  = {"admin", "source", "pm", "fd", "rd_head", "marketing_head", "sales_head", "gdso_head", "regulatory", "cfo", "packaging", "adl", "pmsa", "sa", "ceo", "production"}
+UPLOAD_ROLES  = {"admin", "source", "pm", "fd", "fd_member", "rd_team", "regulatory_team", "marketing", "rd_head", "marketing_head", "sales_head", "gdso_head", "regulatory", "cfo", "packaging", "adl", "pmsa", "sa", "ceo", "production"}
 REVIEW_ROLE   = {"admin", "rd_head"}
 CLOSURE_ROLE  = {"admin", "rd_head"}
 PM_ROLE       = {"admin", "pm"}
